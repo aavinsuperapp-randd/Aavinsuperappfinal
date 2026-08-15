@@ -17,9 +17,11 @@ const frontendPath = path.join(__dirname, '../frontend');
 app.use(express.static(frontendPath));
 
 // Serve assets folder
-const assetsPath = path.join(__dirname, '../assests');
+const assetsPath = path.join(__dirname, '../frontend/assets');
+const legacyAssetsPath = path.join(__dirname, '../assests');
 app.use('/assets', express.static(assetsPath));
-app.use('/assests', express.static(assetsPath));
+app.use('/assets', express.static(legacyAssetsPath));
+app.use('/assests', express.static(legacyAssetsPath));
 
 // ─── Admin Supabase Client (Service Role) ─────────────────────────────────────
 // This client has full database access and bypasses RLS.
