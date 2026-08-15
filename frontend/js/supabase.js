@@ -20,15 +20,20 @@ function getPath(target) {
   return '/' + cleanTarget;
 }
 
+// Centralized Production API Configuration
+const PRODUCTION_API_URL = 'https://aavin-backend.onrender.com';
+
+// Single Source of Truth for Backend API Base URL
+const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? (window.location.port === '5000' ? '' : 'http://localhost:5000')
+  : PRODUCTION_API_URL;
+
 // Initialize Supabase by fetching config from Backend API
 async function initSupabase() {
   if (supabaseClient) return supabaseClient;
   
   try {
-    let configUrl = '/api/config';
-    if (window.location.protocol === 'file:') {
-      configUrl = 'http://localhost:5000/api/config';
-    }
+    const configUrl = `${API_BASE_URL}/api/config`;
     const res = await fetch(configUrl);
     const config = await res.json();
     

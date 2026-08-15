@@ -77,7 +77,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         // POST to backend — server uses service role key to create user
         // with no email confirmation and insert profile bypassing RLS
-        const res = await fetch('/api/register', {
+        const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'https://aavin-backend.onrender.com';
+        const res = await fetch(`${baseUrl}/api/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, dob, email, password, role })

@@ -9,10 +9,7 @@ async function gmFetch(endpoint, options = {}) {
 
   const token = session.access_token;
 
-  const baseUrl = (window.location.port === '5000' || window.location.origin.endsWith(':5000'))
-    ? ''
-    : 'http://localhost:5000';
-
+  const baseUrl = endpoint.startsWith('http') ? '' : (typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'https://aavin-backend.onrender.com');
   const fullUrl = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint}`;
 
   const res = await fetch(fullUrl, {
@@ -26,7 +23,7 @@ async function gmFetch(endpoint, options = {}) {
 
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
-    throw new Error(`Server returned non-JSON response (${res.status}). Ensure backend is running on http://localhost:5000`);
+    throw new Error(`Server returned non-JSON response (${res.status}). Ensure backend is active at ${baseUrl || 'https://aavin-backend.onrender.com'}`);
   }
 
   const json = await res.json();
