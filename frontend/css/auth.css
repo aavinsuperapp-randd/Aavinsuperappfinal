@@ -1,0 +1,43 @@
+/* Auth Pages: Login & Register */
+.auth-page{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;background:var(--gray-50)}
+.auth-card{background:var(--white);border:1px solid var(--gray-200);border-radius:var(--radius-xl);padding:32px 28px;width:100%;max-width:420px;box-shadow:var(--shadow)}
+.auth-logo{display:flex;align-items:center;gap:8px;margin-bottom:20px}
+.auth-logo img{width:28px;height:28px;object-fit:contain}
+.auth-logo span{font-weight:700;font-size:.9rem;color:var(--gray-800)}
+.auth-title{font-size:1.3rem;font-weight:700;color:var(--gray-900);margin-bottom:4px}
+.auth-subtitle{font-size:.84rem;color:var(--gray-500);margin-bottom:24px}
+.auth-footer{text-align:center;margin-top:18px;font-size:.82rem;color:var(--gray-500)}
+.auth-footer a{color:var(--blue-600);font-weight:600}
+.auth-footer a:hover{text-decoration:underline}
+.auth-divider{border:none;border-top:1px solid var(--gray-200);margin:20px 0}
+
+/* Registration success screen */
+.reg-success{text-align:center;padding:16px 0}
+.reg-success .check-icon{width:56px;height:56px;border-radius:50%;background:var(--green-50);border:2px solid var(--green-100);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:1.5rem}
+.reg-success h2{font-size:1.15rem;font-weight:700;color:var(--gray-900);margin-bottom:8px}
+.reg-success p{font-size:.85rem;color:var(--gray-500);line-height:1.55;margin-bottom:6px}
+
+/* Role selector cards */
+.role-select{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
+.role-option{
+  padding:14px;border:2px solid var(--gray-200);border-radius:var(--radius-lg);
+  cursor:pointer;text-align:center;transition:var(--transition);background:var(--white);
+}
+.role-option:hover{border-color:var(--gray-300)}
+.role-option.selected{border-color:var(--green-600);background:var(--green-50)}
+.role-option .ro-icon{font-size:1.2rem;margin-bottom:4px}
+.role-option .ro-label{font-size:.82rem;font-weight:600;color:var(--gray-700)}
+.role-option.selected .ro-label{color:var(--green-700)}
+
+/* Profile image upload */
+.img-upload{display:flex;align-items:center;gap:12px}
+.img-preview{width:48px;height:48px;border-radius:50%;background:var(--gray-100);border:2px solid var(--gray-200);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:.75rem;color:var(--gray-400);flex-shrink:0}
+.img-preview img{width:100%;height:100%;object-fit:cover}
+.img-upload-btn{font-size:.8rem;color:var(--blue-600);font-weight:600;cursor:pointer}
+.img-upload-btn:hover{text-decoration:underline}
+.img-upload input[type="file"]{display:none}
+
+@media(max-width:480px){
+  .auth-card{padding:24px 20px}
+  .role-select{grid-template-columns:1fr}
+}

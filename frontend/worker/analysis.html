@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics & Performance Analysis — AAVIN BMC</title>
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/worker.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    .filter-bar-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow-sm);
+    }
+    .filter-pills {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .filter-btn {
+      padding: 8px 16px;
+      border-radius: 9999px;
+      border: 1px solid var(--border);
+      background: var(--gray-50);
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .filter-btn.active {
+      background: var(--primary-color);
+      color: #ffffff;
+      border-color: var(--primary-color);
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25);
+    }
+    .custom-date-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .kpi-grid-simple {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-bottom: 28px;
+    }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 5px;
+      background: var(--primary-color);
+    }
+    .kpi-card.blue::before { background: #3b82f6; }
+    .kpi-card.emerald::before { background: #10b981; }
+
+    .kpi-icon {
+      font-size: 2rem;
+      margin-bottom: 10px;
+    }
+    .kpi-value {
+      font-size: 2.4rem;
+      font-weight: 800;
+      color: var(--text-main);
+      line-height: 1.1;
+    }
+    .kpi-label {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+    .kpi-sub {
+      font-size: 0.8rem;
+      color: var(--text-light);
+      margin-top: 6px;
+    }
+    .analytics-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    .analytics-table th, .analytics-table td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .analytics-table th {
+      background: var(--gray-50);
+      font-weight: 700;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .tab-bar {
+      display: flex;
+      gap: 12px;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .tab-link {
+      padding: 10px 16px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      margin-bottom: -2px;
+    }
+    .tab-link.active {
+      color: var(--primary-color);
+      border-bottom-color: var(--primary-color);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="worker-shell">
+    <!-- Sidebar -->
+    <aside class="worker-sidebar">
+      <div class="ws-logo">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <img src="../assests/aavin logo.png" alt="AAVIN Logo">
+          <span>Worker Portal</span>
+        </div>
+        <button id="mobile-menu-toggle" class="mobile-menu-btn">☰</button>
+      </div>
+
+      <nav id="ws-nav" class="ws-nav">
+        <a href="dashboard.html" class="ws-nav-item">
+          <span>📊</span> Dashboard
+        </a>
+        <a href="trip-create.html" class="ws-nav-item">
+          <span>🚚</span> Start New Trip
+        </a>
+        <a href="history.html" class="ws-nav-item">
+          <span>📜</span> Trip History
+        </a>
+        <a href="analysis.html" class="ws-nav-item active">
+          <span>📈</span> Performance Analysis
+        </a>
+        <a href="profile.html" class="ws-nav-item">
+          <span>👤</span> My Profile
+        </a>
+        <div class="ws-nav-divider"></div>
+        <button id="logout-btn" class="ws-nav-item" style="color:#fca5a5;">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="worker-main">
+      <header class="worker-header">
+        <div class="worker-header-title">Performance Analysis</div>
+        <div class="worker-header-user">
+          Logged in as: <strong id="header-worker-name">Loading...</strong>
+        </div>
+      </header>
+
+      <main class="worker-content">
+        <div id="main-content-area">
+
+          <div class="page-top mb-4">
+            <h1 style="font-size: 1.4rem; font-weight:700;">📈 Trips & BMC Visits Analytics</h1>
+            <p class="text-sm text-muted">Performance stats for total trips completed and BMCs visited.</p>
+          </div>
+
+          <!-- Date Filter Card -->
+          <div class="filter-bar-card">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+              <!-- Quick Filter Pills -->
+              <div class="filter-pills">
+                <span class="text-sm font-semibold text-muted mr-1">Filter By:</span>
+                <button class="filter-btn" data-range="today">📅 Today</button>
+                <button class="filter-btn active" data-range="week">📆 One Week</button>
+                <button class="filter-btn" data-range="month">🗓️ This Month</button>
+              </div>
+
+              <!-- Custom Date Range -->
+              <div class="custom-date-group">
+                <span class="text-sm font-semibold text-muted">Custom Range:</span>
+                <input type="date" id="start-date" class="form-input" style="padding:6px 12px; font-size:0.85rem; width:140px;">
+                <span class="text-sm text-muted">to</span>
+                <input type="date" id="end-date" class="form-input" style="padding:6px 12px; font-size:0.85rem; width:140px;">
+                <button id="apply-custom-btn" class="btn btn-primary btn-sm">Apply Filter</button>
+              </div>
+            </div>
+            <div class="text-xs text-muted mt-2" id="active-range-label">Showing data for: Last 7 Days</div>
+          </div>
+
+          <!-- Main KPI Cards (No. of Trips & No. of BMC Visited) -->
+          <div class="kpi-grid-simple">
+            <div class="kpi-card blue">
+              <div class="kpi-icon">🚚</div>
+              <div class="kpi-value" id="kpi-trips">0</div>
+              <div class="kpi-label">No. of Trips Done</div>
+              <div class="kpi-sub" id="kpi-trips-sub">0 completed | 0 active</div>
+            </div>
+
+            <div class="kpi-card emerald">
+              <div class="kpi-icon">🏭</div>
+              <div class="kpi-value" id="kpi-visits">0</div>
+              <div class="kpi-label">No. of BMC Visited</div>
+              <div class="kpi-sub" id="kpi-visits-sub">0 total visits</div>
+            </div>
+          </div>
+
+          <!-- Performance Graph -->
+          <div class="card mb-4" style="padding: 24px;">
+            <h3 style="font-size:1.05rem; font-weight:700; margin-bottom:16px; display:flex; align-items:center; gap:8px;">
+              📊 Performance Graph: Trips Done vs BMC Visited
+            </h3>
+            <div style="position:relative; height: 300px;">
+              <canvas id="performanceChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Tabs for Detailed Records -->
+          <div class="tab-bar">
+            <button class="tab-link active" onclick="switchAnalysisTab('visits')">🏭 Visited BMCs (<span id="count-visits">0</span>)</button>
+            <button class="tab-link" onclick="switchAnalysisTab('trips')">🚚 Trips Done (<span id="count-trips">0</span>)</button>
+          </div>
+
+          <!-- BMC Visits Table Tab -->
+          <div id="tab-content-visits" class="card">
+            <div class="table-responsive">
+              <table class="analytics-table">
+                <thead>
+                  <tr>
+                    <th>Seq #</th>
+                    <th>BMC Name</th>
+                    <th>Location & District</th>
+                    <th>Compartment</th>
+                    <th>Milk (Kg)</th>
+                    <th>Visit Date & Time</th>
+                  </tr>
+                </thead>
+                <tbody id="visits-tbody">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Trips Table Tab -->
+          <div id="tab-content-trips" class="card hidden">
+            <div class="table-responsive">
+              <table class="analytics-table">
+                <thead>
+                  <tr>
+                    <th>Trip Name</th>
+                    <th>Driver Name</th>
+                    <th>Tanker Number</th>
+                    <th>Out Time</th>
+                    <th>In Time</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="trips-tbody">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/worker-api.js"></script>
+  <script src="../js/worker-analysis.js"></script>
+</body>
+</html>

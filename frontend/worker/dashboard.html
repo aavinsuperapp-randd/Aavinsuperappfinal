@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Worker Dashboard — AAVIN Tracker</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/global.css">
+  <link rel="stylesheet" href="/css/worker.css">
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/worker.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="worker-shell">
+    <!-- Sidebar Overlay for Mobile -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Blue Sidebar -->
+    <aside class="worker-sidebar" id="worker-sidebar">
+      <div class="ws-logo">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <img src="../assests/aavin logo.png" alt="AAVIN">
+          <span>aavin</span>
+        </div>
+      </div>
+
+      <nav id="ws-nav" class="ws-nav">
+        <a href="dashboard.html" class="ws-nav-item active">
+          <span>🏠</span> Dashboard
+        </a>
+        <a href="trip-create.html" class="ws-nav-item">
+          <span>🚚</span> Start New Trip
+        </a>
+        <a href="history.html" class="ws-nav-item">
+          <span>📜</span> Trip History
+        </a>
+        <a href="analysis.html" class="ws-nav-item">
+          <span>📊</span> Analytics
+        </a>
+        <a href="profile.html" class="ws-nav-item">
+          <span>👤</span> My Profile
+        </a>
+        <div class="ws-nav-divider"></div>
+        <button id="logout-btn" class="ws-nav-item">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="worker-main">
+      <header class="worker-header">
+        <div class="d-flex align-items-center gap-3">
+          <button id="mobile-menu-toggle" class="mobile-menu-btn">☰</button>
+          <div class="worker-header-title">AAVIN BMC Monitoring & Operations</div>
+        </div>
+        <div class="worker-header-user">
+          R&D Worker: <strong id="header-worker-name">Loading...</strong>
+        </div>
+      </header>
+
+      <main class="worker-content">
+        <div id="main-content-area" class="hidden">
+          
+          <!-- Page Top Greeting -->
+          <div class="page-top">
+            <h1>Good Day, <span id="welcome-name" style="color:#2563EB;">Worker</span> 👋</h1>
+            <p>Here is your daily milk collection route summary and field tools.</p>
+          </div>
+
+          <!-- Stats Grid -->
+          <div class="stats-grid">
+            <div class="stat-card accent-blue">
+              <div class="stat-num" id="stat-total-trips">0</div>
+              <div class="stat-lbl">Total Trips</div>
+            </div>
+            <div class="stat-card accent-green">
+              <div class="stat-num" id="stat-completed-trips">0</div>
+              <div class="stat-lbl">Completed Trips</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-num" id="stat-active-trips" style="color:#2563EB;">0</div>
+              <div class="stat-lbl">Active In-Transit</div>
+            </div>
+            <div class="stat-card accent-green">
+              <div class="stat-num" id="stat-total-visits">0</div>
+              <div class="stat-lbl">BMCs Visited</div>
+            </div>
+          </div>
+
+          <!-- Active Trip Banner / Card -->
+          <div id="active-trip-container">
+            <!-- Rendered dynamically by worker-dashboard.js -->
+          </div>
+
+          <!-- Quick Actions Grid -->
+          <div class="section-header mt-3">
+            <div class="section-title">⚡ Quick Actions</div>
+          </div>
+          <div class="quick-actions">
+            <a href="trip-create.html" class="qa-btn" id="qa-start-trip">
+              <span class="qa-icon">🚚</span>
+              <span>Start Trip</span>
+            </a>
+            <button class="qa-btn" id="qa-search-bmc">
+              <span class="qa-icon">🔍</span>
+              <span>Search BMC</span>
+            </button>
+            <a href="history.html" class="qa-btn">
+              <span class="qa-icon">📜</span>
+              <span>Trip History</span>
+            </a>
+            <a href="analysis.html" class="qa-btn">
+              <span class="qa-icon">📊</span>
+              <span>Analytics</span>
+            </a>
+            <a href="profile.html" class="qa-btn">
+              <span class="qa-icon">👤</span>
+              <span>My Profile</span>
+            </a>
+          </div>
+
+          <!-- Field Operations Guidelines -->
+          <div class="form-section mt-3">
+            <div class="form-section-title">
+              <span>📌</span> Daily Collection Workflow
+            </div>
+            <div style="font-size:.85rem; color:#4B5563; line-height:1.6;">
+              <ol style="margin-left:20px;">
+                <li><strong>Start Collection Trip:</strong> Select assigned vehicle tanker & driver.</li>
+                <li><strong>Visit BMC Units:</strong> Search and add BMC cooling centers along your route.</li>
+                <li><strong>Digital & Physical Testing:</strong> Record Compartment, FTIR Digital & Gerber test results.</li>
+                <li><strong>Log Requirements & Issues:</strong> Note any missing chemicals or equipment breakdowns.</li>
+                <li><strong>Complete Trip:</strong> Record Factory IN-time upon arrival to close the trip.</li>
+              </ol>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- BMC Search Modal -->
+  <div id="bmc-search-modal" class="search-overlay hidden">
+    <div class="search-box">
+      <div class="search-box-header">
+        <span>🔍</span>
+        <input type="text" id="modal-bmc-input" class="search-box-input" placeholder="Search BMC by name, location, or district...">
+        <button id="modal-bmc-close" class="btn btn-outline btn-sm">Close</button>
+      </div>
+      <div id="modal-bmc-results" class="search-results">
+        <div class="empty-state">
+          <div class="empty-state-desc">Type to search BMC master data...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/worker-api.js"></script>
+  <script src="../js/worker-dashboard.js"></script>
+</body>
+</html>

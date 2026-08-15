@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trip History — AAVIN BMC Worker</title>
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/worker.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="worker-shell">
+    <!-- Sidebar -->
+    <aside class="worker-sidebar">
+      <div class="ws-logo">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <img src="../assests/aavin logo.png" alt="AAVIN Logo">
+          <span>Worker Portal</span>
+        </div>
+        <button id="mobile-menu-toggle" class="mobile-menu-btn">☰</button>
+      </div>
+
+      <nav id="ws-nav" class="ws-nav">
+        <a href="dashboard.html" class="ws-nav-item">
+          <span>📊</span> Dashboard
+        </a>
+        <a href="trip-create.html" class="ws-nav-item">
+          <span>🚚</span> Start New Trip
+        </a>
+        <a href="history.html" class="ws-nav-item active">
+          <span>📜</span> Trip History
+        </a>
+        <a href="analysis.html" class="ws-nav-item">
+          <span>📈</span> Performance Analysis
+        </a>
+        <a href="profile.html" class="ws-nav-item">
+          <span>👤</span> My Profile
+        </a>
+
+        <div class="ws-nav-divider"></div>
+        <button id="logout-btn" class="ws-nav-item" style="color:#fca5a5;">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="worker-main">
+      <header class="worker-header">
+        <div class="worker-header-title">My Collection Trip History</div>
+        <div class="worker-header-user">
+          Logged in as: <strong id="header-worker-name">Loading...</strong>
+        </div>
+      </header>
+
+      <main class="worker-content">
+        <div id="main-content-area" class="hidden">
+
+          <div class="page-top">
+            <h1>Trip History & Inspection Records</h1>
+            <p>View all your past and active BMC collection routes.</p>
+          </div>
+
+          <!-- Filter & Search Row -->
+          <div class="d-flex gap-2 mb-3 flex-wrap">
+            <input type="text" id="history-search-input" class="form-input" placeholder="Search by trip name or tanker..." style="max-width: 280px;">
+            <select id="history-status-select" class="form-select" style="max-width: 160px;">
+              <option value="all">All Statuses</option>
+              <option value="active">Active Only</option>
+              <option value="completed">Completed Only</option>
+            </select>
+          </div>
+
+          <!-- Trip List -->
+          <div id="history-list-container" class="trip-list">
+            <!-- Populated by JS -->
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/worker-api.js"></script>
+  <script src="../js/worker-history.js"></script>
+</body>
+</html>

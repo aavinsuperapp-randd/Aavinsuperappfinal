@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BMC Management — AAVIN Admin</title>
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/admin.css">
+  <link rel="stylesheet" href="../css/bmc-admin.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="bg-ambient-canvas">
+    <div class="blob blob-blue-1"></div>
+    <div class="blob blob-green-1"></div>
+  </div>
+
+  <div class="admin-shell">
+    <!-- Sidebar -->
+    <aside class="admin-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="../assests/aavin logo.png" alt="AAVIN Logo">
+        <span>AAVIN Admin</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item">
+          <span>📊</span> Dashboard
+        </a>
+        <a href="verification.html" class="admin-nav-item">
+          <span>📋</span> Pending Approvals
+        </a>
+        <a href="bmc.html" class="admin-nav-item active">
+          <span>🏭</span> BMC Management
+        </a>
+        <a href="fleet.html" class="admin-nav-item">
+          <span>🚛</span> Drivers & Vehicles
+        </a>
+        <button id="logout-btn" class="admin-nav-item logout-btn">
+          <span>🚪</span> Logout
+        </button>
+
+      </nav>
+    </aside>
+
+    <!-- Main Panel -->
+    <div class="admin-main">
+      <header class="admin-header">
+        <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+        <div class="admin-header-title">BMC Management</div>
+        <div class="admin-user-profile">
+          <div class="admin-user-name">Administrator</div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-admin-content" class="hidden">
+
+          <!-- Page Header -->
+          <div class="bmc-page-header mb-2">
+            <div>
+              <h2 class="bmc-page-title">Bulk Milk Coolers</h2>
+              <p class="text-muted text-sm">Manage all registered BMC units across districts.</p>
+            </div>
+            <button id="add-bmc-btn" class="btn btn-primary">
+              <span>+</span> Add New BMC
+            </button>
+          </div>
+
+          <!-- Stats Row -->
+          <div class="bmc-stats-row mb-2">
+            <div class="bmc-stat-card">
+              <div class="bmc-stat-number" id="stat-total">—</div>
+              <div class="bmc-stat-label">Total BMCs</div>
+            </div>
+            <div class="bmc-stat-card active">
+              <div class="bmc-stat-number" id="stat-active">—</div>
+              <div class="bmc-stat-label">Active</div>
+            </div>
+            <div class="bmc-stat-card inactive">
+              <div class="bmc-stat-number" id="stat-inactive">—</div>
+              <div class="bmc-stat-label">Inactive</div>
+            </div>
+          </div>
+
+          <!-- Filter Row -->
+          <div class="bmc-filter-row mb-2">
+            <input type="text" id="bmc-search" class="form-input bmc-search" placeholder="Search by name or district…">
+            <select id="bmc-filter-status" class="form-select bmc-filter-select">
+              <option value="all">All Status</option>
+              <option value="active">Active Only</option>
+              <option value="inactive">Inactive Only</option>
+            </select>
+          </div>
+
+          <!-- BMC Grid -->
+          <div id="bmc-grid" class="bmc-grid">
+            <!-- populated by bmc-admin.js -->
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       ADD / EDIT BMC MODAL
+  ════════════════════════════════════════════════ -->
+  <div id="bmc-modal" class="bmc-modal-overlay hidden">
+    <div class="bmc-modal">
+      <div class="bmc-modal-header">
+        <h3 id="bmc-modal-title">Add New BMC</h3>
+        <button id="bmc-modal-close" class="bmc-modal-close">✕</button>
+      </div>
+      <div class="bmc-modal-body">
+
+        <!-- Image Upload -->
+        <div class="form-group">
+          <label class="form-label">BMC Profile Picture (Optional)</label>
+          <div class="bmc-image-upload" id="bmc-image-drop">
+            <img id="bmc-preview-img" src="" alt="" class="hidden" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">
+            <div id="bmc-image-placeholder">
+              <div style="font-size:2rem;">🏭</div>
+              <div class="text-sm text-muted mt-1">Click to upload image</div>
+            </div>
+            <input type="file" id="bmc-image-input" accept="image/*" style="display:none;">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="bmc-name">BMC Name *</label>
+            <input type="text" id="bmc-name" class="form-input" placeholder="e.g. Erode Central BMC">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bmc-district">District *</label>
+            <input type="text" id="bmc-district" class="form-input" placeholder="e.g. Erode">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="bmc-contact">Contact Number *</label>
+          <input type="tel" id="bmc-contact" class="form-input" placeholder="e.g. 9876543210" maxlength="15">
+        </div>
+
+        <!-- Location Block -->
+        <div class="form-group">
+          <label class="form-label">Location *</label>
+          <div class="bmc-location-block" id="bmc-location-block">
+            <input type="text" id="bmc-location-text" class="form-input" placeholder="Location name / address" style="margin-bottom:10px;">
+            <div class="bmc-location-coords" id="bmc-coords-display" style="display:none;">
+              <span class="bmc-coord-badge">📍 Lat: <b id="lat-display">—</b></span>
+              <span class="bmc-coord-badge">Lng: <b id="lng-display">—</b></span>
+            </div>
+            <input type="hidden" id="bmc-latitude">
+            <input type="hidden" id="bmc-longitude">
+            <div class="bmc-location-actions">
+              <button type="button" id="detect-location-btn" class="btn btn-outline btn-sm">
+                📡 Detect My Location
+              </button>
+              <span id="location-status" class="text-sm text-muted"></span>
+            </div>
+          </div>
+          <div class="form-hint">GPS coordinates are required. Click "Detect My Location" to auto-fill.</div>
+        </div>
+
+      </div>
+      <div class="bmc-modal-footer">
+        <button id="bmc-cancel-btn" class="btn btn-outline">Cancel</button>
+        <button id="bmc-save-btn" class="btn btn-primary">Save BMC</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/admin.js"></script>
+  <script src="../js/bmc-admin.js"></script>
+</body>
+</html>

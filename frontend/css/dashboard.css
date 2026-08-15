@@ -1,0 +1,13 @@
+/* Worker & GM Dashboard Styles */
+.dash-header{margin-bottom:24px}
+.dash-welcome{font-size:1.4rem;font-weight:700;color:var(--gray-900);margin-bottom:4px}
+.dash-role{font-size:.85rem;color:var(--gray-500)}
+.dash-content{padding:32px 20px;max-width:var(--max-w);margin:0 auto}
+.dash-status-card{
+  background:var(--white);border:1px solid var(--gray-200);
+  border-radius:var(--radius-lg);padding:28px;text-align:center;
+  max-width:480px;margin:24px auto 0;
+}
+.dash-status-card .ds-icon{font-size:2rem;margin-bottom:10px}
+.dash-status-card h3{font-size:1rem;font-weight:600;color:var(--green-700);margin-bottom:6px}
+.dash-status-card p{font-size:.84rem;color:var(--gray-500)}

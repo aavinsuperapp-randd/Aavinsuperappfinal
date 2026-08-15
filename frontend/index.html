@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AAVIN BMC Monitoring System</title>
+  <link rel="stylesheet" href="css/global.css">
+  <link rel="stylesheet" href="css/landing.css">
+  <!-- Supabase CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="page-shell">
+    <!-- Ambient Background Canvas -->
+    <div class="bg-ambient-canvas">
+      <div class="blob blob-blue-1"></div>
+      <div class="blob blob-green-1"></div>
+    </div>
+
+    <!-- Header Navigation -->
+    <header class="top-nav">
+      <div class="top-nav-inner">
+        <a href="index.html" class="nav-brand">
+          <img src="assests/aavin logo.png" alt="AAVIN Logo">
+          <span>AAVIN BMC</span>
+        </a>
+        <nav class="nav-links">
+          <a href="#overview" class="hide-mobile">Overview</a>
+          <a href="login.html">Login</a>
+          <a href="register.html" class="btn-primary">Register</a>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="page-body">
+      <!-- Hero Section -->
+      <section class="hero">
+        <div class="hero-inner">
+          <div class="hero-badge">
+            <span class="hero-badge-dot"></span>
+            AAVIN Milk Co-operative Society
+          </div>
+          <h1 class="mt-1">AAVIN <span class="t-green">BMC</span> Monitoring <span class="t-blue">System</span></h1>
+          <p class="hero-desc">
+            A secure digital platform to monitor and manage Bulk Milk Cooler (BMC) municipal distributions, logistics operations, and processing safety across milk cooperative societies.
+          </p>
+          <div class="hero-actions">
+            <a href="login.html" class="btn btn-blue">Login to Portal</a>
+            <a href="register.html" class="btn btn-outline">Register Account</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Overview Section -->
+      <section class="overview" id="overview">
+        <div class="overview-inner">
+          <h2>Platform Operations Overview</h2>
+          <div class="overview-grid">
+            <div class="overview-item">
+              <div class="oi-icon">🥛</div>
+              <h3>Milk Quality Tracking</h3>
+              <p>Verify cold chain status, fat content, and solids-not-fat (SNF) metrics instantly at local reception counters.</p>
+            </div>
+            <div class="overview-item">
+              <div class="oi-icon">🚚</div>
+              <h3>Logistics Dispatch</h3>
+              <p>Coordinate field delivery routes, dispatch scheduling, and truck arrival audits across processing units.</p>
+            </div>
+            <div class="overview-item">
+              <div class="oi-icon">🛡️</div>
+              <h3>Strict Role Approvals</h3>
+              <p>Access control workflow ensuring only verified field officers, operators, and managers interact with operational data.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+      <p>© 2026 AAVIN Milk Co-operative Society. All municipal data rights reserved.</p>
+    </footer>
+  </div>
+
+  <script src="js/supabase.js"></script>
+</body>
+</html>

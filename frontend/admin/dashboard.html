@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard — AAVIN BMC</title>
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/admin.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <!-- Ambient Background Canvas -->
+  <div class="bg-ambient-canvas">
+    <div class="blob blob-blue-1"></div>
+    <div class="blob blob-green-1"></div>
+  </div>
+
+  <div class="admin-shell">
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="../assests/aavin logo.png" alt="AAVIN Logo">
+        <span>AAVIN Admin</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item">
+          <span>📊</span> Dashboard Home
+        </a>
+        <a href="verification.html" class="admin-nav-item">
+          <span>📋</span> Pending Approvals
+        </a>
+        <a href="bmc.html" class="admin-nav-item">
+          <span>🏭</span> BMC Management
+        </a>
+        <a href="fleet.html" class="admin-nav-item">
+          <span>🚛</span> Drivers & Vehicles
+        </a>
+        <button id="logout-btn" class="admin-nav-item logout-btn">
+          <span>🚪</span> Logout
+        </button>
+
+      </nav>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="admin-main">
+      <header class="admin-header">
+        <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+        <div class="admin-header-title">Control Panel</div>
+        <div class="admin-user-profile">
+          <div class="admin-user-name">Administrator</div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <!-- Hidden by default, unhidden after successful authorization check -->
+        <div id="main-admin-content" class="hidden">
+          <div class="card mb-2" style="max-width: 620px;">
+            <h2 class="mb-1" style="font-size: 1.3rem;">Welcome, Administrator 👋</h2>
+            <p class="text-muted text-sm">
+              Use this system panel to audit, approve, or reject incoming registration requests for field workers and General Manager executives.
+            </p>
+            <div class="mt-3">
+              <a href="verification.html" class="btn btn-blue">Go to Pending Approvals</a>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/admin.js"></script>
+</body>
+</html>

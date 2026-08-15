@@ -1,0 +1,17 @@
+/* Landing Page Styles */
+.hero{padding:80px 20px 60px;text-align:center}
+.hero-inner{max-width:620px;margin:0 auto}
+.hero h1{font-size:clamp(1.8rem,4vw,2.6rem);font-weight:700;color:var(--gray-900);line-height:1.15;margin-bottom:12px}
+.hero h1 .t-green{color:var(--green-600)}
+.hero h1 .t-blue{color:var(--blue-600)}
+.hero-desc{font-size:clamp(.9rem,1.6vw,1.02rem);color:var(--gray-500);max-width:480px;margin:0 auto 24px;line-height:1.6}
+.hero-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+
+.overview{padding:40px 20px 60px}
+.overview-inner{max-width:var(--max-w);margin:0 auto}
+.overview h2{font-size:1.2rem;font-weight:700;text-align:center;margin-bottom:28px;color:var(--gray-800)}
+.overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.overview-item{background:var(--white);border:1px solid var(--gray-200);border-radius:var(--radius-lg);padding:20px}
+.overview-item .oi-icon{font-size:1.3rem;margin-bottom:8px}
+.overview-item h3{font-size:.92rem;font-weight:600;margin-bottom:4px;color:var(--gray-800)}
+.overview-item p{font-size:.82rem;color:var(--gray-500);line-height:1.5}

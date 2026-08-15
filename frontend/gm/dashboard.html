@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GM Dashboard — AAVIN Tracker</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <!-- Sidebar Overlay (mobile) -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Blue Sidebar -->
+    <aside class="admin-sidebar" id="gm-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="../assests/aavin logo.png" alt="AAVIN">
+        <span>aavin</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item active"><span>🏠</span> Dashboard</a>
+        <a href="analysis.html" class="admin-nav-item"><span>📊</span> Operational Analysis</a>
+        <a href="requirements.html" class="admin-nav-item"><span>📋</span> Requirements</a>
+        <a href="issues.html" class="admin-nav-item"><span>⚠️</span> Issues</a>
+        <a href="bmc-profile.html" class="admin-nav-item"><span>🏭</span> BMC Profiles</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <!-- Main -->
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>Good Morning, <span class="greeting-name" id="header-gm-name">Manager</span> 👋</h2>
+            <p>Here's your 7-day executive overview.</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar">GM</div>
+            <div class="header-user-info">
+              <div class="header-user-name">General Manager</div>
+              <div class="header-user-role">Executive Dashboard</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-gm-content" class="hidden">
+
+          <!-- Period Banner -->
+          <div class="period-banner">
+            <div>
+              <div class="period-title">Executive Reporting Scope</div>
+              <div class="period-range" id="period-display-range">LAST 7 DAYS</div>
+            </div>
+            <button id="refresh-dashboard-btn" class="btn btn-outline btn-sm">🔄 Refresh</button>
+          </div>
+
+          <!-- KPI Row -->
+          <div class="kpi-row">
+            <div class="kpi-card">
+              <div class="kpi-icon blue">🚛</div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpi-total-trips">—</div>
+                <div class="kpi-label">Total Trips</div>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon green">✅</div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpi-completed-trips">—</div>
+                <div class="kpi-label">Completed Trips</div>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon cyan">🔄</div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpi-active-trips">—</div>
+                <div class="kpi-label">Active Trips</div>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon purple">🏭</div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpi-total-visits">—</div>
+                <div class="kpi-label">BMCs Visited</div>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon blue">🔬</div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpi-total-ftir">—</div>
+                <div class="kpi-label">FTIR Tests</div>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon orange">🧪</div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpi-total-gerber">—</div>
+                <div class="kpi-label">Gerber Tests</div>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon red">🚨</div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpi-total-issues">—</div>
+                <div class="kpi-label">Open Issues</div>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon amber">⏳</div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpi-pending-corrections">—</div>
+                <div class="kpi-label">Pending Corrections</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts Row -->
+          <div class="two-col">
+            <div class="content-card">
+              <div class="card-header"><h3>🚛 Daily Trips</h3></div>
+              <div class="chart-wrap"><canvas id="tripsChart"></canvas></div>
+            </div>
+            <div class="content-card">
+              <div class="card-header"><h3>🏭 Daily BMC Visits</h3></div>
+              <div class="chart-wrap"><canvas id="visitsChart"></canvas></div>
+            </div>
+          </div>
+
+          <!-- BMC Rankings -->
+          <div class="content-card">
+            <div class="card-header"><h3>📊 BMC 7-Day Performance</h3></div>
+            <div class="rankings-grid">
+              <div>
+                <div class="ranking-section-title" style="color:#10B981;">⭐ Best Rated</div>
+                <table class="ranking-table">
+                  <thead><tr><th>BMC</th><th>Rating</th></tr></thead>
+                  <tbody id="top-rated-bmcs"><tr><td colspan="2" class="text-muted">Loading...</td></tr></tbody>
+                </table>
+              </div>
+              <div>
+                <div class="ranking-section-title" style="color:#EF4444;">⚠️ Lowest Rated</div>
+                <table class="ranking-table">
+                  <thead><tr><th>BMC</th><th>Rating</th></tr></thead>
+                  <tbody id="lowest-rated-bmcs"><tr><td colspan="2" class="text-muted">Loading...</td></tr></tbody>
+                </table>
+              </div>
+              <div>
+                <div class="ranking-section-title" style="color:#F59E0B;">🚨 Most Issues</div>
+                <table class="ranking-table">
+                  <thead><tr><th>BMC</th><th>Issues</th></tr></thead>
+                  <tbody id="most-issues-bmcs"><tr><td colspan="2" class="text-muted">Loading...</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/gm-api.js"></script>
+  <script src="../js/gm-dashboard.js"></script>
+</body>
+</html>

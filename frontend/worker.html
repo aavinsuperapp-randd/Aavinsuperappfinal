@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Worker Dashboard — AAVIN BMC</title>
+  <script>window.location.href = 'worker/dashboard.html';</script>
+  <link rel="stylesheet" href="css/global.css">
+  <link rel="stylesheet" href="css/dashboard.css">
+  <link rel="stylesheet" href="css/bmc-admin.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="page-shell">
+    <!-- Top Navigation -->
+    <header class="top-nav">
+      <div class="top-nav-inner">
+        <a href="index.html" class="nav-brand">
+          <img src="assests/aavin logo.png" alt="AAVIN Logo">
+          <span>AAVIN BMC</span>
+        </a>
+        <nav class="nav-links">
+          <button id="logout-btn" class="btn btn-outline btn-sm">Logout</button>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="page-body">
+      <div id="main-dashboard-content" class="container dash-content hidden">
+
+        <!-- Welcome Card -->
+        <div class="card dash-status-card">
+          <div class="ds-icon">👋</div>
+          <h2 class="dash-welcome">Welcome, <span id="worker-name">User</span></h2>
+          <p class="dash-role">Role: User / Field Worker</p>
+          <div class="status-box status-success mt-2">
+            <h3>Your account has been approved.</h3>
+            <p>You have authorized access to BMC Monitoring operations desk.</p>
+          </div>
+          <div class="mt-2 text-sm text-muted">
+            Logged in as: <span id="worker-email"></span>
+          </div>
+        </div>
+
+        <!-- BMC Section -->
+        <div class="bmc-viewer-section">
+          <div class="bmc-viewer-title">
+            <span>🏭</span> Active Bulk Milk Coolers
+          </div>
+          <div id="bmc-list-container">
+            <!-- loaded by bmc-viewer.js -->
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <p>© 2026 AAVIN Milk Co-operative Society.</p>
+    </footer>
+  </div>
+
+  <script src="js/supabase.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/bmc-viewer.js"></script>
+  <script src="js/worker.js"></script>
+</body>
+</html>

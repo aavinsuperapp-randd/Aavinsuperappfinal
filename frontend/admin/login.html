@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login — AAVIN BMC</title>
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/auth.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="auth-page">
+    <div class="auth-card">
+      <a href="../index.html" class="auth-logo">
+        <img src="../assests/aavin logo.png" alt="AAVIN Logo">
+        <span>AAVIN BMC</span>
+      </a>
+
+      <h1 class="auth-title">Admin Login</h1>
+      <p class="auth-subtitle">Enter administrator credentials</p>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label class="form-label" for="login-email">Admin Email</label>
+          <input type="email" class="form-input" id="login-email" placeholder="admin@gmail.com" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="login-password">Password</label>
+          <input type="password" class="form-input" id="login-password" placeholder="••••••••" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block mt-2">Access Control Desk</button>
+      </form>
+
+      <div class="auth-divider"></div>
+
+      <div class="auth-footer">
+        Looking for citizen/GM portals? <a href="../login.html">Login here</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/login.js"></script>
+</body>
+</html>

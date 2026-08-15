@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register Account — AAVIN BMC</title>
+  <link rel="stylesheet" href="/css/global.css">
+  <link rel="stylesheet" href="/css/auth.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="auth-page">
+    <div class="auth-card" style="max-width: 460px;">
+      <a href="/index.html" class="auth-logo">
+        <img src="/assests/aavin logo.png" alt="AAVIN Logo">
+        <span>AAVIN BMC</span>
+      </a>
+
+      <h1 class="auth-title">Create Account</h1>
+      <p class="auth-subtitle">Register to request access credentials</p>
+
+      <form id="register-form">
+        <!-- Account Type Selector Cards -->
+        <label class="form-label">Select Account Type</label>
+        <div class="role-select">
+          <div class="role-option selected" data-role="user">
+            <div class="ro-icon">👷</div>
+            <div class="ro-label">Field Worker</div>
+          </div>
+          <div class="role-option" data-role="gm">
+            <div class="ro-icon">📊</div>
+            <div class="ro-label">GM Executive</div>
+          </div>
+        </div>
+        <input type="hidden" id="reg-role" value="user" required>
+
+        <div class="form-group">
+          <label class="form-label" for="reg-name">Full Name</label>
+          <input type="text" class="form-input" id="reg-name" placeholder="John Doe" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="reg-dob">Date of Birth</label>
+            <input type="date" class="form-input" id="reg-dob" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Profile Image <span class="text-muted">(Optional)</span></label>
+            <div class="img-upload">
+              <div class="img-preview" id="reg-image-preview">
+                <span>No Photo</span>
+              </div>
+              <span class="img-upload-btn" id="reg-image-trigger">Upload Photo</span>
+              <input type="file" id="reg-image" accept="image/*">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="reg-email">Email Address</label>
+          <input type="email" class="form-input" id="reg-email" placeholder="name@aavin.in" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="reg-password">Password</label>
+          <input type="password" class="form-input" id="reg-password" placeholder="Min. 6 characters" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block mt-2">Submit Request</button>
+      </form>
+
+      <div class="auth-divider"></div>
+
+      <div class="auth-footer">
+        Already have an account? <a href="/login.html">Sign in</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/supabase.js"></script>
+  <script src="/js/register.js"></script>
+</body>
+</html>
