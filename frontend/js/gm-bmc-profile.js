@@ -90,12 +90,10 @@ function renderProfile() {
   document.getElementById('prof-avg-rating').textContent = avg_rating ? `${avg_rating} ★` : '—';
 
   // Counts
-  document.getElementById('count-reqs').textContent = (requirements || []).length;
+  const countReqsEl = document.getElementById('count-reqs');
+  if (countReqsEl) countReqsEl.textContent = (requirements || []).length;
   document.getElementById('count-issues').textContent = (issues || []).length;
   document.getElementById('count-ratings').textContent = (ratings || []).length;
-
-  // Requirements Tab
-  renderRequirementsTab(requirements || []);
 
   // Issues Tab
   renderIssuesTab(issues || []);

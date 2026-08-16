@@ -58,10 +58,13 @@
       </div>
       <nav class="admin-nav">
         <a href="dashboard.html" class="admin-nav-item">
-          <span>📊</span> Dashboard
+          <span>📊</span> Dashboard Home
         </a>
         <a href="verification.html" class="admin-nav-item">
-          <span>📋</span> Pending Approvals
+          <span>📋</span> Users & Approvals
+        </a>
+        <a href="trips.html" class="admin-nav-item">
+          <span>🚚</span> Trips Management
         </a>
         <a href="bmc.html" class="admin-nav-item">
           <span>🏭</span> BMC Management
@@ -102,7 +105,10 @@
                 <h3 style="font-size:1.1rem; font-weight:700; display:flex; align-items:center; gap:8px;">
                   👨‍✈️ Registered Drivers (<span id="driver-count">0</span>)
                 </h3>
-                <button id="add-driver-btn" class="btn btn-primary btn-sm">+ Add Driver</button>
+                <div class="d-flex gap-2" style="gap:6px;">
+                  <button id="purge-drivers-btn" class="btn btn-danger btn-sm" title="Remove All Drivers">🗑️ Purge All</button>
+                  <button id="add-driver-btn" class="btn btn-primary btn-sm">+ Add Driver</button>
+                </div>
               </div>
               <div id="drivers-list">
                 <!-- Populated by JS -->
@@ -115,7 +121,10 @@
                 <h3 style="font-size:1.1rem; font-weight:700; display:flex; align-items:center; gap:8px;">
                   🚛 Registered Vehicles (<span id="tanker-count">0</span>)
                 </h3>
-                <button id="add-tanker-btn" class="btn btn-primary btn-sm">+ Add Vehicle</button>
+                <div class="d-flex gap-2" style="gap:6px;">
+                  <button id="purge-tankers-btn" class="btn btn-danger btn-sm" title="Remove All Vehicles">🗑️ Purge All</button>
+                  <button id="add-tanker-btn" class="btn btn-primary btn-sm">+ Add Vehicle</button>
+                </div>
               </div>
               <div id="tankers-list">
                 <!-- Populated by JS -->

@@ -22,18 +22,32 @@ document.addEventListener('DOMContentLoaded', async () => {
 function setupMobileMenu() {
   const toggleBtn = document.getElementById('mobile-menu-toggle');
   const sidebar = document.getElementById('worker-sidebar') || document.querySelector('.worker-sidebar');
+  const main = document.querySelector('.worker-main');
   const overlay = document.getElementById('sidebar-overlay');
 
-  function openSidebar() {
-    if (sidebar) sidebar.classList.add('open');
-    if (overlay) overlay.classList.add('show');
-  }
-  function closeSidebar() {
-    if (sidebar) sidebar.classList.remove('open');
-    if (overlay) overlay.classList.remove('show');
+  function toggleSidebar() {
+    if (window.innerWidth > 900) {
+      if (sidebar) sidebar.classList.toggle('collapsed');
+      if (main) main.classList.toggle('expanded');
+    } else {
+      if (sidebar && sidebar.classList.contains('open')) {
+        sidebar.classList.remove('open');
+        if (overlay) overlay.classList.remove('show');
+      } else {
+        if (sidebar) sidebar.classList.add('open');
+        if (overlay) overlay.classList.add('show');
+      }
+    }
   }
 
-  if (toggleBtn) toggleBtn.addEventListener('click', openSidebar);
+  function closeSidebar() {
+    if (window.innerWidth <= 900) {
+      if (sidebar) sidebar.classList.remove('open');
+      if (overlay) overlay.classList.remove('show');
+    }
+  }
+
+  if (toggleBtn) toggleBtn.addEventListener('click', toggleSidebar);
   if (overlay) overlay.addEventListener('click', closeSidebar);
 
   if (sidebar) {

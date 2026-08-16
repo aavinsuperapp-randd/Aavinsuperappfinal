@@ -60,9 +60,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
-    // Load pending registrations if on the verification page
+    // Load registrations if on verification page
     if (path.includes('verification.html')) {
-      await loadPendingRegistrations();
+      setupVerificationPage();
+      await loadUserRegistrations('pending');
     }
   }
 
@@ -76,8 +77,49 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-// Load pending user profiles
-async function loadPendingRegistrations() {
+let currentUserFilter = 'pending';
+let allProfilesCache = [];
+
+function setupVerificationPage() {
+  const purgeBtn = document.getElementById('purge-users-btn');
+  if (purgeBtn) {
+    purgeBtn.addEventListener('click', async () => {
+      if (!confirm('⚠️ ARE YOU SURE?\nThis will permanently DELETE ALL registered non-admin users (Workers & GMs) from the system.')) return;
+      try {
+        await adminFetch('/api/admin/users/all', { method: 'DELETE' });
+        showToast('All non-admin users removed successfully!', 'success');
+        await loadUserRegistrations(currentUserFilter);
+      } catch (err) {
+        showToast(err.message || 'Failed to remove users.', 'error');
+      }
+    });
+  }
+
+  const tabPending = document.getElementById('user-tab-pending');
+  const tabAll = document.getElementById('user-tab-all');
+  const tabApproved = document.getElementById('user-tab-approved');
+
+  function setTab(activeTab, filter) {
+    [tabPending, tabAll, tabApproved].forEach(t => {
+      if (t) {
+        t.classList.remove('active', 'btn-primary');
+        t.classList.add('btn-outline');
+      }
+    });
+    if (activeTab) {
+      activeTab.classList.add('active', 'btn-primary');
+      activeTab.classList.remove('btn-outline');
+    }
+    currentUserFilter = filter;
+    renderRegistrations();
+  }
+
+  if (tabPending) tabPending.addEventListener('click', () => setTab(tabPending, 'pending'));
+  if (tabAll) tabAll.addEventListener('click', () => setTab(tabAll, 'all'));
+  if (tabApproved) tabApproved.addEventListener('click', () => setTab(tabApproved, 'approved'));
+}
+
+async function loadUserRegistrations() {
   const container = document.getElementById('pending-list-container');
   if (!container) return;
   
@@ -89,54 +131,40 @@ async function loadPendingRegistrations() {
     </tr>
   `;
   
-  const client = await initSupabase();
-  
-  // A. Guard check
-  if (!client) {
-    showToast("Supabase is not initialized.", "error");
-    container.innerHTML = `
-      <tr>
-        <td colspan="6" class="text-center text-muted">Database configuration is missing.</td>
-      </tr>
-    `;
-    return;
-  }
-  
-  // B. Query Supabase
   try {
-    const { data: profiles, error } = await client
-      .from('profiles')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false });
-      
-    if (error) throw error;
-    
-    renderRegistrations(profiles);
+    const res = await adminFetch('/api/admin/users');
+    allProfilesCache = res.users || [];
+    renderRegistrations();
   } catch (err) {
     console.error("❌ Failed to query profiles:", err);
-    showToast("Failed to load verification list.", "error");
+    showToast(err.message || "Failed to load verification list.", "error");
     container.innerHTML = `
       <tr>
-        <td colspan="6" class="text-center text-muted">Error querying registrations database.</td>
+        <td colspan="6" class="text-center text-muted">Error loading users from database.</td>
       </tr>
     `;
   }
 }
 
-// Render profiles lists to table
-function renderRegistrations(list) {
+function renderRegistrations() {
   const container = document.getElementById('pending-list-container');
   if (!container) return;
+
+  let filtered = [...allProfilesCache];
+  if (currentUserFilter === 'pending') {
+    filtered = filtered.filter(p => p.status === 'pending');
+  } else if (currentUserFilter === 'approved') {
+    filtered = filtered.filter(p => p.status === 'approved');
+  }
   
-  if (!list || list.length === 0) {
+  if (!filtered || filtered.length === 0) {
     container.innerHTML = `
       <tr>
         <td colspan="6">
           <div class="empty-state">
             <div class="empty-state-icon">📋</div>
-            <div class="empty-state-title">No pending approvals</div>
-            <div class="empty-state-desc">All user registrations have been verified and processed.</div>
+            <div class="empty-state-title">No user records found</div>
+            <div class="empty-state-desc">No accounts found matching filter '${currentUserFilter.toUpperCase()}'.</div>
           </div>
         </td>
       </tr>
@@ -145,36 +173,38 @@ function renderRegistrations(list) {
   }
   
   container.innerHTML = '';
-  list.forEach(p => {
+  filtered.forEach(p => {
     const row = document.createElement('tr');
     
-    // Format Date
     const regDate = new Date(p.created_at || new Date()).toLocaleDateString('en-IN', {
       day: 'numeric', month: 'short', year: 'numeric'
     });
     
     const avatarImg = p.profile_image_url 
       ? `<img src="${p.profile_image_url}" alt="${p.name}" class="avatar avatar-sm">`
-      : `<div class="avatar avatar-sm" style="display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--gray-500);">${p.name.charAt(0)}</div>`;
+      : `<div class="avatar avatar-sm" style="display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--gray-500);">${p.name ? p.name.charAt(0) : 'U'}</div>`;
       
+    const statusClass = p.status === 'approved' ? 'badge-success' : (p.status === 'rejected' ? 'badge-danger' : 'badge-pending');
+
     row.innerHTML = `
       <td>
         <div class="user-info-cell">
           ${avatarImg}
           <div class="user-details">
-            <span class="user-name">${p.name}</span>
+            <span class="user-name">${p.name || 'Anonymous User'}</span>
             <span class="user-email">${p.email}</span>
           </div>
         </div>
       </td>
-      <td><span class="badge badge-pending">${p.role}</span></td>
+      <td><span class="badge badge-neutral">${(p.role || 'user').toUpperCase()}</span></td>
       <td>${p.dob ? new Date(p.dob).toLocaleDateString('en-IN') : 'N/A'}</td>
       <td>${regDate}</td>
-      <td><span class="badge badge-pending">Pending</span></td>
+      <td><span class="badge ${statusClass}">${(p.status || 'pending').toUpperCase()}</span></td>
       <td>
-        <div class="actions-cell">
-          <button class="btn btn-primary btn-sm" onclick="processApproval('${p.id}', 'approved')">Accept</button>
-          <button class="btn btn-danger btn-sm" onclick="processApproval('${p.id}', 'rejected')">Reject</button>
+        <div class="actions-cell" style="display:flex; gap:6px;">
+          ${p.status !== 'approved' ? `<button class="btn btn-primary btn-sm" onclick="processApproval('${p.id}', 'approved')">Accept</button>` : ''}
+          ${p.status !== 'rejected' ? `<button class="btn btn-outline btn-sm" onclick="processApproval('${p.id}', 'rejected')">Reject</button>` : ''}
+          <button class="btn btn-danger btn-sm" onclick="deleteUser('${p.id}')">🗑️</button>
         </div>
       </td>
     `;
@@ -183,33 +213,26 @@ function renderRegistrations(list) {
   });
 }
 
-// Process Approve / Reject Actions
 async function processApproval(userId, newStatus) {
-  toggleLoading(true);
-  const client = await initSupabase();
-  
-  // A. Guard check
-  if (!client) {
-    showToast("Supabase is not initialized.", "error");
-    toggleLoading(false);
-    return;
-  }
-  
-  // B. Supabase Profile Update
   try {
-    const { error } = await client
-      .from('profiles')
-      .update({ status: newStatus, updated_at: new Date() })
-      .eq('id', userId);
-      
+    const client = await initSupabase();
+    if (!client) throw new Error('Database not connected.');
+    const { error } = await client.from('profiles').update({ status: newStatus, updated_at: new Date() }).eq('id', userId);
     if (error) throw error;
-    
-    showToast(`User registration ${newStatus} successfully!`, "success");
-    await loadPendingRegistrations();
+    showToast(`User ${newStatus} successfully!`, "success");
+    await loadUserRegistrations();
   } catch (err) {
-    console.error("❌ Failed processing registration action:", err);
     showToast(err.message || "Action failed.", "error");
-  } finally {
-    toggleLoading(false);
   }
 }
+
+window.deleteUser = async function(userId) {
+  if (!confirm('Are you sure you want to delete this user profile?')) return;
+  try {
+    await adminFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+    showToast('User profile deleted!', 'success');
+    await loadUserRegistrations();
+  } catch (err) {
+    showToast(err.message || 'Failed to delete user.', 'error');
+  }
+};

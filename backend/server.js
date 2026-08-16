@@ -162,6 +162,270 @@ app.post('/api/approve', async (req, res) => {
   return res.json({ success: true });
 });
 
+// ─── ADMIN ROLE MIDDLEWARE ───────────────────────────────────────────────────
+async function requireAdminRole(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server database not configured.' });
+
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+
+  const { data: profile } = await adminClient.from('profiles').select('*').eq('id', user.id).single();
+  if (!profile || profile.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden. Admin access required.' });
+  }
+
+  req.user = user;
+  req.profile = profile;
+  req.adminClient = adminClient;
+  next();
+}
+
+// ─── ADMIN USERS ENDPOINTS ───────────────────────────────────────────────────
+app.get('/api/admin/users', requireAdminRole, async (req, res) => {
+  const { data: profiles, error } = await req.adminClient
+    .from('profiles')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ users: profiles || [] });
+});
+
+app.delete('/api/admin/users/all', requireAdminRole, async (req, res) => {
+  const { error } = await req.adminClient
+    .from('profiles')
+    .delete()
+    .neq('role', 'admin');
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'All non-admin users deleted successfully.' });
+});
+
+app.delete('/api/admin/users/:id', requireAdminRole, async (req, res) => {
+  const userId = req.params.id;
+  if (userId === req.user.id) {
+    return res.status(400).json({ error: 'Cannot delete current logged-in admin user.' });
+  }
+
+  const { error } = await req.adminClient
+    .from('profiles')
+    .delete()
+    .eq('id', userId);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'User profile deleted successfully.' });
+});
+
+// ─── ADMIN DRIVERS ENDPOINTS ─────────────────────────────────────────────────
+app.get('/api/admin/drivers', requireAdminRole, async (req, res) => {
+  const { data: drivers, error } = await req.adminClient
+    .from('drivers')
+    .select('*')
+    .order('name');
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ drivers: drivers || [] });
+});
+
+app.post('/api/admin/drivers', requireAdminRole, async (req, res) => {
+  const { name, phone, license_number } = req.body;
+  if (!name) return res.status(400).json({ error: 'Driver name is required.' });
+
+  const { data, error } = await req.adminClient
+    .from('drivers')
+    .insert({ name, phone, license_number, is_active: true })
+    .select().single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ driver: data });
+});
+
+app.put('/api/admin/drivers/:id/toggle', requireAdminRole, async (req, res) => {
+  const { is_active } = req.body;
+  const { data, error } = await req.adminClient
+    .from('drivers')
+    .update({ is_active, updated_at: new Date() })
+    .eq('id', req.params.id)
+    .select().single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ driver: data });
+});
+
+app.delete('/api/admin/drivers/all', requireAdminRole, async (req, res) => {
+  const { error } = await req.adminClient.from('drivers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'All drivers removed successfully.' });
+});
+
+app.delete('/api/admin/drivers/:id', requireAdminRole, async (req, res) => {
+  const { error } = await req.adminClient.from('drivers').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'Driver deleted successfully.' });
+});
+
+// ─── ADMIN TANKERS/VEHICLES ENDPOINTS ──────────────────────────────────────
+app.get('/api/admin/tankers', requireAdminRole, async (req, res) => {
+  const { data: tankers, error } = await req.adminClient
+    .from('tankers')
+    .select('*')
+    .order('board_number');
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ tankers: tankers || [] });
+});
+
+app.post('/api/admin/tankers', requireAdminRole, async (req, res) => {
+  const { board_number, capacity_liters } = req.body;
+  if (!board_number) return res.status(400).json({ error: 'Vehicle board number is required.' });
+
+  const { data, error } = await req.adminClient
+    .from('tankers')
+    .insert({ board_number, capacity_liters: capacity_liters || 5000, is_active: true })
+    .select().single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ tanker: data });
+});
+
+app.put('/api/admin/tankers/:id/toggle', requireAdminRole, async (req, res) => {
+  const { is_active } = req.body;
+  const { data, error } = await req.adminClient
+    .from('tankers')
+    .update({ is_active, updated_at: new Date() })
+    .eq('id', req.params.id)
+    .select().single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ tanker: data });
+});
+
+app.delete('/api/admin/tankers/all', requireAdminRole, async (req, res) => {
+  const { error } = await req.adminClient.from('tankers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'All vehicles removed successfully.' });
+});
+
+app.delete('/api/admin/tankers/:id', requireAdminRole, async (req, res) => {
+  const { error } = await req.adminClient.from('tankers').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'Vehicle deleted successfully.' });
+});
+
+// ─── ADMIN TRIPS ENDPOINTS ───────────────────────────────────────────────────
+app.get('/api/admin/trips', requireAdminRole, async (req, res) => {
+  try {
+    const [tripsRes, visitsRes, profilesRes, bmcsRes, ftirRes, gerberRes] = await Promise.all([
+      req.adminClient.from('trips').select('*').order('created_at', { ascending: false }),
+      req.adminClient.from('trip_bmc_visits').select('*').order('visit_sequence'),
+      req.adminClient.from('profiles').select('id, name, email'),
+      req.adminClient.from('bmcs').select('id, name, district'),
+      req.adminClient.from('ftir_tests').select('*'),
+      req.adminClient.from('gerber_tests').select('*')
+    ]);
+
+    const trips = tripsRes.data || [];
+    const visits = visitsRes.data || [];
+    const profiles = profilesRes.data || [];
+    const bmcs = bmcsRes.data || [];
+    const ftirs = ftirRes.data || [];
+    const gerbers = gerberRes.data || [];
+
+    const profileMap = {};
+    profiles.forEach(p => profileMap[p.id] = p.name);
+    const bmcMap = {};
+    bmcs.forEach(b => bmcMap[b.id] = b.name);
+
+    const enrichedTrips = trips.map(t => {
+      const tVisits = visits.filter(v => v.trip_id === t.id);
+      const formattedVisits = tVisits.map((v, idx, arr) => {
+        const bmcName = bmcMap[v.bmc_id] || 'Unknown BMC';
+        const previousOccurrences = arr.slice(0, idx).filter(prev => prev.bmc_id === v.bmc_id);
+        const isAfterMixing = v.is_after_mixing || previousOccurrences.length >= 1 || (v.remarks && v.remarks.includes('[AFTER MIXING]'));
+        const displayName = isAfterMixing ? `${bmcName} (After Mixing)` : bmcName;
+
+        const ftir = ftirs.find(f => f.visit_id === v.id);
+        const gerber = gerbers.find(g => g.visit_id === v.id);
+
+        let ftir_result = '—';
+        if (ftir) {
+          const resText = (ftir.overall_result || '').toLowerCase();
+          const extra = resText && resText !== 'pass' ? ` [${resText.toUpperCase()}]` : '';
+          ftir_result = `FAT: ${ftir.fat || 0}%, SNF: ${ftir.snf || 0}%${extra}`;
+        } else if (v.status === 'completed') {
+          ftir_result = 'Not Tested';
+        } else {
+          ftir_result = 'Pending';
+        }
+
+        let gerber_result = '—';
+        if (gerber) {
+          const resText = (gerber.overall_result || '').toLowerCase();
+          const extra = resText && resText !== 'pass' ? ` [${resText.toUpperCase()}]` : '';
+          gerber_result = `FAT: ${gerber.fat_percentage || 0}%, SNF: ${gerber.snf || 0}%${extra}`;
+        } else if (v.status === 'completed') {
+          gerber_result = 'Not Tested';
+        } else {
+          gerber_result = 'Pending';
+        }
+
+        return {
+          id: v.id,
+          visit_sequence: v.visit_sequence || (idx + 1),
+          bmc_name: displayName,
+          milk_quantity_liters: v.milk_quantity_liters,
+          milk_quantity_formatted: v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—',
+          status: v.status || 'pending',
+          ftir_result,
+          gerber_result
+        };
+      });
+
+      const routeNames = formattedVisits.map(v => v.bmc_name).join(' → ');
+
+      return {
+        ...t,
+        worker_name: profileMap[t.worker_id] || 'Unknown Worker',
+        route: routeNames || 'No BMCs visited yet',
+        visits: formattedVisits
+      };
+    });
+
+    res.json({ trips: enrichedTrips });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch trips.' });
+  }
+});
+
+app.delete('/api/admin/trips/all', requireAdminRole, async (req, res) => {
+  const { error } = await req.adminClient.from('trips').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'All trip records deleted successfully.' });
+});
+
+app.delete('/api/admin/trips/:id', requireAdminRole, async (req, res) => {
+  const { error } = await req.adminClient.from('trips').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'Trip deleted successfully.' });
+});
+
+// ─── ADMIN BMCS ENDPOINTS ────────────────────────────────────────────────────
+app.delete('/api/admin/bmcs/all', requireAdminRole, async (req, res) => {
+  const { error } = await req.adminClient.from('bmcs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'All BMC records deleted successfully.' });
+});
+
+app.delete('/api/admin/bmcs/:id', requireAdminRole, async (req, res) => {
+  const { error } = await req.adminClient.from('bmcs').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'BMC deleted successfully.' });
+});
+
 // ─── JWT Auth Middleware ──────────────────────────────────────────────────────
 // Verifies Supabase JWT and attaches user + profile to req
 async function requireWorker(req, res, next) {
@@ -560,7 +824,9 @@ app.get('/api/gm/dashboard-v2', requireGm, async (req, res) => {
 
           let ftir_result = '—';
           if (ftir) {
-            ftir_result = `✓ ${(ftir.overall_result || 'Pass').toUpperCase()} (FAT: ${ftir.fat || 0}%, SNF: ${ftir.snf || 0}%)`;
+            const resText = (ftir.overall_result || '').toLowerCase();
+            const extra = resText && resText !== 'pass' ? ` [${resText.toUpperCase()}]` : '';
+            ftir_result = `FAT: ${ftir.fat || 0}%, SNF: ${ftir.snf || 0}%${extra}`;
           } else if (v.status === 'completed') {
             ftir_result = 'Not Tested';
           } else {
@@ -569,7 +835,9 @@ app.get('/api/gm/dashboard-v2', requireGm, async (req, res) => {
 
           let gerber_result = '—';
           if (gerber) {
-            gerber_result = `✓ ${(gerber.overall_result || 'Pass').toUpperCase()} (FAT: ${gerber.fat_percentage || 0}%, SNF: ${gerber.snf || 0}%)`;
+            const resText = (gerber.overall_result || '').toLowerCase();
+            const extra = resText && resText !== 'pass' ? ` [${resText.toUpperCase()}]` : '';
+            gerber_result = `FAT: ${gerber.fat_percentage || 0}%, SNF: ${gerber.snf || 0}%${extra}`;
           } else if (v.status === 'completed') {
             gerber_result = 'Not Tested';
           } else {

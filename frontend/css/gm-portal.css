@@ -176,17 +176,43 @@ a.admin-nav-item.active span:first-child {
 .header-user-name { font-size: 0.85rem; font-weight: 600; color: #111827; }
 .header-user-role { font-size: 0.72rem; color: #6B7280; }
 
-/* ── Sidebar Toggle (Mobile) ── */
+/* ── Sidebar Toggle (Always Visible) ── */
 .sidebar-toggle {
-  display: none;
-  background: transparent;
-  border: 1px solid #E5E7EB;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
   border-radius: 8px;
-  font-size: 1.15rem;
-  color: #374151;
+  font-size: 1.2rem;
+  color: #0F172A;
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 6px 11px;
   line-height: 1;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  transition: all 0.2s ease;
+  margin-right: 8px;
+}
+.sidebar-toggle:hover {
+  background: #F1F5F9;
+  border-color: #94A3B8;
+  color: #2563EB;
+}
+
+.admin-sidebar {
+  transition: transform 0.3s ease, left 0.3s ease;
+}
+.admin-main {
+  transition: margin-left 0.3s ease;
+}
+
+@media (min-width: 901px) {
+  .admin-sidebar.collapsed {
+    transform: translateX(-100%);
+  }
+  .admin-main.expanded {
+    margin-left: 0 !important;
+  }
 }
 
 /* ── Content ── */

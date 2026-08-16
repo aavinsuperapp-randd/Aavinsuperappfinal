@@ -27,8 +27,11 @@
         <a href="dashboard.html" class="admin-nav-item">
           <span>📊</span> Dashboard Home
         </a>
-        <a href="verification.html" class="admin-nav-item">
-          <span>📋</span> Pending Approvals
+        <a href="verification.html" class="admin-nav-item active">
+          <span>📋</span> Users & Approvals
+        </a>
+        <a href="trips.html" class="admin-nav-item">
+          <span>🚚</span> Trips Management
         </a>
         <a href="bmc.html" class="admin-nav-item">
           <span>🏭</span> BMC Management
@@ -39,7 +42,6 @@
         <button id="logout-btn" class="admin-nav-item logout-btn">
           <span>🚪</span> Logout
         </button>
-
       </nav>
     </aside>
 
@@ -56,19 +58,31 @@
       <main class="admin-content">
         <!-- Hidden by default, unhidden after successful authorization check -->
         <div id="main-admin-content" class="hidden">
-          <div class="mb-2">
-            <h2 style="font-size: 1.3rem;">Verification Requests</h2>
-            <p class="text-muted text-sm">Review credentials of users asking for operational dashboard access.</p>
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <h2 style="font-size: 1.3rem; margin:0; font-weight:700;">User Accounts & Approvals</h2>
+              <p class="text-muted text-sm" style="margin-top:2px;">Review credentials, approve pending users, or purge user accounts.</p>
+            </div>
+            <button id="purge-users-btn" class="btn btn-danger btn-sm">
+              🗑️ Remove All Users
+            </button>
           </div>
 
-          <!-- Pending Approvals Grid / Table -->
+          <!-- Filter Tabs -->
+          <div class="d-flex gap-2 mb-3" style="gap:8px;">
+            <button id="user-tab-pending" class="btn btn-primary btn-sm user-tab-btn active">Pending Approvals</button>
+            <button id="user-tab-all" class="btn btn-outline btn-sm user-tab-btn">All Registered Users</button>
+            <button id="user-tab-approved" class="btn btn-outline btn-sm user-tab-btn">Approved Users</button>
+          </div>
+
+          <!-- Approvals / Users Table -->
           <div class="verification-card mt-2">
             <div class="table-responsive">
               <table class="admin-table">
                 <thead>
                   <tr>
                     <th>User Profile</th>
-                    <th>Requested Role</th>
+                    <th>Role</th>
                     <th>Date of Birth</th>
                     <th>Registered On</th>
                     <th>Status</th>

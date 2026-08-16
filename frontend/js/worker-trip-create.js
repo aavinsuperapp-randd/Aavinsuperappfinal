@@ -35,8 +35,8 @@ function setupMobileMenu() {
 }
 
 async function loadDriversAndTankersOptions() {
-  const driverList = document.getElementById('driver-list');
-  const tankerList = document.getElementById('tanker-list');
+  const driverSel = document.getElementById('driver-select');
+  const tankerSel = document.getElementById('tanker-select');
 
   try {
     const [dRes, tRes] = await Promise.all([
@@ -47,15 +47,23 @@ async function loadDriversAndTankersOptions() {
     const drivers = dRes.drivers || [];
     const tankers = tRes.tankers || [];
 
-    if (drivers.length > 0) {
-      driverList.innerHTML = drivers.map(d => `<option value="${esc(d.name)}" data-id="${d.id}"></option>`).join('');
+    if (drivers.length === 0) {
+      driverSel.innerHTML = `<option value="">-- No drivers available (Contact Admin) --</option>`;
+    } else {
+      driverSel.innerHTML = `<option value="">-- Select Driver --</option>` +
+        drivers.map(d => `<option value="${d.id}" data-name="${esc(d.name)}">${esc(d.name)} (${esc(d.phone || 'No Phone')})</option>`).join('');
     }
 
-    if (tankers.length > 0) {
-      tankerList.innerHTML = tankers.map(t => `<option value="${esc(t.board_number)}" data-id="${t.id}"></option>`).join('');
+    if (tankers.length === 0) {
+      tankerSel.innerHTML = `<option value="">-- No vehicles available (Contact Admin) --</option>`;
+    } else {
+      tankerSel.innerHTML = `<option value="">-- Select Vehicle / Tanker Number --</option>` +
+        tankers.map(t => `<option value="${t.id}" data-board="${esc(t.board_number)}">${esc(t.board_number)} (${t.capacity_liters || 5000} Kg Capacity)</option>`).join('');
     }
   } catch (err) {
     console.error('Failed to load drivers/tankers options:', err);
+    driverSel.innerHTML = `<option value="">Failed to load drivers</option>`;
+    tankerSel.innerHTML = `<option value="">Failed to load vehicles</option>`;
   }
 }
 
@@ -82,34 +90,21 @@ async function handleCreateTrip(e) {
   e.preventDefault();
 
   const trip_name = document.getElementById('trip-name').value.trim();
-  const driverVal = document.getElementById('driver-input').value.trim();
-  const tankerVal = document.getElementById('tanker-input').value.trim();
+  const driverSel = document.getElementById('driver-select');
+  const tankerSel = document.getElementById('tanker-select');
   const out_time = document.getElementById('out-time').value;
 
-  let driver_id = null;
-  const driverList = document.getElementById('driver-list');
-  if (driverList && driverList.options) {
-    for (let opt of driverList.options) {
-      if (opt.value === driverVal) {
-        driver_id = opt.getAttribute('data-id');
-        break;
-      }
-    }
-  }
+  const selectedDriverOpt = driverSel.options[driverSel.selectedIndex];
+  const selectedTankerOpt = tankerSel.options[tankerSel.selectedIndex];
 
-  let tanker_id = null;
-  const tankerList = document.getElementById('tanker-list');
-  if (tankerList && tankerList.options) {
-    for (let opt of tankerList.options) {
-      if (opt.value === tankerVal) {
-        tanker_id = opt.getAttribute('data-id');
-        break;
-      }
-    }
-  }
+  const driver_id = driverSel.value;
+  const driver_name = selectedDriverOpt ? (selectedDriverOpt.dataset.name || selectedDriverOpt.text) : '';
 
-  if (!trip_name || !driverVal || !tankerVal || !out_time) {
-    showToast('Please provide a driver, a vehicle, and fill in all fields.', 'error');
+  const tanker_id = tankerSel.value;
+  const tanker_number = selectedTankerOpt ? (selectedTankerOpt.dataset.board || selectedTankerOpt.text) : '';
+
+  if (!trip_name || !driver_id || !tanker_id || !out_time) {
+    showToast('Please select a driver, a vehicle, and fill in all fields.', 'error');
     return;
   }
 
@@ -120,8 +115,8 @@ async function handleCreateTrip(e) {
   try {
     const res = await apiCreateTrip({
       trip_name,
-      driver_name: driverVal,
-      tanker_number: tankerVal,
+      driver_name,
+      tanker_number,
       driver_id,
       tanker_id,
       out_time: new Date(out_time).toISOString()

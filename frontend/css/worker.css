@@ -127,14 +127,41 @@ a.ws-nav-item.active {
 .worker-header-user strong { color: #2563EB; font-weight: 700; }
 
 .mobile-menu-btn {
-  display: none;
-  background: transparent;
-  border: 1px solid #E5E7EB;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
   border-radius: 8px;
-  font-size: 1.1rem;
+  font-size: 1.2rem;
   cursor: pointer;
-  color: #374151;
-  padding: 5px 9px;
+  color: #0F172A;
+  padding: 6px 11px;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  transition: all 0.2s ease;
+  margin-right: 8px;
+}
+.mobile-menu-btn:hover {
+  background: #F1F5F9;
+  border-color: #94A3B8;
+  color: #2563EB;
+}
+
+.worker-sidebar {
+  transition: transform 0.3s ease, left 0.3s ease;
+}
+.worker-main {
+  transition: margin-left 0.3s ease;
+}
+
+@media (min-width: 901px) {
+  .worker-sidebar.collapsed {
+    transform: translateX(-100%);
+  }
+  .worker-main.expanded {
+    margin-left: 0 !important;
+  }
 }
 
 .worker-content {

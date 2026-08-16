@@ -87,14 +87,30 @@ function renderGrid(list) {
         </div>
       </div>
       <div class="bmc-card-actions">
-        <button class="btn btn-outline btn-sm" onclick="openEditModal('${bmc.id}')">✏️ Edit</button>
-        <button class="btn btn-sm ${bmc.is_active ? 'btn-danger' : 'btn-primary'}" onclick="toggleBmcStatus('${bmc.id}', ${bmc.is_active})">
+        <button class="btn btn-outline btn-sm" onclick="openEditModal('${bmc.id}')" style="flex:1;">✏️ Edit</button>
+        <button class="btn btn-sm ${bmc.is_active ? 'btn-danger' : 'btn-primary'}" onclick="toggleBmcStatus('${bmc.id}', ${bmc.is_active})" style="flex:1;">
           ${bmc.is_active ? '⏹ Deactivate' : '▶ Activate'}
         </button>
+        <button class="btn btn-danger btn-sm" onclick="deleteBmc('${bmc.id}')" title="Delete BMC" style="padding: 0 10px;">🗑️</button>
       </div>
     </div>
   `).join('');
 }
+
+window.deleteBmc = async function(id) {
+  if (!confirm('Are you sure you want to delete this BMC record?')) return;
+  try {
+    const res = await fetch(`/api/admin/bmcs/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${window.localStorage.getItem('sb-access-token') || ''}` }
+    });
+    if (!res.ok) throw new Error('Failed to delete BMC');
+    showToast('BMC deleted', 'success');
+    await loadBmcs();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+};
 
 // ── Filter / Search ───────────────────────────────────────────────────────────
 function applyFilters() {
@@ -111,6 +127,25 @@ function applyFilters() {
 // ── Bind Events ───────────────────────────────────────────────────────────────
 function bindEvents() {
   document.getElementById('add-bmc-btn').addEventListener('click', openAddModal);
+  
+  const purgeBtn = document.getElementById('purge-bmcs-btn');
+  if (purgeBtn) {
+    purgeBtn.addEventListener('click', async () => {
+      if (!confirm('⚠️ ARE YOU SURE?\nThis will permanently DELETE ALL BMC records from the system.')) return;
+      try {
+        const res = await fetch('/api/admin/bmcs/all', {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${window.localStorage.getItem('sb-access-token') || ''}` }
+        });
+        if (!res.ok) throw new Error('Failed to remove all BMCs');
+        showToast('All BMC records removed successfully!', 'success');
+        await loadBmcs();
+      } catch (err) {
+        showToast(err.message || 'Failed to remove BMCs.', 'error');
+      }
+    });
+  }
+
   document.getElementById('bmc-modal-close').addEventListener('click', closeModal);
   document.getElementById('bmc-cancel-btn').addEventListener('click', closeModal);
   document.getElementById('bmc-save-btn').addEventListener('click', saveBmc);

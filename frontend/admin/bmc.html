@@ -25,10 +25,13 @@
       </div>
       <nav class="admin-nav">
         <a href="dashboard.html" class="admin-nav-item">
-          <span>📊</span> Dashboard
+          <span>📊</span> Dashboard Home
         </a>
         <a href="verification.html" class="admin-nav-item">
-          <span>📋</span> Pending Approvals
+          <span>📋</span> Users & Approvals
+        </a>
+        <a href="trips.html" class="admin-nav-item">
+          <span>🚚</span> Trips Management
         </a>
         <a href="bmc.html" class="admin-nav-item active">
           <span>🏭</span> BMC Management
@@ -39,7 +42,6 @@
         <button id="logout-btn" class="admin-nav-item logout-btn">
           <span>🚪</span> Logout
         </button>
-
       </nav>
     </aside>
 
@@ -62,9 +64,14 @@
               <h2 class="bmc-page-title">Bulk Milk Coolers</h2>
               <p class="text-muted text-sm">Manage all registered BMC units across districts.</p>
             </div>
-            <button id="add-bmc-btn" class="btn btn-primary">
-              <span>+</span> Add New BMC
-            </button>
+            <div class="d-flex gap-2">
+              <button id="purge-bmcs-btn" class="btn btn-danger">
+                🗑️ Remove All
+              </button>
+              <button id="add-bmc-btn" class="btn btn-primary">
+                <span>+</span> Add New BMC
+              </button>
+            </div>
           </div>
 
           <!-- Stats Row -->

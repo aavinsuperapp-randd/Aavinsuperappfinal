@@ -114,35 +114,83 @@ function renderOverview(data) {
 
 function exportToExcel() {
   if (!currentDashboardData || typeof XLSX === 'undefined') {
-    alert('Excel library loading or data unavailable.');
+    if (typeof showToast === 'function') showToast('Excel library loading or data unavailable.', 'error');
     return;
   }
 
-  const { date_formatted, kpis, trips, workers, bmcs } = currentDashboardData;
+  const { date_formatted, kpis, trips } = currentDashboardData;
   const wb = XLSX.utils.book_new();
 
+  // 1. Executive Summary Sheet
   const summaryData = [
-    { Metric: 'Report Date', Value: date_formatted },
-    { Metric: 'Total Trips', Value: kpis.total_trips },
-    { Metric: 'Active Trips', Value: kpis.active_trips },
-    { Metric: 'Completed Trips', Value: kpis.completed_trips },
-    { Metric: 'Milk Collected (kg)', Value: kpis.total_milk_liters }
+    { Metric: 'MADURAI DISTRICT CO-OPERATIVE MILK PRODUCER\'S UNION LTD', Value: 'MADURAI-20' },
+    { Metric: 'Operational Report Date', Value: date_formatted || selectedDate },
+    { Metric: 'Total Field Trips', Value: kpis.total_trips || 0 },
+    { Metric: 'Active Trips In-Transit', Value: kpis.active_trips || 0 },
+    { Metric: 'Completed Trips', Value: kpis.completed_trips || 0 },
+    { Metric: 'Total Milk Volume Collected (kg)', Value: kpis.total_milk_liters || 0 }
   ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), 'Summary');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), 'Executive Summary');
 
-  const tripsData = trips.map(t => ({
-    'Trip Name': t.trip_name,
-    'Worker': t.worker_name,
-    'Driver': t.driver_name,
-    'Vehicle': t.tanker_number,
-    'Route': t.route,
-    'Out Time': t.out_time,
-    'In Time': t.in_time || 'In Transit',
-    'Status': t.status
-  }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tripsData), 'All Trips');
+  // 2. All Trip Operations Overview Sheet
+  const tripsData = (trips || []).map(t => {
+    let totalMilkKg = 0;
+    (t.visits || []).forEach(v => {
+      if (v.milk_quantity_liters) totalMilkKg += Number(v.milk_quantity_liters);
+    });
 
-  XLSX.writeFile(wb, `AAVIN_GM_Overview_${selectedDate}.xlsx`);
+    return {
+      'Trip ID': t.id ? t.id.slice(0, 8) : '—',
+      'Trip Name': t.trip_name || '—',
+      'Assigned Worker': t.worker_name || '—',
+      'Driver Name': t.driver_name || '—',
+      'Vehicle Board #': t.tanker_number || '—',
+      'Visited BMC Route': t.route || 'No BMCs visited',
+      'Out Time (Start)': t.out_time ? new Date(t.out_time).toLocaleTimeString() : '—',
+      'In Time (End)': t.in_time ? new Date(t.in_time).toLocaleTimeString() : 'In Transit',
+      'Total BMCs Visited': (t.visits || []).length,
+      'Total Milk Collected (kg)': totalMilkKg ? `${totalMilkKg} kg` : '—',
+      'Status': (t.status || 'pending').toUpperCase()
+    };
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tripsData), 'Trip Operations Overview');
+
+  // 3. Detailed BMC Visits & Quality Tests Sheet
+  const detailedVisitRows = [];
+  (trips || []).forEach(t => {
+    const visits = t.visits || [];
+    if (visits.length === 0) {
+      detailedVisitRows.push({
+        'Trip Name': t.trip_name || '—',
+        'Worker': t.worker_name || '—',
+        'Vehicle': t.tanker_number || '—',
+        'Visit Seq': '—',
+        'BMC Name': 'No BMC visits recorded',
+        'Milk Quantity': '—',
+        'FTIR Result': '—',
+        'Gerber Result': '—',
+        'Visit Status': 'Pending'
+      });
+    } else {
+      visits.forEach(v => {
+        detailedVisitRows.push({
+          'Trip Name': t.trip_name || '—',
+          'Worker': t.worker_name || '—',
+          'Vehicle': t.tanker_number || '—',
+          'Visit Seq': v.visit_sequence || 1,
+          'BMC Name': v.bmc_name || '—',
+          'Milk Quantity': v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'),
+          'FTIR Result': v.ftir_result || '—',
+          'Gerber Result': v.gerber_result || '—',
+          'Visit Status': (v.status || 'completed').toUpperCase()
+        });
+      });
+    }
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailedVisitRows), 'Detailed BMC Quality Tests');
+
+  XLSX.writeFile(wb, `AAVIN_GM_Comprehensive_Operational_Report_${selectedDate}.xlsx`);
+  if (typeof showToast === 'function') showToast('Detailed Excel report generated!', 'success');
 }
 
 function exportToPDF() {
@@ -152,39 +200,120 @@ function exportToPDF() {
   }
 
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
+  const doc = new jsPDF('p', 'mm', 'a4');
   const { date_formatted, kpis, trips } = currentDashboardData;
 
+  // Header Banner
   doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, 210, 30, 'F');
+  doc.rect(0, 0, 210, 28, 'F');
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(16);
+  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text('AAVIN General Management Operational Report', 14, 18);
-
+  doc.text('MADURAI DISTRICT CO-OPERATIVE MILK PRODUCER\'S UNION LTD', 14, 12);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Date: ${date_formatted}`, 14, 25);
+  doc.text(`GM Executive Operational Report — ${date_formatted || selectedDate}`, 14, 20);
 
+  // Executive Summary Section
   doc.setTextColor(15, 23, 42);
-  doc.setFontSize(12);
+  doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.text('Operational Summary KPIs', 14, 40);
+  doc.text('Executive Operational Summary', 14, 36);
 
   const kpiRows = [
-    ['Total Trips:', String(kpis.total_trips), 'Active Trips:', String(kpis.active_trips)],
-    ['Finished Trips:', String(kpis.completed_trips), 'Milk Collected:', `${kpis.total_milk_liters} kg`]
+    ['Total Trips:', String(kpis.total_trips || 0), 'Active In-Transit:', String(kpis.active_trips || 0)],
+    ['Completed Trips:', String(kpis.completed_trips || 0), 'Milk Volume Collected:', `${kpis.total_milk_liters || 0} kg`]
   ];
 
   doc.autoTable({
-    startY: 44,
+    startY: 39,
     body: kpiRows,
     theme: 'plain',
-    styles: { fontSize: 10, cellPadding: 3 },
+    styles: { fontSize: 9, cellPadding: 2 },
     columnStyles: { 0: { fontStyle: 'bold' }, 2: { fontStyle: 'bold' } }
   });
 
-  doc.save(`AAVIN_GM_Executive_Report_${selectedDate}.pdf`);
+  let currentY = doc.lastAutoTable.finalY + 8;
+
+  // All Trips Operations Section
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Field Trip Operations Summary', 14, currentY);
+
+  const tripColumns = ['Trip Name', 'Worker', 'Driver & Vehicle', 'Visited BMC Route', 'Out Time', 'Status'];
+  const tripRows = (trips || []).map(t => [
+    t.trip_name || '—',
+    t.worker_name || '—',
+    `${t.driver_name || '—'}\n(${t.tanker_number || '—'})`,
+    t.route || 'No BMCs visited',
+    t.out_time ? new Date(t.out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—',
+    (t.status || 'pending').toUpperCase()
+  ]);
+
+  doc.autoTable({
+    startY: currentY + 3,
+    head: [tripColumns],
+    body: tripRows,
+    theme: 'striped',
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+    styles: { fontSize: 8, cellPadding: 2 },
+    columnStyles: {
+      0: { cellWidth: 35, fontStyle: 'bold' },
+      1: { cellWidth: 30 },
+      2: { cellWidth: 30 },
+      3: { cellWidth: 50 },
+      4: { cellWidth: 20 },
+      5: { cellWidth: 20, fontStyle: 'bold' }
+    }
+  });
+
+  currentY = doc.lastAutoTable.finalY + 8;
+
+  // Detailed BMC Visit Breakdowns Section
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Detailed BMC Visits & Spot Quality Test Breakdown', 14, currentY);
+
+  const visitColumns = ['Trip Name', 'Seq', 'BMC Name', 'Milk Qty', 'FTIR Test', 'Gerber Test'];
+  const visitRows = [];
+
+  (trips || []).forEach(t => {
+    const visits = t.visits || [];
+    if (visits.length === 0) {
+      visitRows.push([t.trip_name || '—', '—', 'No BMC visits recorded', '—', '—', '—']);
+    } else {
+      visits.forEach(v => {
+        visitRows.push([
+          t.trip_name || '—',
+          String(v.visit_sequence || 1),
+          v.bmc_name || '—',
+          v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'),
+          v.ftir_result || '—',
+          v.gerber_result || '—'
+        ]);
+      });
+    }
+  });
+
+  doc.autoTable({
+    startY: currentY + 3,
+    head: [visitColumns],
+    body: visitRows,
+    theme: 'grid',
+    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+    styles: { fontSize: 7.5, cellPadding: 2 },
+    columnStyles: {
+      0: { cellWidth: 35, fontStyle: 'bold' },
+      1: { cellWidth: 10, halign: 'center' },
+      2: { cellWidth: 40 },
+      3: { cellWidth: 20 },
+      4: { cellWidth: 40 },
+      5: { cellWidth: 40 }
+    }
+  });
+
+  doc.save(`AAVIN_GM_Comprehensive_Report_${selectedDate}.pdf`);
+  if (typeof showToast === 'function') showToast('Detailed PDF report downloaded!', 'success');
 }
 
 // ── Trips Table & Modal Logic ────────────────────────────────────────────────
@@ -226,22 +355,35 @@ function renderTripsTable(trips = []) {
         <td>${t.in_time ? formatTime(t.in_time) : '—'}</td>
         <td><span class="status-badge ${statusClass}">${t.status || 'Pending'}</span></td>
         <td>
-          <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openTripDetailModal('${t.id}')">
-            🔍 Details
-          </button>
+          <div class="d-flex gap-1" style="gap:4px;">
+            <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openTripDetailModal('${t.id}')" title="View Details">
+              🔍 Details
+            </button>
+            <button class="btn btn-sm btn-outline" style="color:#059669; border-color:#a7f3d0;" onclick="event.stopPropagation(); exportSingleTripExcelById('${t.id}')" title="Download Spot Ack Excel">
+              📊
+            </button>
+            <button class="btn btn-sm btn-outline" style="color:#dc2626; border-color:#fca5a5;" onclick="event.stopPropagation(); exportSingleTripPDFById('${t.id}')" title="Download Single Trip PDF">
+              📄
+            </button>
+          </div>
         </td>
       </tr>
     `;
   }).join('');
 }
 
+let activeModalTripId = null;
+
 function setupTripDetailModal() {
   const modal = document.getElementById('trip-detail-modal');
   const closeBtn = document.getElementById('trip-modal-close');
   const dismissBtn = document.getElementById('trip-modal-dismiss-btn');
+  const downloadExcelBtn = document.getElementById('modal-download-excel-btn');
+  const downloadPdfBtn = document.getElementById('modal-download-pdf-btn');
 
   function closeModal() {
     if (modal) modal.classList.add('hidden');
+    activeModalTripId = null;
   }
 
   if (closeBtn) closeBtn.addEventListener('click', closeModal);
@@ -249,6 +391,17 @@ function setupTripDetailModal() {
   if (modal) {
     modal.addEventListener('click', (e) => {
       if (e.target === modal) closeModal();
+    });
+  }
+
+  if (downloadExcelBtn) {
+    downloadExcelBtn.addEventListener('click', () => {
+      if (activeModalTripId) exportSingleTripExcelById(activeModalTripId);
+    });
+  }
+  if (downloadPdfBtn) {
+    downloadPdfBtn.addEventListener('click', () => {
+      if (activeModalTripId) exportSingleTripPDFById(activeModalTripId);
     });
   }
 }
@@ -292,8 +445,233 @@ window.openTripDetailModal = function(tripId) {
     }
   }
 
+  activeModalTripId = tripId;
   modal.classList.remove('hidden');
 };
+
+window.exportSingleTripExcelById = function(tripId) {
+  if (!currentDashboardData || !currentDashboardData.trips) return;
+  const trip = currentDashboardData.trips.find(t => t.id === tripId);
+  if (trip) exportSingleTripExcel(trip);
+};
+
+window.exportSingleTripPDFById = function(tripId) {
+  if (!currentDashboardData || !currentDashboardData.trips) return;
+  const trip = currentDashboardData.trips.find(t => t.id === tripId);
+  if (trip) exportSingleTripPDF(trip);
+};
+
+function exportSingleTripExcel(trip) {
+  if (!trip || typeof XLSX === 'undefined') {
+    if (typeof showToast === 'function') showToast('Excel library not ready.', 'error');
+    return;
+  }
+
+  try {
+    const aoa = [];
+    aoa.push(['MADURAI DISTRICT CO-OPERATIVE MILK PRODUCER\'S UNION LTD - MADURAI-20']);
+    aoa.push(['SPOT ACKNOWLEDGEMENT TEST DETAILS — TRIP: ' + (trip.trip_name || trip.id).toUpperCase()]);
+
+    // Metadata subheader
+    aoa.push([
+      `Worker: ${trip.worker_name || '—'}`,
+      `Driver: ${trip.driver_name || '—'}`,
+      `Vehicle: ${trip.tanker_number || '—'}`,
+      `Out Time: ${formatTime(trip.out_time)}`,
+      `In Time: ${trip.in_time ? formatTime(trip.in_time) : 'Active In-Transit'}`,
+      `Status: ${(trip.status || 'Pending').toUpperCase()}`
+    ]);
+
+    // Table Header rows
+    aoa.push([
+      'S.NO',
+      'NAME OF THE BMC',
+      'FTIR TEST', '', '',
+      'GERBER TEST', '', '', '',
+      'CONTAINER',
+      'TOTAL (kg)',
+      'SUMMARY'
+    ]);
+    aoa.push([
+      '', '',
+      'FAT', 'SNF', 'QNTY(KG)',
+      'FAT', 'LMR', 'SNF', 'QNTY(KG)',
+      '', '', ''
+    ]);
+
+    let grandTotalQty = 0;
+    const visits = trip.visits || [];
+
+    visits.forEach((v, idx) => {
+      const bmcName = v.bmc_name || 'Unknown BMC';
+      const qty = v.milk_quantity_liters ? Number(v.milk_quantity_liters) : null;
+      if (qty && !bmcName.includes('(After Mixing)')) {
+        grandTotalQty += qty;
+      }
+
+      let ftirFat = '-', ftirSnf = '-';
+      if (v.ftir_result && v.ftir_result.includes('FAT:')) {
+        const m = v.ftir_result.match(/FAT:\s*([0-9.]+).*?SNF:\s*([0-9.]+)/i);
+        if (m) { ftirFat = m[1]; ftirSnf = m[2]; }
+      }
+
+      let gerberFat = '-', gerberLmr = '-', gerberSnf = '-';
+      if (v.gerber_result && v.gerber_result.includes('FAT:')) {
+        const m = v.gerber_result.match(/FAT:\s*([0-9.]+).*?SNF:\s*([0-9.]+)/i);
+        if (m) { gerberFat = m[1]; gerberSnf = m[2]; }
+      }
+
+      const summaryText = `${v.ftir_result || '—'} | ${v.gerber_result || '—'}`;
+
+      aoa.push([
+        v.visit_sequence || (idx + 1),
+        bmcName,
+        ftirFat,
+        ftirSnf,
+        qty ? qty : '',
+        gerberFat,
+        gerberLmr,
+        gerberSnf,
+        qty ? qty : '',
+        'Standard Tanker',
+        qty ? qty : '-',
+        summaryText
+      ]);
+    });
+
+    // Total row
+    aoa.push([
+      '', '', '', '', '', '', '', '', '', '',
+      grandTotalQty > 0 ? grandTotalQty : '-',
+      ''
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // Merges
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 11 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 5 } },
+      { s: { r: 3, c: 0 }, e: { r: 4, c: 0 } },
+      { s: { r: 3, c: 1 }, e: { r: 4, c: 1 } },
+      { s: { r: 3, c: 2 }, e: { r: 3, c: 4 } },
+      { s: { r: 3, c: 5 }, e: { r: 3, c: 8 } },
+      { s: { r: 3, c: 9 }, e: { r: 4, c: 9 } },
+      { s: { r: 3, c: 10 }, e: { r: 4, c: 10 } },
+      { s: { r: 3, c: 11 }, e: { r: 4, c: 11 } }
+    ];
+
+    ws['!cols'] = [
+      { wch: 6 },   // S.NO
+      { wch: 30 },  // BMC NAME
+      { wch: 8 },   // FTIR FAT
+      { wch: 8 },   // FTIR SNF
+      { wch: 10 },  // FTIR QNTY
+      { wch: 8 },   // GERBER FAT
+      { wch: 8 },   // GERBER LMR
+      { wch: 8 },   // GERBER SNF
+      { wch: 10 },  // GERBER QNTY
+      { wch: 15 },  // CONTAINER
+      { wch: 12 },  // TOTAL (kg)
+      { wch: 45 }   // SUMMARY
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Spot Acknowledgement');
+    const filename = `AAVIN_Single_Trip_${(trip.trip_name || trip.id).replace(/\s+/g, '_')}_Report.xlsx`;
+    XLSX.writeFile(wb, filename);
+
+    if (typeof showToast === 'function') showToast('Single trip Excel report downloaded!', 'success');
+  } catch (err) {
+    console.error('Failed to export single trip Excel:', err);
+    if (typeof showToast === 'function') showToast('Export failed: ' + err.message, 'error');
+  }
+}
+
+function exportSingleTripPDF(trip) {
+  if (!trip || !window.jspdf) {
+    window.print();
+    return;
+  }
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    // Header banner
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 32, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('MADURAI DISTRICT CO-OPERATIVE MILK PRODUCER\'S UNION LTD', 14, 15);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'normal');
+    doc.text('SPOT ACKNOWLEDGEMENT & SINGLE TRIP OPERATIONAL REPORT', 14, 24);
+
+    // Trip Metadata Card
+    doc.setFillColor(248, 250, 252);
+    doc.rect(14, 38, 182, 38, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.rect(14, 38, 182, 38, 'S');
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Trip: ${(trip.trip_name || 'N/A').toUpperCase()}`, 18, 46);
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Worker: ${trip.worker_name || '—'}`, 18, 54);
+    doc.text(`Driver: ${trip.driver_name || '—'}`, 105, 54);
+    doc.text(`Vehicle: ${trip.tanker_number || '—'}`, 18, 62);
+    doc.text(`Status: ${(trip.status || 'Pending').toUpperCase()}`, 105, 62);
+    doc.text(`Out Time: ${formatTime(trip.out_time)}`, 18, 70);
+    doc.text(`In Time: ${trip.in_time ? formatTime(trip.in_time) : 'Active In-Transit'}`, 105, 70);
+
+    // Visited BMC Table
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Visited BMC Sequence & Quality Test Results', 14, 84);
+
+    const visits = trip.visits || [];
+    const tableBody = visits.map(v => [
+      String(v.visit_sequence || '—'),
+      v.bmc_name || '—',
+      v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'),
+      v.ftir_result || '—',
+      v.gerber_result || '—'
+    ]);
+
+    if (tableBody.length === 0) {
+      tableBody.push(['—', 'No BMC visits recorded for this trip yet.', '—', '—', '—']);
+    }
+
+    doc.autoTable({
+      startY: 88,
+      head: [['Seq', 'BMC Center Name', 'Milk Qty (kg)', 'FTIR Quality Test', 'Gerber Quality Test']],
+      body: tableBody,
+      theme: 'grid',
+      headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 8.5, cellPadding: 3 }
+    });
+
+    const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 12 : 140;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    const totalMilk = visits.reduce((acc, v) => acc + (Number(v.milk_quantity_liters) || 0), 0);
+    doc.text(`Total Milk Collected on Trip: ${totalMilk.toLocaleString()} kg`, 14, finalY);
+
+    const filename = `AAVIN_Single_Trip_${(trip.trip_name || trip.id).replace(/\s+/g, '_')}_Report.pdf`;
+    doc.save(filename);
+
+    if (typeof showToast === 'function') showToast('Single trip PDF report downloaded!', 'success');
+  } catch (err) {
+    console.error('Failed to export single trip PDF:', err);
+    if (typeof showToast === 'function') showToast('PDF Export failed: ' + err.message, 'error');
+  }
+}
 
 function esc(str) {
   if (!str) return '';

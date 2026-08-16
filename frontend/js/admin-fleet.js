@@ -62,9 +62,12 @@ async function loadDrivers() {
           <strong>👨‍✈️ ${esc(d.name)}</strong>
           <span>Phone: ${esc(d.phone || '—')} | License: ${esc(d.license_number || '—')}</span>
         </div>
-        <button class="btn btn-sm ${d.is_active ? 'btn-outline' : 'btn-primary'}" onclick="toggleDriver('${d.id}', ${!d.is_active})">
-          ${d.is_active ? 'Deactivate' : 'Activate'}
-        </button>
+        <div class="d-flex gap-1" style="gap:4px;">
+          <button class="btn btn-sm ${d.is_active ? 'btn-outline' : 'btn-primary'}" onclick="toggleDriver('${d.id}', ${!d.is_active})">
+            ${d.is_active ? 'Deactivate' : 'Activate'}
+          </button>
+          <button class="btn btn-sm btn-danger" onclick="deleteDriver('${d.id}')" title="Delete Driver">🗑️</button>
+        </div>
       </div>
     `).join('');
   } catch (err) {
@@ -91,9 +94,12 @@ async function loadTankers() {
           <strong>🚛 ${esc(t.board_number)}</strong>
           <span>Capacity: ${t.capacity_liters || 5000} Kg</span>
         </div>
-        <button class="btn btn-sm ${t.is_active ? 'btn-outline' : 'btn-primary'}" onclick="toggleTanker('${t.id}', ${!t.is_active})">
-          ${t.is_active ? 'Deactivate' : 'Activate'}
-        </button>
+        <div class="d-flex gap-1" style="gap:4px;">
+          <button class="btn btn-sm ${t.is_active ? 'btn-outline' : 'btn-primary'}" onclick="toggleTanker('${t.id}', ${!t.is_active})">
+            ${t.is_active ? 'Deactivate' : 'Activate'}
+          </button>
+          <button class="btn btn-sm btn-danger" onclick="deleteTanker('${t.id}')" title="Delete Vehicle">🗑️</button>
+        </div>
       </div>
     `).join('');
   } catch (err) {
@@ -116,6 +122,17 @@ window.toggleDriver = async function(id, is_active) {
   }
 };
 
+window.deleteDriver = async function(id) {
+  if (!confirm('Are you sure you want to delete this driver?')) return;
+  try {
+    await adminFetch(`/api/admin/drivers/${id}`, { method: 'DELETE' });
+    showToast('Driver deleted', 'success');
+    await loadDrivers();
+  } catch (err) {
+    showToast(err.message || 'Failed to delete driver', 'error');
+  }
+};
+
 window.toggleTanker = async function(id, is_active) {
   try {
     await adminFetch(`/api/admin/tankers/${id}/toggle`, {
@@ -130,9 +147,48 @@ window.toggleTanker = async function(id, is_active) {
   }
 };
 
+window.deleteTanker = async function(id) {
+  if (!confirm('Are you sure you want to delete this vehicle?')) return;
+  try {
+    await adminFetch(`/api/admin/tankers/${id}`, { method: 'DELETE' });
+    showToast('Vehicle deleted', 'success');
+    await loadTankers();
+  } catch (err) {
+    showToast(err.message || 'Failed to delete vehicle', 'error');
+  }
+};
+
 function setupModalHandlers() {
   const driverModal = document.getElementById('driver-modal');
   const tankerModal = document.getElementById('tanker-modal');
+
+  const purgeDriversBtn = document.getElementById('purge-drivers-btn');
+  if (purgeDriversBtn) {
+    purgeDriversBtn.addEventListener('click', async () => {
+      if (!confirm('⚠️ Are you sure you want to remove ALL registered drivers?')) return;
+      try {
+        await adminFetch('/api/admin/drivers/all', { method: 'DELETE' });
+        showToast('All drivers removed!', 'success');
+        await loadDrivers();
+      } catch (err) {
+        showToast(err.message || 'Failed to remove drivers.', 'error');
+      }
+    });
+  }
+
+  const purgeTankersBtn = document.getElementById('purge-tankers-btn');
+  if (purgeTankersBtn) {
+    purgeTankersBtn.addEventListener('click', async () => {
+      if (!confirm('⚠️ Are you sure you want to remove ALL registered vehicles?')) return;
+      try {
+        await adminFetch('/api/admin/tankers/all', { method: 'DELETE' });
+        showToast('All vehicles removed!', 'success');
+        await loadTankers();
+      } catch (err) {
+        showToast(err.message || 'Failed to remove vehicles.', 'error');
+      }
+    });
+  }
 
   document.getElementById('add-driver-btn').addEventListener('click', () => {
     document.getElementById('driver-name-input').value = '';
