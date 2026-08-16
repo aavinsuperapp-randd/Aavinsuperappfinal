@@ -416,6 +416,306 @@ app.get('/api/gm/dashboard', requireGm, async (req, res) => {
   }
 });
 
+// ─── GET /api/gm/dashboard-v2 (SINGLE-DATE COMPREHENSIVE DASHBOARD) ──────────
+app.get('/api/gm/dashboard-v2', requireGm, async (req, res) => {
+  const { adminClient } = req;
+  const dateParam = req.query.date; // YYYY-MM-DD or empty for today
+
+  // Calculate date range for the selected day
+  let targetDate;
+  if (dateParam) {
+    targetDate = new Date(dateParam + 'T00:00:00');
+  } else {
+    targetDate = new Date();
+  }
+  const dayStart = new Date(targetDate);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(targetDate);
+  dayEnd.setHours(23, 59, 59, 999);
+  const dayStartIso = dayStart.toISOString();
+  const dayEndIso = dayEnd.toISOString();
+
+  // Also calculate last 7 days for trend charts
+  const trendStart = new Date(targetDate);
+  trendStart.setDate(trendStart.getDate() - 6);
+  trendStart.setHours(0, 0, 0, 0);
+  const trendStartIso = trendStart.toISOString();
+
+  try {
+    // ── Parallel fetch: all entity lists + day-specific data ──
+    const [
+      tripsRes, trendTripsRes, visitsRes,
+      profilesRes, driversRes, tankersRes, bmcsRes
+    ] = await Promise.all([
+      // Trips for selected date
+      adminClient.from('trips').select('*').gte('created_at', dayStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
+      // Trips for last 7 days (for trend)
+      adminClient.from('trips').select('id, status, created_at').gte('created_at', trendStartIso).lte('created_at', dayEndIso),
+      // All BMC visits
+      adminClient.from('trip_bmc_visits').select('*').order('visit_sequence'),
+      // All profiles (workers/GMs)
+      adminClient.from('profiles').select('id, name, email, role, status, profile_image_url'),
+      // All drivers
+      adminClient.from('drivers').select('*').order('name'),
+      // All tankers
+      adminClient.from('tankers').select('*').order('board_number'),
+      // All BMCs
+      adminClient.from('bmcs').select('*').order('name')
+    ]);
+
+    const tripList = tripsRes.data || [];
+    const trendTripList = trendTripsRes.data || [];
+    const visitList = visitsRes.data || [];
+    const profilesList = profilesRes.data || [];
+    const driversList = driversRes.data || [];
+    const tankersList = tankersRes.data || [];
+    const bmcsList = bmcsRes.data || [];
+
+    // Build lookup maps
+    const profileMap = {};
+    profilesList.forEach(p => profileMap[p.id] = p);
+    const bmcMap = {};
+    bmcsList.forEach(b => bmcMap[b.id] = b);
+
+    // ── KPIs ──
+    const total_trips = tripList.length;
+    const active_trips = tripList.filter(t => t.status === 'active').length;
+    const completed_trips = tripList.filter(t => t.status === 'completed').length;
+    const total_bmc_visits = visitList.length;
+
+    let total_milk_liters = 0;
+    visitList.forEach(v => {
+      if (v.milk_quantity_liters) total_milk_liters += Number(v.milk_quantity_liters);
+    });
+
+    // ── Fetch test data, issues, ratings for visits ──
+    const visitIds = visitList.map(v => v.id);
+    let ftirList = [], gerberList = [], issueList = [], ratingList = [];
+    if (visitIds.length > 0) {
+      const [fRes, gRes, iRes, rRes] = await Promise.all([
+        adminClient.from('ftir_tests').select('*').in('visit_id', visitIds),
+        adminClient.from('gerber_tests').select('*').in('visit_id', visitIds),
+        adminClient.from('bmc_issues').select('*').in('visit_id', visitIds),
+        adminClient.from('bmc_ratings').select('*').in('visit_id', visitIds)
+      ]);
+      ftirList = fRes.data || [];
+      gerberList = gRes.data || [];
+      issueList = iRes.data || [];
+      ratingList = rRes.data || [];
+    }
+
+    // Also fetch ALL open issues (not date-limited) for complaints section
+    const { data: allOpenIssues } = await adminClient
+      .from('bmc_issues')
+      .select('*, visit:trip_bmc_visits(bmc_id, trip_id, trip:trips(worker_id))')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    const formattedIssues = (allOpenIssues || []).map(i => {
+      const bmcId = i.visit?.bmc_id;
+      const workerId = i.visit?.trip?.worker_id;
+      return {
+        id: i.id,
+        category: i.category,
+        severity: i.severity,
+        description: i.description,
+        image_url: i.image_url,
+        remarks: i.remarks || '',
+        status: i.status || 'pending',
+        created_at: i.created_at,
+        bmc_name: bmcId && bmcMap[bmcId] ? bmcMap[bmcId].name : 'Unknown BMC',
+        worker_name: workerId && profileMap[workerId] ? profileMap[workerId].name : 'Unknown Worker'
+      };
+    });
+
+    // ── Enrich trips with worker, visits, test counts ──
+    const enrichedTrips = tripList.map(t => {
+      const tVisits = visitList.filter(v => v.trip_id === t.id);
+      const tVisitIds = tVisits.map(v => v.id);
+      const tFtir = ftirList.filter(f => tVisitIds.includes(f.visit_id)).length;
+      const tGerber = gerberList.filter(g => tVisitIds.includes(g.visit_id)).length;
+      const tIssues = issueList.filter(i => tVisitIds.includes(i.visit_id)).length;
+
+      let duration_ms = null;
+      if (t.out_time && t.in_time) {
+        const outMs = new Date(t.out_time).getTime();
+        const inMs = new Date(t.in_time).getTime();
+        if (inMs >= outMs) duration_ms = inMs - outMs;
+      }
+
+      const worker = profileMap[t.worker_id] || { name: 'Unknown Worker' };
+      const lastVisit = tVisits.length > 0 ? tVisits[tVisits.length - 1] : null;
+      const lastBmc = lastVisit && bmcMap[lastVisit.bmc_id] ? bmcMap[lastVisit.bmc_id].name : '—';
+
+      const formattedVisits = tVisits
+        .sort((a, b) => (a.visit_sequence || 0) - (b.visit_sequence || 0))
+        .map((v, idx, arr) => {
+          const bmcName = (bmcMap[v.bmc_id] && bmcMap[v.bmc_id].name) || 'Unknown BMC';
+          const previousOccurrences = arr.slice(0, idx).filter(prev => prev.bmc_id === v.bmc_id);
+          const isAfterMixing = v.is_after_mixing || previousOccurrences.length >= 1 || (v.remarks && v.remarks.includes('[AFTER MIXING]'));
+          const displayName = isAfterMixing ? `${bmcName} (After Mixing)` : bmcName;
+
+          const ftir = ftirList.find(f => f.visit_id === v.id);
+          const gerber = gerberList.find(g => g.visit_id === v.id);
+
+          let ftir_result = '—';
+          if (ftir) {
+            ftir_result = `✓ ${(ftir.overall_result || 'Pass').toUpperCase()} (FAT: ${ftir.fat || 0}%, SNF: ${ftir.snf || 0}%)`;
+          } else if (v.status === 'completed') {
+            ftir_result = 'Not Tested';
+          } else {
+            ftir_result = 'Pending';
+          }
+
+          let gerber_result = '—';
+          if (gerber) {
+            gerber_result = `✓ ${(gerber.overall_result || 'Pass').toUpperCase()} (FAT: ${gerber.fat_percentage || 0}%, SNF: ${gerber.snf || 0}%)`;
+          } else if (v.status === 'completed') {
+            gerber_result = 'Not Tested';
+          } else {
+            gerber_result = 'Pending';
+          }
+
+          return {
+            id: v.id,
+            visit_sequence: v.visit_sequence || (idx + 1),
+            bmc_id: v.bmc_id,
+            bmc_name: displayName,
+            milk_quantity_liters: v.milk_quantity_liters,
+            milk_quantity_formatted: v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—',
+            status: v.status || 'pending',
+            ftir_result,
+            gerber_result
+          };
+        });
+
+      const visitBmcNames = formattedVisits.map(v => v.bmc_name).join(' → ');
+
+      return {
+        id: t.id,
+        trip_name: t.trip_name,
+        worker_id: t.worker_id,
+        worker_name: worker.name,
+        driver_name: t.driver_name,
+        tanker_number: t.tanker_number,
+        out_time: t.out_time,
+        in_time: t.in_time,
+        status: t.status,
+        created_at: t.created_at,
+        visits_count: tVisits.length,
+        ftir_count: tFtir,
+        gerber_count: tGerber,
+        issues_count: tIssues,
+        duration_ms,
+        duration_formatted: formatDurationMs(duration_ms),
+        last_bmc: lastBmc,
+        route: visitBmcNames || '—',
+        visits: formattedVisits
+      };
+    });
+
+    // ── Daily trends (last 7 days) ──
+    const daily_trends = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(targetDate);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().slice(0, 10);
+      const dayLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      const dayTrips = trendTripList.filter(t => (t.created_at || '').startsWith(dateStr)).length;
+      daily_trends.push({ date: dateStr, label: dayLabel, trips: dayTrips });
+    }
+
+    // ── Workers with current trip status ──
+    const workers = profilesList
+      .filter(p => p.role === 'user' && p.status === 'approved')
+      .map(p => {
+        const workerTrips = tripList.filter(t => t.worker_id === p.id);
+        const activeTrip = workerTrips.find(t => t.status === 'active');
+        return {
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          status: p.status,
+          profile_image_url: p.profile_image_url,
+          current_trip: activeTrip ? {
+            id: activeTrip.id,
+            trip_name: activeTrip.trip_name,
+            driver_name: activeTrip.driver_name,
+            tanker_number: activeTrip.tanker_number,
+            out_time: activeTrip.out_time,
+            status: activeTrip.status
+          } : null,
+          trips_today: workerTrips.length
+        };
+      });
+
+    res.json({
+      date: dayStart.toISOString().slice(0, 10),
+      date_formatted: targetDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+      kpis: {
+        total_trips,
+        active_trips,
+        completed_trips,
+        total_bmc_visits,
+        total_milk_liters: Math.round(total_milk_liters)
+      },
+      trips: enrichedTrips,
+      workers,
+      drivers: driversList,
+      tankers: tankersList,
+      bmcs: bmcsList,
+      issues: formattedIssues,
+      daily_trends
+    });
+
+  } catch (err) {
+    console.error('❌ GM Dashboard V2 Error:', err);
+    res.status(500).json({ error: err.message || 'Failed to load GM Dashboard data.' });
+  }
+});
+
+// ─── POST /api/gm/create-bmc (GM BMC CREATION) ───────────────────────────────
+app.post('/api/gm/create-bmc', requireGm, async (req, res) => {
+  const { adminClient } = req;
+  const { name, district, location, contact_number, latitude, longitude, profile_image_url } = req.body;
+
+  if (!name || !district || !location || !contact_number) {
+    return res.status(400).json({ error: 'Name, district, location, and contact number are required.' });
+  }
+  if (latitude === undefined || latitude === null || longitude === undefined || longitude === null) {
+    return res.status(400).json({ error: 'GPS coordinates (latitude and longitude) are required.' });
+  }
+
+  try {
+    const { data: existing } = await adminClient
+      .from('bmcs')
+      .select('id')
+      .ilike('name', name.trim())
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return res.status(409).json({ error: 'A BMC with this name already exists.' });
+    }
+
+    const { data, error } = await adminClient.from('bmcs').insert({
+      name: name.trim(),
+      district: district.trim(),
+      location: location.trim(),
+      contact_number: contact_number.trim(),
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      profile_image_url: profile_image_url || null,
+      is_active: true
+    }).select().single();
+
+    if (error) throw error;
+    res.status(201).json({ bmc: data });
+  } catch (err) {
+    console.error('❌ GM Create BMC error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create BMC.' });
+  }
+});
+
 // ─── GET /api/gm/analysis (VEHICLE / DRIVER / WORKER DEEP ANALYSIS) ─────────
 app.get('/api/gm/analysis', requireGm, async (req, res) => {
   const { adminClient } = req;
@@ -1215,6 +1515,50 @@ app.put('/api/admin/tankers/:id/toggle', async (req, res) => {
 
 
 // ─── GET /api/bmcs/search ─────────────────────────────────────────────────────
+// ─── POST /api/worker/create-bmc ─────────────────────────────────────────────
+// Allows workers to register a new BMC unit from the field
+app.post('/api/worker/create-bmc', requireWorker, async (req, res) => {
+  const { adminClient } = req;
+  const { name, district, location, contact_number, latitude, longitude, profile_image_url } = req.body;
+
+  if (!name || !district || !location || !contact_number) {
+    return res.status(400).json({ error: 'Name, district, location, and contact number are required.' });
+  }
+  if (latitude === undefined || latitude === null || longitude === undefined || longitude === null) {
+    return res.status(400).json({ error: 'GPS coordinates (latitude and longitude) are required.' });
+  }
+
+  try {
+    // Check for duplicate BMC name (case-insensitive)
+    const { data: existing } = await adminClient
+      .from('bmcs')
+      .select('id')
+      .ilike('name', name.trim())
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return res.status(409).json({ error: 'A BMC with this name already exists.' });
+    }
+
+    const { data, error } = await adminClient.from('bmcs').insert({
+      name: name.trim(),
+      district: district.trim(),
+      location: location.trim(),
+      contact_number: contact_number.trim(),
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      profile_image_url: profile_image_url || null,
+      is_active: true
+    }).select().single();
+
+    if (error) throw error;
+    res.status(201).json({ bmc: data });
+  } catch (err) {
+    console.error('❌ Create BMC error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create BMC.' });
+  }
+});
+
 app.get('/api/bmcs/search', requireWorker, async (req, res) => {
   const q = (req.query.q || '').trim();
   let query = req.adminClient.from('bmcs').select('*').eq('is_active', true);

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BMC Management — GM Portal</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
+  <link rel="stylesheet" href="/css/bmc-admin.css">
+  <link rel="stylesheet" href="../css/bmc-admin.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="gm-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>GM Portal</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Executive Overview</a>
+        
+        <a href="issues.html" class="admin-nav-item"><span>⚠️</span> Complaints</a>
+        <a href="fleet.html" class="admin-nav-item"><span>👥</span> Fleet & Staff</a>
+        <a href="bmcs.html" class="admin-nav-item active"><span>🏭</span> BMC Management</a>
+        <a href="analysis.html" class="admin-nav-item"><span>📈</span> Deep Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>BMC Cooling Center Management</h2>
+            <p>Manage, inspect, and register new BMC units across districts</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar">GM</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-gm-name">General Manager</div>
+              <div class="header-user-role">Executive Command</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-gm-content">
+
+          <div class="table-card">
+            <div class="table-card-header">
+              <h4>🏭 Registered BMC Units</h4>
+              <div class="table-filter-controls">
+                <input type="text" id="bmc-search-input" class="table-search-input" placeholder="🔍 Search BMC name, district...">
+                <button id="gm-open-create-bmc-btn" class="btn-create-bmc">
+                  <span>➕</span> Create New BMC
+                </button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="gm-table-v2">
+                <thead>
+                  <tr>
+                    <th>BMC Name</th>
+                    <th>District</th>
+                    <th>Location</th>
+                    <th>Contact Number</th>
+                    <th>GPS Coordinates</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="bmcs-table-body">
+                  <tr><td colspan="7" class="text-center text-muted" style="padding:24px;">Loading BMCs...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Create BMC Modal -->
+  <div id="create-bmc-modal" class="modal-overlay hidden">
+    <div class="modal-content modal-lg">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 style="margin:0; font-weight:800; color:#0F172A;">🏭 Register New BMC Center</h3>
+        <button id="create-bmc-modal-close" class="btn btn-ghost">✕</button>
+      </div>
+
+      <form id="gm-create-bmc-form">
+        <div class="form-grid-2">
+          <div class="form-group mb-3">
+            <label class="form-label">BMC Name *</label>
+            <input type="text" id="bmc-name" class="form-input" placeholder="e.g. Salem Central BMC" required>
+          </div>
+          <div class="form-group mb-3">
+            <label class="form-label">District *</label>
+            <input type="text" id="bmc-district" class="form-input" placeholder="e.g. Salem" required>
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group mb-3">
+            <label class="form-label">Location / Address *</label>
+            <input type="text" id="bmc-location" class="form-input" placeholder="e.g. Main Highway Road, Sector 4" required>
+          </div>
+          <div class="form-group mb-3">
+            <label class="form-label">Contact Number *</label>
+            <input type="tel" id="bmc-contact" class="form-input" placeholder="e.g. 9876543210" required>
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group mb-3">
+            <label class="form-label">Latitude *</label>
+            <input type="number" step="any" id="bmc-lat" class="form-input" placeholder="e.g. 11.6643" required>
+          </div>
+          <div class="form-group mb-3">
+            <label class="form-label">Longitude *</label>
+            <input type="number" step="any" id="bmc-lng" class="form-input" placeholder="e.g. 78.1460" required>
+          </div>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <button type="button" id="gm-detect-location-btn" class="btn btn-outline btn-sm">
+            📍 Auto-Detect Current GPS Location
+          </button>
+          <span id="gps-status-text" class="text-xs text-muted" style="margin-left:8px;"></span>
+        </div>
+
+        <div class="form-group mb-4">
+          <label class="form-label">BMC Photo (File or Live Camera)</label>
+          <div class="d-flex gap-2 mb-2" style="gap:8px; align-items:center;">
+            <input type="file" id="bmc-image-input" class="form-input" accept="image/*" style="flex:1;">
+            <button type="button" id="start-camera-btn" class="btn btn-outline" style="white-space:nowrap;">
+              📷 Take Live Photo
+            </button>
+          </div>
+
+          <!-- Camera Live Stream UI -->
+          <div id="camera-stream-container" class="hidden mb-2" style="position:relative; background:#0f172a; border-radius:8px; overflow:hidden; text-align:center; margin-top:8px;">
+            <video id="bmc-camera-video" autoplay playsinline style="width:100%; max-height:260px; object-fit:cover; display:block;"></video>
+            <div style="position:absolute; bottom:12px; left:0; right:0; display:flex; justify-content:center; gap:8px;">
+              <button type="button" id="capture-photo-btn" class="btn btn-primary btn-sm">📸 Capture Photo</button>
+              <button type="button" id="stop-camera-btn" class="btn btn-outline btn-sm" style="background:rgba(15,23,42,0.8); color:#fff; border-color:#475569;">✕ Stop Camera</button>
+            </div>
+            <canvas id="bmc-camera-canvas" class="hidden"></canvas>
+          </div>
+
+          <!-- Captured Image Preview UI -->
+          <div id="captured-photo-container" class="hidden mt-2">
+            <div class="d-flex align-items-center" style="gap:12px; background:#f8fafc; padding:10px; border-radius:8px; border:1px solid #e2e8f0;">
+              <img id="captured-photo-preview" src="" alt="Captured Live Photo" style="width:90px; height:68px; object-fit:cover; border-radius:6px; border:2px solid #2563EB;">
+              <div>
+                <span class="badge badge-success">✓ Live Photo Captured</span>
+                <button type="button" id="clear-photo-btn" class="btn btn-ghost btn-sm text-danger" style="display:block; margin-top:4px; padding:0;">🗑 Retake / Clear Photo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2">
+          <button type="button" id="create-bmc-cancel-btn" class="btn btn-outline">Cancel</button>
+          <button type="submit" id="create-bmc-submit-btn" class="btn btn-primary">Create BMC Unit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/gm-api.js"></script>
+  <script src="../js/gm-bmcs.js"></script>
+</body>
+</html>

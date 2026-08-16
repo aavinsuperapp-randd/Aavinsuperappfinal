@@ -1,288 +1,310 @@
-// gm-dashboard.js — GM 7-Day Dashboard Logic
+// gm-dashboard.js — Executive Overview Page Logic
 
-let tripsChartInstance = null;
-let visitsChartInstance = null;
+let currentDashboardData = null;
+let selectedDate = '';
 
 document.addEventListener('DOMContentLoaded', async () => {
   const profile = await checkAuth('gm');
   if (!profile) return;
 
-  document.getElementById('main-gm-content').classList.remove('hidden');
-  document.getElementById('header-gm-name').textContent = profile.name;
+  if (document.getElementById('header-gm-name')) {
+    document.getElementById('header-gm-name').textContent = profile.name || 'General Manager';
+  }
 
-  document.getElementById('logout-btn').addEventListener('click', handleLogout);
-  document.getElementById('refresh-dashboard-btn').addEventListener('click', loadDashboardData);
+  function getLocalDateStr(d = new Date()) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
 
+  // Setup Date Picker default (Today)
+  const todayStr = getLocalDateStr();
+  selectedDate = todayStr;
+  const datePicker = document.getElementById('gm-date-picker');
+  if (datePicker) {
+    datePicker.value = todayStr;
+    datePicker.addEventListener('change', (e) => {
+      selectedDate = e.target.value;
+      updatePresetButtonUI('');
+      loadDashboardData();
+    });
+  }
+
+  // Presets
+  const btnToday = document.getElementById('btn-preset-today');
+  const btnYesterday = document.getElementById('btn-preset-yesterday');
+
+  if (btnToday) {
+    btnToday.addEventListener('click', () => {
+      selectedDate = getLocalDateStr();
+      if (datePicker) datePicker.value = selectedDate;
+      updatePresetButtonUI('today');
+      loadDashboardData();
+    });
+  }
+  if (btnYesterday) {
+    btnYesterday.addEventListener('click', () => {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      selectedDate = getLocalDateStr(y);
+      if (datePicker) datePicker.value = selectedDate;
+      updatePresetButtonUI('yesterday');
+      loadDashboardData();
+    });
+  }
+
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+
+  // Exports
+  const exportExcelBtn = document.getElementById('export-excel-btn');
+  if (exportExcelBtn) exportExcelBtn.addEventListener('click', exportToExcel);
+
+  const exportPdfBtn = document.getElementById('export-pdf-btn');
+  if (exportPdfBtn) exportPdfBtn.addEventListener('click', exportToPDF);
+
+  const searchInput = document.getElementById('trip-search-input');
+  const statusFilter = document.getElementById('trip-status-filter');
+  if (searchInput) searchInput.addEventListener('input', () => { if(currentDashboardData) renderTripsTable(currentDashboardData.trips); });
+  if (statusFilter) statusFilter.addEventListener('change', () => { if(currentDashboardData) renderTripsTable(currentDashboardData.trips); });
+
+  setupTripDetailModal();
   await loadDashboardData();
 });
 
+function updatePresetButtonUI(activeType) {
+  const btnToday = document.getElementById('btn-preset-today');
+  const btnYesterday = document.getElementById('btn-preset-yesterday');
+  if (btnToday) btnToday.classList.toggle('active', activeType === 'today');
+  if (btnYesterday) btnYesterday.classList.toggle('active', activeType === 'yesterday');
+}
+
 async function loadDashboardData() {
   try {
-    const data = await apiGetGmDashboard();
-    renderDashboard(data);
+    const data = await apiGetGmDashboardV2(selectedDate);
+    currentDashboardData = data;
+    renderOverview(data);
   } catch (err) {
-    console.error('Failed to load GM Dashboard:', err);
-    showToast(err.message || 'Failed to load GM Dashboard metrics.', 'error');
+    console.error('Failed to load GM Overview:', err);
+    if (typeof showToast === 'function') {
+      showToast(err.message || 'Failed to load operational overview.', 'error');
+    }
   }
 }
 
-function renderDashboard(data) {
-  const { period, kpis, quality_summary, issue_summary, daily_trends, bmc_rankings } = data;
+function renderOverview(data) {
+  if (!data) return;
+  const { date_formatted, kpis = {}, trips = [] } = data;
 
-  // Period display
-  document.getElementById('period-display-range').textContent = period.label || 'LAST 7 DAYS';
+  const subEl = document.getElementById('dashboard-date-subtitle');
+  if (subEl) subEl.textContent = `Operational Report for ${date_formatted || selectedDate}`;
 
   // KPIs
-  document.getElementById('kpi-total-trips').textContent = kpis.total_trips;
-  document.getElementById('kpi-completed-trips').textContent = kpis.completed_trips;
-  document.getElementById('kpi-active-trips').textContent = kpis.active_trips;
-  document.getElementById('kpi-total-visits').textContent = kpis.total_bmc_visits;
-  document.getElementById('kpi-total-ftir').textContent = kpis.total_ftir;
-  document.getElementById('kpi-total-gerber').textContent = kpis.total_gerber;
-  document.getElementById('kpi-total-issues').textContent = kpis.total_issues;
-  document.getElementById('kpi-pending-corrections').textContent = kpis.pending_corrections;
+  if (document.getElementById('kpi-total-trips')) document.getElementById('kpi-total-trips').textContent = kpis.total_trips ?? 0;
+  if (document.getElementById('kpi-active-trips')) document.getElementById('kpi-active-trips').textContent = kpis.active_trips ?? 0;
+  if (document.getElementById('kpi-completed-trips')) document.getElementById('kpi-completed-trips').textContent = kpis.completed_trips ?? 0;
+  if (document.getElementById('kpi-total-milk')) document.getElementById('kpi-total-milk').textContent = `${(kpis.total_milk_liters || 0).toLocaleString()} kg`;
 
-  // Render Charts
-  renderTripsChart(daily_trends);
-  renderVisitsChart(daily_trends);
-
-  // Quality Testing Bars
-  renderQualitySummary(quality_summary);
-
-  // Issue Summary
-  renderIssueSummary(issue_summary);
-
-  // BMC Rankings
-  renderBmcRankings(bmc_rankings);
+  // Trip Operations
+  renderTripsTable(trips);
 }
 
-function renderTripsChart(daily_trends) {
-  const ctx = document.getElementById('tripsChart').getContext('2d');
-  const labels = daily_trends.map(d => d.label);
-  const dataValues = daily_trends.map(d => d.trips);
 
-  if (tripsChartInstance) tripsChartInstance.destroy();
 
-  tripsChartInstance = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Trips',
-        data: dataValues,
-        backgroundColor: '#2563EB',
-        borderRadius: 4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => `Trips: ${ctx.parsed.y}`
-          }
-        }
-      },
-      scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1 } }
-      }
-    }
-  });
-}
-
-function renderVisitsChart(daily_trends) {
-  const ctx = document.getElementById('visitsChart').getContext('2d');
-  const labels = daily_trends.map(d => d.label);
-  const dataValues = daily_trends.map(d => d.visits);
-
-  if (visitsChartInstance) visitsChartInstance.destroy();
-
-  visitsChartInstance = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'BMC Visits',
-        data: dataValues,
-        backgroundColor: '#10B981',
-        borderRadius: 4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => `Visits: ${ctx.parsed.y}`
-          }
-        }
-      },
-      scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1 } }
-      }
-    }
-  });
-}
-
-function renderQualitySummary(qs) {
-  const ftirTotalEl = document.getElementById('ftir-total-count');
-  if (!ftirTotalEl) return; // section removed
-
-  const ftirTotal = qs.ftir.pass + qs.ftir.warning + qs.ftir.fail;
-  ftirTotalEl.textContent = ftirTotal;
-  const ftirProgress = document.getElementById('ftir-progress-bar');
-  const ftirLegend = document.getElementById('ftir-legend');
-
-  if (ftirTotal === 0) {
-    if (ftirProgress) ftirProgress.innerHTML = `<div style="width:100%; background:var(--gray-200);"></div>`;
-    if (ftirLegend) ftirLegend.innerHTML = `<span class="text-muted">No FTIR tests recorded in last 7 days</span>`;
-  } else {
-    const pPct = (qs.ftir.pass / ftirTotal) * 100;
-    const wPct = (qs.ftir.warning / ftirTotal) * 100;
-    const fPct = (qs.ftir.fail / ftirTotal) * 100;
-    if (ftirProgress) {
-      ftirProgress.innerHTML = `
-        <div class="qp-pass" style="width:${pPct}%;"></div>
-        <div class="qp-warn" style="width:${wPct}%;"></div>
-        <div class="qp-fail" style="width:${fPct}%;"></div>
-      `;
-    }
-    if (ftirLegend) {
-      ftirLegend.innerHTML = `
-        <span style="color:#10B981; font-weight:600;">Pass: ${qs.ftir.pass}</span>
-        <span style="color:#F59E0B; font-weight:600;">Warn: ${qs.ftir.warning}</span>
-        <span style="color:#EF4444; font-weight:600;">Fail: ${qs.ftir.fail}</span>
-      `;
-    }
-  }
-
-  // Gerber
-  const gerberTotalEl = document.getElementById('gerber-total-count');
-  if (gerberTotalEl) {
-    const gerberTotal = qs.gerber.pass + qs.gerber.warning + qs.gerber.fail;
-    gerberTotalEl.textContent = gerberTotal;
-    const gerberProgress = document.getElementById('gerber-progress-bar');
-    const gerberLegend = document.getElementById('gerber-legend');
-
-    if (gerberTotal === 0) {
-      if (gerberProgress) gerberProgress.innerHTML = `<div style="width:100%; background:var(--gray-200);"></div>`;
-      if (gerberLegend) gerberLegend.innerHTML = `<span class="text-muted">No Gerber tests recorded in last 7 days</span>`;
-    } else {
-      const pPct = (qs.gerber.pass / gerberTotal) * 100;
-      const wPct = (qs.gerber.warning / gerberTotal) * 100;
-      const fPct = (qs.gerber.fail / gerberTotal) * 100;
-      if (gerberProgress) {
-        gerberProgress.innerHTML = `
-          <div class="qp-pass" style="width:${pPct}%;"></div>
-          <div class="qp-warn" style="width:${wPct}%;"></div>
-          <div class="qp-fail" style="width:${fPct}%;"></div>
-        `;
-      }
-      if (gerberLegend) {
-        gerberLegend.innerHTML = `
-          <span style="color:#10B981; font-weight:600;">Pass: ${qs.gerber.pass}</span>
-          <span style="color:#F59E0B; font-weight:600;">Warn: ${qs.gerber.warning}</span>
-          <span style="color:#EF4444; font-weight:600;">Fail: ${qs.gerber.fail}</span>
-        `;
-      }
-    }
-  }
-}
-
-function renderIssueSummary(iss) {
-  const issueTotalEl = document.getElementById('issue-total-num');
-  if (!issueTotalEl) return; // section removed
-
-  issueTotalEl.textContent = iss.total;
-  const highEl = document.getElementById('issue-high-num');
-  if (highEl) highEl.textContent = `${iss.high_critical} High / Critical`;
-
-  const container = document.getElementById('issue-categories-container');
-  if (!container) return;
-
-  const cats = iss.categories || {};
-  const keys = Object.keys(cats);
-
-  if (keys.length === 0) {
-    container.innerHTML = `<div class="text-muted text-sm">No issues reported in the last 7 days.</div>`;
+function exportToExcel() {
+  if (!currentDashboardData || typeof XLSX === 'undefined') {
+    alert('Excel library loading or data unavailable.');
     return;
   }
 
-  container.innerHTML = keys.map(k => `
-    <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
-      <span style="text-transform:capitalize; font-size:0.85rem;">${esc(k)}</span>
-      <span class="badge badge-neutral">${cats[k]}</span>
-    </div>
-  `).join('');
+  const { date_formatted, kpis, trips, workers, bmcs } = currentDashboardData;
+  const wb = XLSX.utils.book_new();
+
+  const summaryData = [
+    { Metric: 'Report Date', Value: date_formatted },
+    { Metric: 'Total Trips', Value: kpis.total_trips },
+    { Metric: 'Active Trips', Value: kpis.active_trips },
+    { Metric: 'Completed Trips', Value: kpis.completed_trips },
+    { Metric: 'Milk Collected (kg)', Value: kpis.total_milk_liters }
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), 'Summary');
+
+  const tripsData = trips.map(t => ({
+    'Trip Name': t.trip_name,
+    'Worker': t.worker_name,
+    'Driver': t.driver_name,
+    'Vehicle': t.tanker_number,
+    'Route': t.route,
+    'Out Time': t.out_time,
+    'In Time': t.in_time || 'In Transit',
+    'Status': t.status
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tripsData), 'All Trips');
+
+  XLSX.writeFile(wb, `AAVIN_GM_Overview_${selectedDate}.xlsx`);
 }
 
-function renderBmcRankings(rankings) {
-  // Top Rated
-  const topEl = document.getElementById('top-rated-bmcs');
-  if (topEl) {
-    if (rankings.top_rated.length === 0) {
-      topEl.innerHTML = `<tr><td colspan="2" class="text-muted text-sm">No rating data</td></tr>`;
-    } else {
-      topEl.innerHTML = rankings.top_rated.map(b => `
-        <tr>
-          <td><strong>${esc(b.name)}</strong></td>
-          <td style="color:#10B981; font-weight:700;">${b.avgRating} ★</td>
-        </tr>
-      `).join('');
-    }
+function exportToPDF() {
+  if (!currentDashboardData || !window.jspdf) {
+    window.print();
+    return;
   }
 
-  // Lowest Rated
-  const lowEl = document.getElementById('lowest-rated-bmcs');
-  if (lowEl) {
-    if (rankings.lowest_rated.length === 0) {
-      lowEl.innerHTML = `<tr><td colspan="2" class="text-muted text-sm">No rating data</td></tr>`;
-    } else {
-      lowEl.innerHTML = rankings.lowest_rated.map(b => `
-        <tr>
-          <td><strong>${esc(b.name)}</strong></td>
-          <td style="color:#EF4444; font-weight:700;">${b.avgRating} ★</td>
-        </tr>
-      `).join('');
-    }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const { date_formatted, kpis, trips } = currentDashboardData;
+
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, 210, 30, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text('AAVIN General Management Operational Report', 14, 18);
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Date: ${date_formatted}`, 14, 25);
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Operational Summary KPIs', 14, 40);
+
+  const kpiRows = [
+    ['Total Trips:', String(kpis.total_trips), 'Active Trips:', String(kpis.active_trips)],
+    ['Finished Trips:', String(kpis.completed_trips), 'Milk Collected:', `${kpis.total_milk_liters} kg`]
+  ];
+
+  doc.autoTable({
+    startY: 44,
+    body: kpiRows,
+    theme: 'plain',
+    styles: { fontSize: 10, cellPadding: 3 },
+    columnStyles: { 0: { fontStyle: 'bold' }, 2: { fontStyle: 'bold' } }
+  });
+
+  doc.save(`AAVIN_GM_Executive_Report_${selectedDate}.pdf`);
+}
+
+// ── Trips Table & Modal Logic ────────────────────────────────────────────────
+function renderTripsTable(trips = []) {
+  const tbody = document.getElementById('trips-table-body');
+  if (!tbody) return;
+
+  const searchVal = (document.getElementById('trip-search-input')?.value || '').toLowerCase().trim();
+  const statusFilter = (document.getElementById('trip-status-filter')?.value || '').toLowerCase();
+
+  let filtered = trips.filter(t => {
+    const matchSearch = !searchVal ||
+      (t.trip_name || '').toLowerCase().includes(searchVal) ||
+      (t.worker_name || '').toLowerCase().includes(searchVal) ||
+      (t.driver_name || '').toLowerCase().includes(searchVal) ||
+      (t.tanker_number || '').toLowerCase().includes(searchVal) ||
+      (t.route || '').toLowerCase().includes(searchVal);
+    const matchStatus = !statusFilter || (t.status || '').toLowerCase() === statusFilter;
+    return matchSearch && matchStatus;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted" style="padding:24px;">No trips found matching criteria.</td></tr>`;
+    return;
   }
 
-  // Most Visited (if element present)
-  const visEl = document.getElementById('most-visited-bmcs');
-  if (visEl) {
-    if (rankings.most_visited.length === 0) {
-      visEl.innerHTML = `<tr><td colspan="2" class="text-muted text-sm">No visits data</td></tr>`;
-    } else {
-      visEl.innerHTML = rankings.most_visited.map(b => `
-        <tr>
-          <td><strong>${esc(b.name)}</strong></td>
-          <td style="font-weight:700;">${b.visitsCount} visits</td>
-        </tr>
-      `).join('');
-    }
+  tbody.innerHTML = filtered.map(t => {
+    const statusClass = (t.status || 'pending').toLowerCase();
+    const shortId = t.id ? t.id.slice(0, 8) : 'TRIP';
+
+    return `
+      <tr onclick="openTripDetailModal('${t.id}')">
+        <td><strong>${esc(t.trip_name)}</strong><div class="text-xs text-muted">ID: ${shortId}</div></td>
+        <td>${esc(t.worker_name)}</td>
+        <td>${esc(t.driver_name || '—')}</td>
+        <td><span class="badge badge-neutral">${esc(t.tanker_number || '—')}</span></td>
+        <td><span class="text-sm" title="${esc(t.route)}">${esc(t.route || 'No BMCs yet')}</span></td>
+        <td>${formatTime(t.out_time)}</td>
+        <td>${t.in_time ? formatTime(t.in_time) : '—'}</td>
+        <td><span class="status-badge ${statusClass}">${t.status || 'Pending'}</span></td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openTripDetailModal('${t.id}')">
+            🔍 Details
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function setupTripDetailModal() {
+  const modal = document.getElementById('trip-detail-modal');
+  const closeBtn = document.getElementById('trip-modal-close');
+  const dismissBtn = document.getElementById('trip-modal-dismiss-btn');
+
+  function closeModal() {
+    if (modal) modal.classList.add('hidden');
   }
 
-  // Most Issues
-  const issEl = document.getElementById('most-issues-bmcs');
-  if (issEl) {
-    if (rankings.most_issues.length === 0) {
-      issEl.innerHTML = `<tr><td colspan="2" class="text-muted text-sm">No issues reported</td></tr>`;
-    } else {
-      issEl.innerHTML = rankings.most_issues.map(b => `
-        <tr>
-          <td><strong>${esc(b.name)}</strong></td>
-          <td style="color:#F59E0B; font-weight:700;">${b.issuesCount} issues</td>
-        </tr>
-      `).join('');
-    }
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (dismissBtn) dismissBtn.addEventListener('click', closeModal);
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
   }
 }
+
+window.openTripDetailModal = function(tripId) {
+  if (!currentDashboardData || !currentDashboardData.trips) return;
+  const trip = currentDashboardData.trips.find(t => t.id === tripId);
+  if (!trip) return;
+
+  const modal = document.getElementById('trip-detail-modal');
+  if (!modal) return;
+
+  document.getElementById('modal-trip-name').textContent = trip.trip_name;
+  document.getElementById('modal-trip-meta').textContent = `Status: ${(trip.status || 'Pending').toUpperCase()} | Created: ${new Date(trip.created_at).toLocaleString()}`;
+  document.getElementById('modal-worker-name').textContent = trip.worker_name;
+  document.getElementById('modal-driver-vehicle').textContent = `${trip.driver_name || 'Driver'} (${trip.tanker_number || 'Tanker'})`;
+  document.getElementById('modal-out-time').textContent = formatTime(trip.out_time);
+  document.getElementById('modal-in-time').textContent = trip.in_time ? formatTime(trip.in_time) : 'Active In-Transit';
+
+  // Render BMC visits
+  const vBody = document.getElementById('modal-visits-body');
+  if (vBody) {
+    const visits = trip.visits || [];
+    if (visits.length === 0) {
+      vBody.innerHTML = `<tr><td colspan="5" class="text-muted text-center" style="padding:20px;">No BMC visits recorded for this trip yet.</td></tr>`;
+    } else {
+      vBody.innerHTML = visits.map(v => {
+        const ftirBadge = v.ftir_result && v.ftir_result.includes('✓') ? 'completed' : (v.ftir_result === 'Not Tested' ? 'cancelled' : 'pending');
+        const gerberBadge = v.gerber_result && v.gerber_result.includes('✓') ? 'completed' : (v.gerber_result === 'Not Tested' ? 'cancelled' : 'pending');
+
+        return `
+          <tr>
+            <td><strong>${v.visit_sequence || '—'}</strong></td>
+            <td><strong>${esc(v.bmc_name)}</strong></td>
+            <td>${esc(v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'))}</td>
+            <td><span class="status-badge ${ftirBadge}">${esc(v.ftir_result)}</span></td>
+            <td><span class="status-badge ${gerberBadge}">${esc(v.gerber_result)}</span></td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  modal.classList.remove('hidden');
+};
 
 function esc(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatTime(isoStr) {
+  if (!isoStr) return '—';
+  try {
+    return new Date(isoStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return isoStr;
+  }
 }

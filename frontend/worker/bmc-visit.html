@@ -83,9 +83,8 @@
             <button class="tab-btn active" id="tab-nav-compartment" data-tab="tab-compartment">1. Tanker Compartment</button>
             <button class="tab-btn" id="tab-nav-ftir" data-tab="tab-ftir">2. FTIR Test (Digital)</button>
             <button class="tab-btn" id="tab-nav-gerber" data-tab="tab-gerber">3. Gerber Test (Physical)</button>
-            <button class="tab-btn" id="tab-nav-requirements" data-tab="tab-requirements">4. Requirements</button>
-            <button class="tab-btn" id="tab-nav-issues" data-tab="tab-issues">5. Record Issues</button>
-            <button class="tab-btn" id="tab-nav-rating" data-tab="tab-rating">6. Rate BMC</button>
+            <button class="tab-btn" id="tab-nav-issues" data-tab="tab-issues">4. Record Issues</button>
+            <button class="tab-btn" id="tab-nav-rating" data-tab="tab-rating">5. Rate BMC</button>
           </div>
 
           <!-- ════════════════ TAB 1: TANKER COMPARTMENT ════════════════ -->
@@ -213,65 +212,7 @@
             </div>
           </div>
 
-          <!-- ════════════════ TAB 4: REQUIREMENTS ════════════════ -->
-          <div id="tab-requirements" class="tab-panel">
-            <div class="form-section">
-              <div class="form-section-title">
-                <span>🔧</span> BMC Equipment & Requirements Checklist
-              </div>
-              <p class="text-sm text-muted mb-3">Check whether each required equipment item is Available or Not Available / Faulty.</p>
-
-              <div class="checklist mb-4">
-                
-                <!-- 1. Acids -->
-                <div class="check-item">
-                  <div class="check-item-label">1. Acids</div>
-                  <div class="check-toggle">
-                    <button type="button" class="check-toggle-btn" id="acids-yes" onclick="setRequirementItem('acids', true)">Available</button>
-                    <button type="button" class="check-toggle-btn" id="acids-no" onclick="setRequirementItem('acids', false)">Not Available / Faulty</button>
-                  </div>
-                </div>
-
-                <!-- 2. FTIR Machine -->
-                <div class="check-item">
-                  <div class="check-item-label">2. FTIR Machine</div>
-                  <div class="check-toggle">
-                    <button type="button" class="check-toggle-btn" id="ftir-yes" onclick="setRequirementItem('ftir_machine', true)">Available</button>
-                    <button type="button" class="check-toggle-btn" id="ftir-no" onclick="setRequirementItem('ftir_machine', false)">Not Available / Faulty</button>
-                  </div>
-                </div>
-
-                <!-- 3. Seal Cutter -->
-                <div class="check-item">
-                  <div class="check-item-label">3. Seal Cutter</div>
-                  <div class="check-toggle">
-                    <button type="button" class="check-toggle-btn" id="seal-yes" onclick="setRequirementItem('seal_cutter', true)">Available</button>
-                    <button type="button" class="check-toggle-btn" id="seal-no" onclick="setRequirementItem('seal_cutter', false)">Not Available / Faulty</button>
-                  </div>
-                </div>
-
-                <!-- 4. Thermometer -->
-                <div class="check-item">
-                  <div class="check-item-label">4. Thermometer</div>
-                  <div class="check-toggle">
-                    <button type="button" class="check-toggle-btn" id="thermo-yes" onclick="setRequirementItem('thermometer', true)">Available</button>
-                    <button type="button" class="check-toggle-btn" id="thermo-no" onclick="setRequirementItem('thermometer', false)">Not Available / Faulty</button>
-                  </div>
-                </div>
-
-              </div>
-
-              <!-- Custom Wanted Things by User -->
-              <div class="form-group mb-4">
-                <label class="form-label" for="custom-requirements">Additional Equipment / Wanted Items by User</label>
-                <input type="text" id="custom-requirements" class="form-input" placeholder="e.g. Additional milk testing kit, extra seal rolls needed...">
-              </div>
-
-              <button type="button" class="btn btn-primary" onclick="saveRequirements()">Save Requirements Checklist</button>
-            </div>
-          </div>
-
-          <!-- ════════════════ TAB 5: RECORD ISSUES ════════════════ -->
+          <!-- ════════════════ TAB 4: RECORD ISSUES ════════════════ -->
           <div id="tab-issues" class="tab-panel">
             <div class="form-section mb-4">
               <div class="form-section-title">
@@ -325,7 +266,7 @@
             </div>
           </div>
 
-          <!-- ════════════════ TAB 6: RATE BMC ════════════════ -->
+          <!-- ════════════════ TAB 5: RATE BMC ════════════════ -->
           <div id="tab-rating" class="tab-panel">
             <div class="form-section">
               <div class="form-section-title">

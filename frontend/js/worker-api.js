@@ -63,6 +63,11 @@ async function apiSearchBmcs(q = '') {
   return workerFetch(`/api/bmcs/search?q=${encodeURIComponent(q)}`);
 }
 
+// ─── Create BMC ──────────────────────────────────────────────────────────────
+async function apiCreateBmc(body) {
+  return workerFetch('/api/worker/create-bmc', { method: 'POST', body: JSON.stringify(body) });
+}
+
 // ─── Trips ───────────────────────────────────────────────────────────────────
 async function apiCreateTrip(body) {
   return workerFetch('/api/trips', { method: 'POST', body: JSON.stringify(body) });

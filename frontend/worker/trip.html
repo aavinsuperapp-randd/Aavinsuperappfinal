@@ -6,6 +6,7 @@
   <title>Active Trip Management — AAVIN BMC Worker</title>
   <link rel="stylesheet" href="../css/global.css">
   <link rel="stylesheet" href="../css/worker.css">
+  <link rel="stylesheet" href="../css/bmc-admin.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -31,9 +32,7 @@
         <a href="history.html" class="ws-nav-item">
           <span>📜</span> Trip History
         </a>
-        <a href="analysis.html" class="ws-nav-item">
-          <span>📈</span> Performance Analysis
-        </a>
+
         <a href="profile.html" class="ws-nav-item">
           <span>👤</span> My Profile
         </a>
@@ -94,9 +93,14 @@
             <div class="section-title">
               <span>📍</span> BMC Collection Route (<span id="visit-count-display">0</span> BMCs)
             </div>
-            <button id="add-bmc-to-trip-btn" class="btn btn-primary btn-sm">
-              <span>+</span> Add BMC to Route
-            </button>
+            <div class="d-flex flex-column gap-2">
+              <button id="add-bmc-to-trip-btn" class="btn btn-primary btn-sm">
+                <span>+</span> Add BMC to Route
+              </button>
+              <button id="qa-create-bmc" class="btn btn-outline btn-sm">
+                <span>🏭</span> Create BMC
+              </button>
+            </div>
           </div>
 
           <div id="visit-list-container" class="visit-list">
@@ -105,6 +109,73 @@
 
         </div>
       </main>
+    </div>
+  </div>
+
+  <!-- Create BMC Modal -->
+  <div id="create-bmc-modal" class="bmc-modal-overlay hidden">
+    <div class="bmc-modal">
+      <div class="bmc-modal-header">
+        <h3 id="create-bmc-modal-title">Register New BMC</h3>
+        <button id="create-bmc-close" class="bmc-modal-close">✕</button>
+      </div>
+      <div class="bmc-modal-body">
+
+        <!-- Image Upload -->
+        <div class="form-group mb-3">
+          <label class="form-label">BMC Profile Picture (Optional)</label>
+          <div class="bmc-image-upload" id="create-bmc-image-drop">
+            <img id="create-bmc-preview-img" src="" alt="" class="hidden" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">
+            <div id="create-bmc-image-placeholder">
+              <div style="font-size:2rem;">🏭</div>
+              <div class="text-sm text-muted mt-1">Click to upload image</div>
+            </div>
+            <input type="file" id="create-bmc-image-input" accept="image/*" style="display:none;">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group mb-3">
+            <label class="form-label" for="create-bmc-name">BMC Name *</label>
+            <input type="text" id="create-bmc-name" class="form-input" placeholder="e.g. Erode Central BMC">
+          </div>
+          <div class="form-group mb-3">
+            <label class="form-label" for="create-bmc-district">District *</label>
+            <input type="text" id="create-bmc-district" class="form-input" placeholder="e.g. Erode">
+          </div>
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="form-label" for="create-bmc-contact">Contact Number *</label>
+          <input type="tel" id="create-bmc-contact" class="form-input" placeholder="e.g. 9876543210" maxlength="15">
+        </div>
+
+        <!-- Location Block -->
+        <div class="form-group mb-3">
+          <label class="form-label">Location *</label>
+          <div class="bmc-location-block" id="create-bmc-location-block">
+            <input type="text" id="create-bmc-location" class="form-input" placeholder="Location name / address" style="margin-bottom:10px;">
+            <div class="bmc-location-coords" id="create-bmc-coords-display" style="display:none; gap:10px; margin-bottom:8px;">
+              <span class="bmc-coord-badge">📍 Lat: <b id="create-lat-display">—</b></span>
+              <span class="bmc-coord-badge">Lng: <b id="create-lng-display">—</b></span>
+            </div>
+            <input type="hidden" id="create-bmc-latitude">
+            <input type="hidden" id="create-bmc-longitude">
+            <div class="bmc-location-actions">
+              <button type="button" id="create-detect-location-btn" class="btn btn-outline btn-sm">
+                📡 Detect My Location
+              </button>
+              <span id="create-location-status" class="text-sm text-muted"></span>
+            </div>
+          </div>
+          <div class="form-hint" style="font-size: 0.75rem; color: #6b7280; margin-top: 4px;">GPS coordinates are required. Click "Detect My Location" to auto-fill.</div>
+        </div>
+
+      </div>
+      <div class="bmc-modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--gray-200); display: flex; justify-content: flex-end; gap: 10px;">
+        <button id="create-bmc-cancel" class="btn btn-outline">Cancel</button>
+        <button id="create-bmc-submit" class="btn btn-primary">Save BMC</button>
+      </div>
     </div>
   </div>
 

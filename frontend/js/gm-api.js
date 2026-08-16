@@ -31,9 +31,23 @@ async function gmFetch(endpoint, options = {}) {
   return json;
 }
 
-// Fetch GM Dashboard Data (Fixed Last 7 Days)
+// Fetch GM Dashboard Data (Fixed Last 7 Days - Legacy)
 async function apiGetGmDashboard() {
   return gmFetch('/api/gm/dashboard');
+}
+
+// Fetch Comprehensive GM Dashboard V2 (Single Date)
+async function apiGetGmDashboardV2(dateStr = '') {
+  const query = dateStr ? `?date=${encodeURIComponent(dateStr)}` : '';
+  return gmFetch(`/api/gm/dashboard-v2${query}`);
+}
+
+// Create BMC via GM Portal
+async function apiGmCreateBmc(data) {
+  return gmFetch('/api/gm/create-bmc', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
 }
 
 // Fetch GM Operational Analysis Data

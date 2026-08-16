@@ -6,13 +6,6 @@ let currentVisit = null;
 // Rating state (Single 1 to 5 overall rating)
 let overallRating = 5;
 
-// Requirements state (4 items with Available / Not Available)
-const reqState = {
-  acids: true,
-  ftir_machine: true,
-  seal_cutter: true,
-  thermometer: true
-};
 
 document.addEventListener('DOMContentLoaded', async () => {
   const profile = await checkAuth('user');
@@ -53,7 +46,6 @@ const ALL_TABS = [
   { navId: 'tab-nav-compartment', panelId: 'tab-compartment', label: 'Tanker Compartment' },
   { navId: 'tab-nav-ftir',        panelId: 'tab-ftir',        label: 'FTIR Test (Digital)' },
   { navId: 'tab-nav-gerber',      panelId: 'tab-gerber',      label: 'Gerber Test (Physical)' },
-  { navId: 'tab-nav-requirements',panelId: 'tab-requirements',label: 'Requirements' },
   { navId: 'tab-nav-issues',      panelId: 'tab-issues',      label: 'Record Issues' },
   { navId: 'tab-nav-rating',      panelId: 'tab-rating',      label: 'Rate BMC' },
 ];
@@ -217,17 +209,6 @@ function populateData() {
     if (gerber.remarks) document.getElementById('gerber-remarks').value = gerber.remarks;
     if (gerber.overall_result) renderTestResultBadge('gerber-badge-container', gerber.overall_result);
   }
-
-  // Requirements
-  const req = Array.isArray(currentVisit.requirement_checks) ? currentVisit.requirement_checks[0] : currentVisit.requirement_checks;
-  if (req) {
-    reqState.acids = req.acid_available !== false;
-    reqState.ftir_machine = req.ftir_machine_available !== false;
-    reqState.seal_cutter = req.seal_cutter_available !== false;
-    reqState.thermometer = req.power_backup_available !== false;
-    if (req.remarks) document.getElementById('custom-requirements').value = req.remarks;
-  }
-  updateReqButtonsUI();
 
   // Issues
   renderIssuesList(currentVisit.bmc_issues || []);
@@ -467,51 +448,6 @@ function renderTestResultBadge(containerId, result) {
     c.innerHTML = '<span class="result-badge result-fail">❌ FAIL</span>';
   }
 }
-
-// ── Requirements Checklist ────────────────────────────────────────────────
-window.setRequirementItem = function(key, boolVal) {
-  reqState[key] = boolVal;
-  updateReqButtonsUI();
-};
-
-function updateReqButtonsUI() {
-  const map = [
-    { key: 'acids', yes: 'acids-yes', no: 'acids-no' },
-    { key: 'ftir_machine', yes: 'ftir-yes', no: 'ftir-no' },
-    { key: 'seal_cutter', yes: 'seal-yes', no: 'seal-no' },
-    { key: 'thermometer', yes: 'thermo-yes', no: 'thermo-no' }
-  ];
-
-  map.forEach(m => {
-    const yBtn = document.getElementById(m.yes);
-    const nBtn = document.getElementById(m.no);
-    if (!yBtn || !nBtn) return;
-    if (reqState[m.key]) {
-      yBtn.className = 'check-toggle-btn selected-yes';
-      nBtn.className = 'check-toggle-btn';
-    } else {
-      yBtn.className = 'check-toggle-btn';
-      nBtn.className = 'check-toggle-btn selected-no';
-    }
-  });
-}
-
-window.saveRequirements = async function() {
-  const customItems = document.getElementById('custom-requirements').value.trim();
-  try {
-    await apiSaveRequirements(visitId, {
-      acid_available: reqState.acids,
-      ftir_machine_available: reqState.ftir_machine,
-      seal_cutter_available: reqState.seal_cutter,
-      power_backup_available: reqState.thermometer,
-      remarks: customItems || null
-    });
-    showToast('Requirements saved successfully', 'success');
-    await loadVisitData();
-  } catch (err) {
-    showToast(err.message || 'Failed to save requirements', 'error');
-  }
-};
 
 // ── Issues ────────────────────────────────────────────────────────────────
 window.addBmcIssue = async function() {
