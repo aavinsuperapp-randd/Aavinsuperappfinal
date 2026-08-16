@@ -89,20 +89,22 @@
               <input type="text" id="trip-name" class="form-input" placeholder="e.g. Madurai - Erode Morning Route" required>
             </div>
 
-            <!-- Driver Select Dropdown -->
+            <!-- Driver Select or Type -->
             <div class="form-group mb-3">
-              <label class="form-label" for="driver-select">Select Driver *</label>
-              <select id="driver-select" class="form-select" required>
-                <option value="">-- Loading drivers... --</option>
-              </select>
+              <label class="form-label" for="driver-input">Driver Name *</label>
+              <input type="text" id="driver-input" list="driver-list" class="form-input" placeholder="Select or type driver name" autocomplete="off" required>
+              <datalist id="driver-list">
+                <!-- Options populated by JS -->
+              </datalist>
             </div>
 
-            <!-- Tanker / Vehicle Select Dropdown -->
+            <!-- Tanker / Vehicle Select or Type -->
             <div class="form-group mb-3">
-              <label class="form-label" for="tanker-select">Select Vehicle / Tanker Number *</label>
-              <select id="tanker-select" class="form-select" required>
-                <option value="">-- Loading vehicles... --</option>
-              </select>
+              <label class="form-label" for="tanker-input">Vehicle / Tanker Number *</label>
+              <input type="text" id="tanker-input" list="tanker-list" class="form-input" placeholder="Select or type vehicle number" autocomplete="off" required>
+              <datalist id="tanker-list">
+                <!-- Options populated by JS -->
+              </datalist>
             </div>
 
 
