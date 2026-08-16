@@ -95,9 +95,19 @@ function renderVisitsList() {
     return;
   }
 
+  // Count visits per bmc_id to determine first vs second (After Mixing) visit
+  const bmcOccurrenceMap = {};
+
   container.innerHTML = currentVisits.map((v, idx) => {
     const isDone = v.status === 'completed';
-    const bmcName = v.bmc ? v.bmc.name : 'Unknown BMC';
+    let rawBmcName = v.bmc ? v.bmc.name : 'Unknown BMC';
+
+    const count = (bmcOccurrenceMap[v.bmc_id] || 0) + 1;
+    bmcOccurrenceMap[v.bmc_id] = count;
+
+    const isAfterMixing = v.is_after_mixing || (v.remarks && v.remarks.includes('[AFTER MIXING]')) || count > 1;
+    const bmcName = rawBmcName + (isAfterMixing ? ' (After Mixing)' : '');
+
     const bmcLocation = v.bmc ? `${v.bmc.location}, ${v.bmc.district}` : '';
     const compText = v.compartment ? `Compartment: ${v.compartment.toUpperCase()}` : 'Compartment: Not set';
 
@@ -108,12 +118,12 @@ function renderVisitsList() {
           <div class="visit-item-name">${esc(bmcName)}</div>
           <div class="visit-item-meta">📍 ${esc(bmcLocation)} | ${esc(compText)}</div>
         </div>
-        <div style="margin-right: 12px;">
+        <div class="visit-item-status">
           <span class="status-pill ${isDone ? 'pill-completed' : (v.status === 'in_progress' ? 'pill-active' : 'pill-pending')}">
             ${v.status === 'completed' ? '✓ Visited' : (v.status === 'in_progress' ? '● In Visit' : '○ Pending')}
           </span>
         </div>
-        <div class="visit-item-actions" style="display:flex; gap:8px;">
+        <div class="visit-item-actions">
           <a href="bmc-visit.html?visit_id=${v.id}" class="btn btn-sm ${isDone ? 'btn-outline' : 'btn-primary'}">
             ${isDone ? 'View / Edit Visit' : 'Perform Visit →'}
           </a>
@@ -172,8 +182,11 @@ function setupAddBmcModal() {
       const res = await apiSearchBmcs(q);
       const list = res.bmcs || [];
       
-      // Filter out already added BMCs
-      const existingBmcIds = currentVisits.map(v => v.bmc_id);
+      // Count existing visits per BMC in current trip
+      const bmcCountMap = {};
+      currentVisits.forEach(v => {
+        bmcCountMap[v.bmc_id] = (bmcCountMap[v.bmc_id] || 0) + 1;
+      });
       
       if (list.length === 0) {
         resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-desc">No BMC found.</div></div>';
@@ -181,20 +194,29 @@ function setupAddBmcModal() {
       }
 
       resultsDiv.innerHTML = list.map(b => {
-        const alreadyAdded = existingBmcIds.includes(b.id);
+        const addedCount = bmcCountMap[b.id] || 0;
+        const maxReached = addedCount >= 2;
+
+        let buttonHtml = '';
+        if (maxReached) {
+          buttonHtml = `<span class="status-pill pill-completed">Added (2/2)</span>`;
+        } else if (addedCount === 1) {
+          buttonHtml = `<button class="btn btn-primary btn-sm" onclick="addBmcToTrip('${b.id}')">+ Add (After Mixing)</button>`;
+        } else {
+          buttonHtml = `<button class="btn btn-primary btn-sm" onclick="addBmcToTrip('${b.id}')">+ Add</button>`;
+        }
+
         return `
-          <div class="search-result-item" style="${alreadyAdded ? 'opacity:0.5;' : ''}">
+          <div class="search-result-item" style="${maxReached ? 'opacity:0.6;' : ''}">
             <div class="search-result-img">
               ${b.profile_image_url ? `<img src="${esc(b.profile_image_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:6px;" alt="${esc(b.name)}">` : '🏭'}
             </div>
             <div style="flex:1;">
-              <div class="search-result-name">${esc(b.name)}</div>
+              <div class="search-result-name">${esc(b.name)} ${addedCount === 1 ? '<span style="font-size:0.75rem; color:#6b7280;">(1st visit added)</span>' : ''}</div>
               <div class="search-result-meta">📍 ${esc(b.location)}, ${esc(b.district)}</div>
             </div>
             <div>
-              ${alreadyAdded 
-                ? `<span class="status-pill pill-completed">Added</span>` 
-                : `<button class="btn btn-primary btn-sm" onclick="addBmcToTrip('${b.id}')">+ Add</button>`}
+              ${buttonHtml}
             </div>
           </div>
         `;
@@ -272,3 +294,159 @@ function esc(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+window.downloadTripReport = function() {
+  if (!currentTrip || !currentVisits) {
+    showToast('Trip data not loaded yet.', 'error');
+    return;
+  }
+
+  try {
+    const aoa = [];
+
+    // Title rows
+    aoa.push(['MADURAI DISTRICT CO-OPERATIVE MILK PRODUCER\'S UNION LTD - MADURAI-20']);
+    aoa.push(['SPOT ACKNOWLEDGEMENT TEST DETAILS']);
+
+    // Header rows (Row 3 & 4)
+    aoa.push([
+      'S.NO',
+      'NAME OF THE BMC',
+      'FTIR TEST', '', '',
+      'GERBER TEST', '', '', '',
+      'CONTAINER',
+      'TOTAL (kg)',
+      'SUMMARY'
+    ]);
+    aoa.push([
+      '', '',
+      'FAT', 'SNF', 'QNTY(KG)',
+      'FAT', 'LMR', 'SNF', 'QNTY(KG)',
+      '', '', ''
+    ]);
+
+    let grandTotalQty = 0;
+    const bmcCountMap = {};
+
+    currentVisits.forEach((v, idx) => {
+      const count = (bmcCountMap[v.bmc_id] || 0) + 1;
+      bmcCountMap[v.bmc_id] = count;
+      const isAfterMixing = v.is_after_mixing || (v.remarks && v.remarks.includes('[AFTER MIXING]')) || count > 1;
+
+      const rawBmcName = v.bmc ? v.bmc.name : 'Unknown BMC';
+      const bmcName = rawBmcName + (isAfterMixing ? ' (After Mixing)' : '');
+
+      const ftir = Array.isArray(v.ftir_tests) ? v.ftir_tests[0] : v.ftir_tests;
+      const gerber = Array.isArray(v.gerber_tests) ? v.gerber_tests[0] : v.gerber_tests;
+
+      const ftirFat = (ftir && ftir.fat !== null && ftir.fat !== undefined) ? ftir.fat : '-';
+      const ftirSnf = (ftir && ftir.snf !== null && ftir.snf !== undefined) ? ftir.snf : '-';
+
+      const gerberFat = (gerber && gerber.fat_percentage !== null && gerber.fat_percentage !== undefined) ? gerber.fat_percentage : '-';
+      const gerberLmr = (gerber && gerber.clr !== null && gerber.clr !== undefined) ? gerber.clr : '-';
+      const gerberSnf = (gerber && gerber.snf !== null && gerber.snf !== undefined) ? gerber.snf : '-';
+
+      const qty = v.milk_quantity_liters ? Number(v.milk_quantity_liters) : null;
+      if (qty && !isAfterMixing) {
+        grandTotalQty += qty;
+      }
+
+      // Container text formatting
+      let containerText = '-';
+      if (v.compartment) {
+        const compUpper = String(v.compartment).toLowerCase();
+        if (compUpper.includes('front')) containerText = '1(FrontSide)';
+        else if (compUpper.includes('back')) containerText = '2(Backside)';
+        else containerText = v.compartment;
+      }
+
+      // Summary compiling: collect remarks & issues
+      const summaryParts = [];
+      if (v.remarks && !v.remarks.includes('[AFTER MIXING]')) {
+        summaryParts.push(v.remarks.replace(/\[FTIR_IMAGE:.*?\]/g, '').trim());
+      }
+      if (v.bmc_issues && Array.isArray(v.bmc_issues) && v.bmc_issues.length > 0) {
+        v.bmc_issues.forEach(iss => {
+          if (iss.description) summaryParts.push(iss.description);
+        });
+      }
+      if (ftir && ftir.remarks) summaryParts.push(ftir.remarks);
+      if (gerber && gerber.remarks) summaryParts.push(gerber.remarks);
+
+      const summaryText = summaryParts.filter(Boolean).join('; ') || '-';
+
+      aoa.push([
+        idx + 1,
+        bmcName,
+        ftirFat,
+        ftirSnf,
+        qty ? qty : (isAfterMixing ? '' : '-'),
+        gerberFat,
+        gerberLmr,
+        gerberSnf,
+        qty ? qty : (isAfterMixing ? '' : '-'),
+        containerText,
+        qty ? qty : '-',
+        summaryText
+      ]);
+    });
+
+    // Total row at bottom
+    aoa.push([
+      '', '', '', '', '', '', '', '', '', '',
+      grandTotalQty > 0 ? grandTotalQty : '-',
+      ''
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // Merges
+    ws['!merges'] = [
+      // Title 1: A1:L1
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } },
+      // Title 2: A2:L2
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 11 } },
+      // S.NO: A3:A4
+      { s: { r: 2, c: 0 }, e: { r: 3, c: 0 } },
+      // NAME OF THE BMC: B3:B4
+      { s: { r: 2, c: 1 }, e: { r: 3, c: 1 } },
+      // FTIR TEST: C3:E3
+      { s: { r: 2, c: 2 }, e: { r: 2, c: 4 } },
+      // GERBER TEST: F3:I3
+      { s: { r: 2, c: 5 }, e: { r: 2, c: 8 } },
+      // CONTAINER: J3:J4
+      { s: { r: 2, c: 9 }, e: { r: 3, c: 9 } },
+      // TOTAL: K3:K4
+      { s: { r: 2, c: 10 }, e: { r: 3, c: 10 } },
+      // SUMMARY: L3:L4
+      { s: { r: 2, c: 11 }, e: { r: 3, c: 11 } }
+    ];
+
+    // Column widths
+    ws['!cols'] = [
+      { wch: 6 },   // S.NO
+      { wch: 30 },  // BMC NAME
+      { wch: 8 },   // FTIR FAT
+      { wch: 8 },   // FTIR SNF
+      { wch: 10 },  // FTIR QNTY
+      { wch: 8 },   // GERBER FAT
+      { wch: 8 },   // GERBER LMR
+      { wch: 8 },   // GERBER SNF
+      { wch: 10 },  // GERBER QNTY
+      { wch: 15 },  // CONTAINER
+      { wch: 12 },  // TOTAL (kg)
+      { wch: 45 }   // SUMMARY
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Spot Acknowledgement');
+
+    const fileName = `AAVIN_Trip_${currentTrip.trip_number || currentTrip.id}_Spot_Acknowledgement.xlsx`;
+    XLSX.writeFile(wb, fileName);
+
+    showToast('Report downloaded successfully!', 'success');
+  } catch (err) {
+    console.error('Failed to export Excel report:', err);
+    showToast('Export failed: ' + (err.message || 'Unknown error'), 'error');
+  }
+};

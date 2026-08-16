@@ -1283,7 +1283,7 @@ app.get('/api/trips/:id', requireWorker, async (req, res) => {
 
   if (error || !trip) return res.status(404).json({ error: 'Trip not found.' });
 
-  const { data: visits } = await adminClient
+  const { data: rawVisits } = await adminClient
     .from('trip_bmc_visits')
     .select(`*, bmc:bmcs(*),
       ftir_tests(*), gerber_tests(*),
@@ -1291,7 +1291,15 @@ app.get('/api/trips/:id', requireWorker, async (req, res) => {
     .eq('trip_id', trip.id)
     .order('visit_sequence');
 
-  res.json({ trip, visits: visits || [] });
+  const visits = (rawVisits || []).map((v, idx, arr) => {
+    const previousOccurrences = arr.slice(0, idx).filter(prev => prev.bmc_id === v.bmc_id);
+    if (previousOccurrences.length >= 1 || (v.remarks && v.remarks.includes('[AFTER MIXING]'))) {
+      v.is_after_mixing = true;
+    }
+    return v;
+  });
+
+  res.json({ trip, visits });
 });
 
 
@@ -1324,23 +1332,80 @@ app.post('/api/trips/:tripId/visits', requireWorker, async (req, res) => {
   if (!trip) return res.status(404).json({ error: 'Trip not found.' });
   if (trip.status !== 'active') return res.status(400).json({ error: 'Trip is not active.' });
 
-  // Determine next sequence number
-  const { data: existing } = await adminClient
-    .from('trip_bmc_visits').select('visit_sequence').eq('trip_id', trip.id).order('visit_sequence', { ascending: false }).limit(1);
-  const nextSeq = existing && existing.length > 0 ? existing[0].visit_sequence + 1 : 1;
+  // Count existing visits for this BMC in this trip
+  const { data: existingVisits } = await adminClient
+    .from('trip_bmc_visits')
+    .select('id, visit_sequence, remarks')
+    .eq('trip_id', trip.id)
+    .eq('bmc_id', bmc_id)
+    .order('visit_sequence');
 
-  const { data, error } = await adminClient.from('trip_bmc_visits').insert({
+  const count = existingVisits ? existingVisits.length : 0;
+
+  if (count >= 2) {
+    return res.status(400).json({ error: 'This BMC has already been added twice (Normal Visit and After Mixing) for this trip.' });
+  }
+
+  const isAfterMixing = count === 1;
+
+  // Determine next sequence number
+  const { data: existingSeq } = await adminClient
+    .from('trip_bmc_visits').select('visit_sequence').eq('trip_id', trip.id).order('visit_sequence', { ascending: false }).limit(1);
+  const nextSeq = existingSeq && existingSeq.length > 0 ? existingSeq[0].visit_sequence + 1 : 1;
+
+  const insertPayload = {
     trip_id: trip.id,
     bmc_id,
     visit_sequence: nextSeq,
-    status: 'pending'
-  }).select('*, bmc:bmcs(*)').single();
+    status: 'pending',
+    remarks: isAfterMixing ? '[AFTER MIXING]' : null
+  };
+
+  const { data, error } = await adminClient.from('trip_bmc_visits').insert(insertPayload).select('*, bmc:bmcs(*)').single();
 
   if (error) {
-    if (error.code === '23505') return res.status(409).json({ error: 'This BMC is already added to the trip.' });
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'This BMC is blocked by a database UNIQUE constraint. Please execute allow_after_mixing_schema.sql in Supabase SQL editor to drop UNIQUE(trip_id, bmc_id).' });
+    }
     return res.status(500).json({ error: error.message });
   }
+
+  if (data && isAfterMixing) {
+    data.is_after_mixing = true;
+  }
+
   res.status(201).json({ visit: data });
+});
+
+// ─── GET /api/visits/:visitId ────────────────────────────────────────────────
+app.get('/api/visits/:visitId', requireWorker, async (req, res) => {
+  const { adminClient, profile } = req;
+  const { data: visit, error } = await adminClient
+    .from('trip_bmc_visits')
+    .select(`*, bmc:bmcs(*),
+      ftir_tests(*), gerber_tests(*),
+      requirement_checks(*), bmc_issues(*), bmc_ratings(*)`)
+    .eq('id', req.params.visitId)
+    .single();
+
+  if (error || !visit) return res.status(404).json({ error: 'Visit not found.' });
+
+  const { data: trip } = await adminClient.from('trips').select('worker_id').eq('id', visit.trip_id).single();
+  if (!trip || trip.worker_id !== profile.id) return res.status(403).json({ error: 'Access denied.' });
+
+  // Determine if this visit is "After Mixing"
+  const { data: allVisits } = await adminClient
+    .from('trip_bmc_visits')
+    .select('id, visit_sequence')
+    .eq('trip_id', visit.trip_id)
+    .eq('bmc_id', visit.bmc_id)
+    .order('visit_sequence');
+
+  if (allVisits && allVisits.length > 1 && allVisits[1].id === visit.id) {
+    visit.is_after_mixing = true;
+  }
+
+  res.json({ visit });
 });
 
 // ─── PATCH /api/visits/:visitId ───────────────────────────────────────────────
@@ -1368,29 +1433,10 @@ app.patch('/api/visits/:visitId', requireWorker, async (req, res) => {
   res.json({ visit: data });
 });
 
-// ─── GET /api/visits/:visitId ────────────────────────────────────────────────
-app.get('/api/visits/:visitId', requireWorker, async (req, res) => {
-  const { adminClient, profile } = req;
-  const { data: visit, error } = await adminClient
-    .from('trip_bmc_visits')
-    .select(`*, bmc:bmcs(*),
-      ftir_tests(*), gerber_tests(*),
-      requirement_checks(*), bmc_issues(*), bmc_ratings(*)`)
-    .eq('id', req.params.visitId)
-    .single();
-
-  if (error || !visit) return res.status(404).json({ error: 'Visit not found.' });
-
-  const { data: trip } = await adminClient.from('trips').select('worker_id').eq('id', visit.trip_id).single();
-  if (!trip || trip.worker_id !== profile.id) return res.status(403).json({ error: 'Access denied.' });
-
-  res.json({ visit });
-});
-
 // ─── DELETE /api/visits/:visitId ──────────────────────────────────────────────
 app.delete('/api/visits/:visitId', requireWorker, async (req, res) => {
   const { adminClient, profile } = req;
-  
+
   // Verify visit exists and worker owns the trip
   const { data: visit } = await adminClient.from('trip_bmc_visits').select('id, trip_id').eq('id', req.params.visitId).single();
   if (!visit) return res.status(404).json({ error: 'Visit not found.' });
@@ -1404,12 +1450,49 @@ app.delete('/api/visits/:visitId', requireWorker, async (req, res) => {
   res.json({ success: true, message: 'BMC Visit deleted successfully.' });
 });
 
+// ─── POST /api/upload ─────────────────────────────────────────────────────────
+app.post('/api/upload', requireWorker, async (req, res) => {
+  const { adminClient } = req;
+  const { imageBase64, filename } = req.body;
 
+  if (!imageBase64) {
+    return res.status(400).json({ error: 'Image data is required.' });
+  }
+
+  try {
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    const ext = (filename && filename.split('.').pop()) || 'jpg';
+    const filePath = `ftir-tests/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${ext}`;
+
+    const { error: uploadErr } = await adminClient.storage
+      .from('profile_images')
+      .upload(filePath, buffer, {
+        contentType: `image/${ext === 'png' ? 'png' : 'jpeg'}`,
+        upsert: true
+      });
+
+    if (uploadErr) {
+      console.warn('Backend storage upload error, returning data URL:', uploadErr.message);
+      return res.json({ publicUrl: imageBase64 });
+    }
+
+    const { data: publicUrlData } = adminClient.storage.from('profile_images').getPublicUrl(filePath);
+    res.json({ publicUrl: publicUrlData.publicUrl });
+  } catch (err) {
+    console.error('Upload endpoint error:', err);
+    res.json({ publicUrl: imageBase64 });
+  }
+});
 
 // ─── POST /api/visits/:visitId/ftir ──────────────────────────────────────────
 app.post('/api/visits/:visitId/ftir', requireWorker, async (req, res) => {
   const { adminClient, profile } = req;
-  const { fat, snf, protein, lactose, water_percentage, temperature, remarks } = req.body;
+  const { fat, snf, protein, lactose, water_percentage, temperature, remarks, image_url } = req.body;
+
+  if (!image_url) {
+    return res.status(400).json({ error: 'FTIR test photo/image is mandatory.' });
+  }
 
   // Verify ownership
   const { data: visit } = await adminClient.from('trip_bmc_visits').select('trip_id').eq('id', req.params.visitId).single();
@@ -1425,20 +1508,39 @@ app.post('/api/visits/:visitId/ftir', requireWorker, async (req, res) => {
 
   // Safe Save (check existing first)
   const { data: existing } = await adminClient.from('ftir_tests').select('id').eq('visit_id', req.params.visitId).maybeSingle();
-  let result;
+  
+  let formattedRemarks = remarks || '';
+  if (image_url && !formattedRemarks.includes('[FTIR_IMAGE:')) {
+    formattedRemarks = formattedRemarks ? `${formattedRemarks} [FTIR_IMAGE: ${image_url}]` : `[FTIR_IMAGE: ${image_url}]`;
+  }
+
   const payload = {
     visit_id: req.params.visitId,
-    fat, snf, protein, lactose, water_percentage, temperature, overall_result, remarks,
+    fat, snf, protein, lactose, water_percentage, temperature, overall_result,
+    remarks: formattedRemarks,
     tested_at: new Date()
   };
-  if (existing) {
-    result = await adminClient.from('ftir_tests').update(payload).eq('id', existing.id).select().single();
-  } else {
-    result = await adminClient.from('ftir_tests').insert(payload).select().single();
+
+  // Try storing image_url directly in payload if column exists
+  payload.image_url = image_url;
+
+  let result = existing 
+    ? await adminClient.from('ftir_tests').update(payload).eq('id', existing.id).select().single()
+    : await adminClient.from('ftir_tests').insert(payload).select().single();
+
+  if (result.error && result.error.message && result.error.message.includes('image_url')) {
+    delete payload.image_url;
+    result = existing
+      ? await adminClient.from('ftir_tests').update(payload).eq('id', existing.id).select().single()
+      : await adminClient.from('ftir_tests').insert(payload).select().single();
   }
 
   if (result.error) return res.status(500).json({ error: result.error.message });
-  res.json({ ftir: result.data });
+  
+  const responseData = result.data;
+  if (!responseData.image_url) responseData.image_url = image_url;
+
+  res.json({ ftir: responseData });
 });
 
 // ─── POST /api/visits/:visitId/gerber ────────────────────────────────────────

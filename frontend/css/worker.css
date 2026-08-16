@@ -362,10 +362,34 @@ a.ws-nav-item.active {
   flex-shrink: 0;
 }
 .visit-seq.done { background: #D1FAE5; color: #065F46; }
-.visit-item-body { flex: 1; min-width: 0; }
-.visit-item-name { font-size: 0.9rem; font-weight: 700; color: #111827; }
+.visit-item-body { flex: 1; min-width: 160px; word-break: break-word; }
+.visit-item-name { font-size: 0.95rem; font-weight: 700; color: #111827; }
 .visit-item-meta { font-size: 0.78rem; color: #6B7280; margin-top: 2px; }
-.visit-item-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.visit-item-status { flex-shrink: 0; }
+.visit-item-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+
+@media (max-width: 768px) {
+  .visit-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding: 12px 14px;
+    gap: 10px;
+  }
+  .visit-item-body {
+    flex: 1 1 calc(100% - 48px);
+  }
+  .visit-item-status {
+    width: 100%;
+    margin-left: 42px;
+    margin-top: -4px;
+  }
+  .visit-item-actions {
+    width: 100%;
+    margin-left: 42px;
+    margin-top: 6px;
+    justify-content: flex-start;
+  }
+}
 
 /* ── Tab Nav ───────────────────────────────────────────────── */
 .tab-nav {
@@ -392,6 +416,45 @@ a.ws-nav-item.active {
 .tab-btn:hover:not(.active) { color: #111827; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
+
+/* ── Compartment Selector Buttons ────────────────────────────── */
+.compartment-selector {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.comp-btn {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  outline: none;
+}
+.comp-btn:hover {
+  border-color: #2563EB;
+  background: #eff6ff;
+  color: #2563EB;
+}
+.comp-btn.selected, .comp-btn.active {
+  border-color: #2563EB !important;
+  background: #2563EB !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(37,99,235,0.25);
+}
+.comp-icon {
+  font-size: 1.2rem;
+}
 
 /* ── Form Sections ─────────────────────────────────────────── */
 .form-section {
