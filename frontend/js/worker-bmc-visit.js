@@ -371,11 +371,6 @@ window.saveFtirTest = async function() {
     return;
   }
 
-  if (!ftirImageBase64 && !existingFtirImageUrl) {
-    showToast('FTIR test photo/image is mandatory. Please capture or upload an image.', 'error');
-    return;
-  }
-
   let finalImageUrl = existingFtirImageUrl;
 
   try {
