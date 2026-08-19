@@ -58,6 +58,10 @@ async function checkAuth(requiredRole) {
         return null;
       }
     } else if (requiredRole === 'user') {
+      if (profile.role === 'driver' || profile.role === 'transport_officer') {
+        window.location.href = getPath('transport.html');
+        return null;
+      }
       if (profile.role !== 'user') {
         showToast("Access Denied: User role required.", "error");
         window.location.href = getPath('login.html');
@@ -74,6 +78,20 @@ async function checkAuth(requiredRole) {
     } else if (requiredRole === 'gm') {
       if (profile.role !== 'gm') {
         showToast("Access Denied: GM role required.", "error");
+        window.location.href = getPath('login.html');
+        return null;
+      }
+      
+      if (profile.status === 'pending') {
+        showStatusScreen('pending');
+        return null;
+      } else if (profile.status === 'rejected') {
+        showStatusScreen('rejected');
+        return null;
+      }
+    } else if (requiredRole === 'transport_officer' || requiredRole === 'driver') {
+      if (profile.role !== 'transport_officer' && profile.role !== 'driver') {
+        showToast("Access Denied: Transport Officer or Driver role required.", "error");
         window.location.href = getPath('login.html');
         return null;
       }

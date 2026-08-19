@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Duty Management — Transport Officer</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="transport-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>Transport Officer</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Dashboard</a>
+        <a href="drivers.html" class="admin-nav-item"><span>👨‍✈️</span> Drivers</a>
+        <a href="vehicles.html" class="admin-nav-item"><span>🚛</span> Vehicles</a>
+        <a href="duty.html" class="admin-nav-item active"><span>📋</span> Duty</a>
+        <a href="driver-analysis.html" class="admin-nav-item"><span>📈</span> Driver Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>Duty Management</h2>
+            <p>View duties assigned by P&I Head</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar">TO</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-to-name">Transport Officer</div>
+              <div class="header-user-role">Fleet Management</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-to-content">
+
+          <!-- Date Filter -->
+          <div class="filter-bar" style="margin-bottom: 24px;">
+            <div class="filter-group">
+              <span class="filter-label">📅 Filter by Date:</span>
+              <input type="date" id="duty-date-filter" class="form-control form-control-sm" style="width:auto;">
+              <button class="type-toggle-btn active" id="btn-today">Today</button>
+              <button class="type-toggle-btn" id="btn-this-week">This Week</button>
+              <button class="type-toggle-btn" id="btn-all">All Duties</button>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">Status:</span>
+              <select id="duty-status-filter" class="form-control form-control-sm" style="width:auto;">
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="assigned">Assigned</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Duties Table -->
+          <div class="table-card">
+            <div class="table-card-header">
+              <h4>📋 Duty Roster</h4>
+              <div class="table-filter-controls">
+                <input type="text" id="duty-search-input" class="table-search-input" placeholder="🔍 Search driver, vehicle, route...">
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="gm-table-v2">
+                <thead>
+                  <tr>
+                    <th>Duty Date</th>
+                    <th>Duty Time</th>
+                    <th>Driver</th>
+                    <th>Vehicle</th>
+                    <th>Route / Task</th>
+                    <th>Worker Assigned</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="duties-table-body">
+                  <tr><td colspan="8" class="text-center text-muted" style="padding:24px;">Loading duties...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Info Message -->
+          <div class="content-card" style="margin-top: 24px; background: #EEF2FF; border: 1px solid #C7D2FE;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div style="font-size: 1.5rem;">ℹ️</div>
+              <div>
+                <div style="font-weight: 600; color: #1E40AF; margin-bottom: 4px;">Duty Assignment</div>
+                <div style="font-size: 0.85rem; color: #3730A3;">
+                  Duties are assigned by the P&I (Planning & Inspection) Head. This page displays duties for your review. 
+                  Future updates will enable P&I functionality for duty creation and assignment.
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Duty Details Modal -->
+  <div id="duty-detail-modal" class="modal-overlay hidden">
+    <div class="modal-content modal-lg">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 style="margin:0; font-weight:800; color:#0F172A;">📋 Duty Details</h3>
+        <button id="duty-modal-close" class="btn btn-ghost">✕</button>
+      </div>
+
+      <div class="trip-detail-header-card">
+        <div style="font-size: 1.2rem; font-weight: 800;" id="duty-title">—</div>
+        <div style="font-size: 0.85rem; opacity: 0.88; margin-top: 4px;" id="duty-subtitle">—</div>
+      </div>
+
+      <div class="trip-detail-grid">
+        <div class="detail-item-box">
+          <div class="lbl">Duty Date</div>
+          <div class="val" id="duty-date">—</div>
+        </div>
+        <div class="detail-item-box">
+          <div class="lbl">Duty Time</div>
+          <div class="val" id="duty-time">—</div>
+        </div>
+        <div class="detail-item-box">
+          <div class="lbl">Driver</div>
+          <div class="val" id="duty-driver">—</div>
+        </div>
+        <div class="detail-item-box">
+          <div class="lbl">Vehicle</div>
+          <div class="val" id="duty-vehicle">—</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <h4 style="font-weight: 700; color: #0F172A; margin-bottom: 8px;">Route / Task Details</h4>
+        <div style="background: #F9FAFB; padding: 16px; border-radius: 10px; border: 1px solid #E5E7EB;">
+          <div id="duty-route-details">—</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <h4 style="font-weight: 700; color: #0F172A; margin-bottom: 8px;">Additional Information</h4>
+        <div class="trip-detail-grid">
+          <div class="detail-item-box">
+            <div class="lbl">Worker Assigned</div>
+            <div class="val" id="duty-worker">—</div>
+          </div>
+          <div class="detail-item-box">
+            <div class="lbl">Status</div>
+            <div class="val" id="duty-status">—</div>
+          </div>
+          <div class="detail-item-box">
+            <div class="lbl">Assigned By</div>
+            <div class="val" id="duty-assigned-by">P&I Head</div>
+          </div>
+          <div class="detail-item-box">
+            <div class="lbl">Remarks</div>
+            <div class="val" id="duty-remarks">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:right; margin-top: 20px;">
+        <button id="duty-modal-dismiss-btn" class="btn btn-outline btn-sm">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/transport-api.js"></script>
+  <script src="../js/transport-duty.js"></script>
+</body>
+</html>

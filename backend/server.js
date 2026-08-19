@@ -72,8 +72,8 @@ app.post('/api/register', async (req, res) => {
   if (!name || !dob || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
-  if (!['user', 'gm'].includes(role)) {
-    return res.status(400).json({ error: 'Invalid role. Must be user or gm.' });
+  if (!['user', 'gm', 'driver', 'transport_officer'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid role. Must be user, gm, driver, or transport_officer.' });
   }
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
@@ -2379,6 +2379,545 @@ app.get('/api/analysis', async (req, res) => {
 });
 
 
+
+// ─── TRANSPORT OFFICER MIDDLEWARE ────────────────────────────────────────────
+async function requireTransportOfficer(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
+
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+
+  const { data: profile } = await adminClient
+    .from('profiles').select('*').eq('id', user.id).single();
+
+  if (!profile) return res.status(404).json({ error: 'Profile not found.' });
+  if (profile.role !== 'transport_officer' && profile.role !== 'driver' && profile.role !== 'admin') {
+    return res.status(403).json({ error: 'Transport Officer or Driver access required.' });
+  }
+  if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
+
+  req.user = user;
+  req.profile = profile;
+  req.adminClient = adminClient;
+  next();
+}
+
+// ─── GET /api/transport/dashboard ─────────────────────────────────────────────
+app.get('/api/transport/dashboard', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+
+  try {
+    // Get all drivers and vehicles
+    const [driversRes, vehiclesRes, tripsRes] = await Promise.all([
+      adminClient.from('drivers').select('*'),
+      adminClient.from('tankers').select('*'),
+      adminClient.from('trips').select('*')
+    ]);
+
+    const drivers = driversRes.data || [];
+    const vehicles = vehiclesRes.data || [];
+    const trips = tripsRes.data || [];
+
+    const activeDrivers = drivers.filter(d => d.is_active).length;
+    const availableVehicles = vehicles.filter(v => v.is_active).length;
+
+    // Count vehicles currently on trip (active trips)
+    const activeTrips = trips.filter(t => t.status === 'active');
+    const vehiclesOnTrip = new Set(activeTrips.map(t => t.tanker_number)).size;
+
+    // Completed trips (all time)
+    const completedTrips = trips.filter(t => t.status === 'completed').length;
+
+    // Today's duties (placeholder - will be implemented when duties table exists)
+    const todayDuties = 0;
+
+    // Vehicle utilization data for chart
+    const vehicleUtilization = [
+      { label: 'Active', value: vehiclesOnTrip },
+      { label: 'Available', value: availableVehicles - vehiclesOnTrip },
+      { label: 'Inactive', value: vehicles.length - availableVehicles }
+    ];
+
+    // Driver performance (Last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const recentTrips = trips.filter(t => new Date(t.created_at) >= sevenDaysAgo);
+
+    const driverTripsMap = {};
+    recentTrips.forEach(trip => {
+      const driverName = trip.driver_name || 'Unknown';
+      driverTripsMap[driverName] = (driverTripsMap[driverName] || 0) + 1;
+    });
+
+    const driverPerformance = Object.entries(driverTripsMap)
+      .map(([name, trips]) => ({ name, trips }))
+      .sort((a, b) => b.trips - a.trips)
+      .slice(0, 10);
+
+    // Recent duties (placeholder)
+    const recentDuties = [];
+
+    // Active drivers with stats
+    const driversWithStats = await Promise.all(
+      drivers.slice(0, 10).map(async (driver) => {
+        const driverTrips = trips.filter(t => t.driver_name === driver.name);
+        const lastTrip = driverTrips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+        
+        return {
+          ...driver,
+          total_trips: driverTrips.length,
+          assigned_vehicle: lastTrip?.tanker_number || null,
+          last_activity: lastTrip?.created_at || null
+        };
+      })
+    );
+
+    const driverStats = {};
+    driversWithStats.forEach(d => {
+      driverStats[d.id] = {
+        total_trips: d.total_trips,
+        assigned_vehicle: d.assigned_vehicle,
+        last_activity: d.last_activity
+      };
+    });
+
+    res.json({
+      totalVehicles: vehicles.length,
+      totalDrivers: drivers.length,
+      activeDrivers,
+      availableVehicles,
+      vehiclesOnTrip,
+      todayDuties,
+      completedTrips,
+      vehicleUtilization,
+      driverPerformance,
+      recentDuties,
+      activeDrivers: driversWithStats,
+      driverStats
+    });
+
+  } catch (err) {
+    console.error('Transport dashboard error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch dashboard data' });
+  }
+});
+
+// ─── TRANSPORT DRIVER ENDPOINTS ───────────────────────────────────────────────
+app.get('/api/transport/drivers', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+
+  try {
+    const { data: drivers } = await adminClient.from('drivers').select('*').order('name');
+    const { data: trips } = await adminClient.from('trips').select('*');
+
+    const driversWithStats = (drivers || []).map(driver => {
+      const driverTrips = (trips || []).filter(t => t.driver_name === driver.name);
+      const lastTrip = driverTrips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+      return {
+        ...driver,
+        total_trips: driverTrips.length,
+        assigned_vehicle: lastTrip?.tanker_number || null,
+        last_activity: lastTrip?.created_at || null
+      };
+    });
+
+    res.json({ drivers: driversWithStats });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch drivers' });
+  }
+});
+
+app.post('/api/transport/drivers', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  const { name, license_number, phone, is_active } = req.body;
+
+  if (!name || !phone) {
+    return res.status(400).json({ error: 'Driver name and phone are required' });
+  }
+
+  try {
+    const { data, error } = await adminClient
+      .from('drivers')
+      .insert({ name, license_number, phone, is_active: is_active !== false })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json({ driver: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to create driver' });
+  }
+});
+
+app.put('/api/transport/drivers/:id', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  const { name, license_number, phone, is_active } = req.body;
+
+  try {
+    const { data, error } = await adminClient
+      .from('drivers')
+      .update({ name, license_number, phone, is_active, updated_at: new Date() })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ driver: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to update driver' });
+  }
+});
+
+app.delete('/api/transport/drivers/:id', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+
+  try {
+    const { error } = await adminClient.from('drivers').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true, message: 'Driver deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to delete driver' });
+  }
+});
+
+app.get('/api/transport/drivers/:id/performance', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+
+  try {
+    const { data: driver } = await adminClient.from('drivers').select('*').eq('id', req.params.id).single();
+    if (!driver) return res.status(404).json({ error: 'Driver not found' });
+
+    const { data: trips } = await adminClient.from('trips').select('*');
+    const driverTrips = (trips || []).filter(t => t.driver_name === driver.name);
+
+    const completedTrips = driverTrips.filter(t => t.status === 'completed');
+
+    // Get visits count
+    const tripIds = driverTrips.map(t => t.id);
+    let totalVisits = 0;
+    if (tripIds.length > 0) {
+      const { data: visits } = await adminClient.from('trip_bmc_visits').select('id').in('trip_id', tripIds);
+      totalVisits = (visits || []).length;
+    }
+
+    // Calculate average duration
+    const durationsMs = completedTrips
+      .filter(t => t.out_time && t.in_time)
+      .map(t => new Date(t.in_time) - new Date(t.out_time))
+      .filter(d => d > 0);
+
+    const avgDurationMs = durationsMs.length > 0
+      ? durationsMs.reduce((sum, d) => sum + d, 0) / durationsMs.length
+      : null;
+
+    res.json({
+      total_trips: driverTrips.length,
+      completed_trips: completedTrips.length,
+      total_visits: totalVisits,
+      avg_duration_ms: avgDurationMs
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch driver performance' });
+  }
+});
+
+// ─── TRANSPORT VEHICLE ENDPOINTS ──────────────────────────────────────────────
+app.get('/api/transport/vehicles', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+
+  try {
+    const { data: vehicles } = await adminClient.from('tankers').select('*').order('board_number');
+    const { data: trips } = await adminClient.from('trips').select('*');
+
+    const vehiclesWithStats = (vehicles || []).map(vehicle => {
+      const vehicleTrips = (trips || []).filter(t => t.tanker_number === vehicle.board_number);
+      const lastTrip = vehicleTrips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+      return {
+        ...vehicle,
+        total_trips: vehicleTrips.length,
+        assigned_driver: lastTrip?.driver_name || null,
+        last_used: lastTrip?.created_at || null
+      };
+    });
+
+    res.json({ vehicles: vehiclesWithStats });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch vehicles' });
+  }
+});
+
+app.post('/api/transport/vehicles', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  const { board_number, capacity_liters, compartments, is_active } = req.body;
+
+  if (!board_number) {
+    return res.status(400).json({ error: 'Vehicle board number is required' });
+  }
+
+  try {
+    const { data, error } = await adminClient
+      .from('tankers')
+      .insert({
+        board_number,
+        capacity_liters: capacity_liters || 5000,
+        compartments: compartments || 2,
+        is_active: is_active !== false
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json({ vehicle: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to create vehicle' });
+  }
+});
+
+app.put('/api/transport/vehicles/:id', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  const { board_number, capacity_liters, compartments, is_active } = req.body;
+
+  try {
+    const { data, error } = await adminClient
+      .from('tankers')
+      .update({ board_number, capacity_liters, compartments, is_active, updated_at: new Date() })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ vehicle: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to update vehicle' });
+  }
+});
+
+app.delete('/api/transport/vehicles/:id', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+
+  try {
+    const { error } = await adminClient.from('tankers').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true, message: 'Vehicle deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to delete vehicle' });
+  }
+});
+
+app.get('/api/transport/vehicles/:id/performance', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+
+  try {
+    const { data: vehicle } = await adminClient.from('tankers').select('*').eq('id', req.params.id).single();
+    if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' });
+
+    const { data: trips } = await adminClient.from('trips').select('*');
+    const vehicleTrips = (trips || []).filter(t => t.tanker_number === vehicle.board_number);
+
+    const lastTrip = vehicleTrips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+    // Get visits count
+    const tripIds = vehicleTrips.map(t => t.id);
+    let totalVisits = 0;
+    if (tripIds.length > 0) {
+      const { data: visits } = await adminClient.from('trip_bmc_visits').select('id').in('trip_id', tripIds);
+      totalVisits = (visits || []).length;
+    }
+
+    res.json({
+      total_trips: vehicleTrips.length,
+      assigned_driver: lastTrip?.driver_name || null,
+      total_visits: totalVisits,
+      last_used: lastTrip?.created_at || null
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch vehicle performance' });
+  }
+});
+
+// ─── TRANSPORT DUTY ENDPOINTS ─────────────────────────────────────────────────
+app.get('/api/transport/duties', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  const { date, status, dateRange } = req.query;
+
+  try {
+    // For now, return duties based on trips (placeholder until duties table is created)
+    let query = adminClient.from('trips').select('*');
+
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      query = query.gte('created_at', startOfDay.toISOString()).lte('created_at', endOfDay.toISOString());
+    } else if (dateRange === 'this_week') {
+      const now = new Date();
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      query = query.gte('created_at', startOfWeek.toISOString());
+    }
+
+    if (status) {
+      query = query.eq('status', status);
+    }
+
+    const { data: trips } = await query.order('created_at', { ascending: false });
+
+    const { data: profiles } = await adminClient.from('profiles').select('id, name');
+    const profileMap = {};
+    (profiles || []).forEach(p => profileMap[p.id] = p.name);
+
+    const duties = (trips || []).map(trip => ({
+      id: trip.id,
+      duty_number: trip.trip_number,
+      duty_date: trip.created_at,
+      duty_time: new Date(trip.out_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+      driver_name: trip.driver_name,
+      vehicle_number: trip.tanker_number,
+      route: trip.trip_name,
+      task: trip.trip_name,
+      worker_name: profileMap[trip.worker_id] || null,
+      status: trip.status,
+      remarks: trip.remarks
+    }));
+
+    res.json({ duties });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch duties' });
+  }
+});
+
+// ─── TRANSPORT DRIVER ANALYSIS ────────────────────────────────────────────────
+app.get('/api/transport/driver-analysis', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  const { driverId, startDate, endDate } = req.query;
+
+  if (!driverId || !startDate || !endDate) {
+    return res.status(400).json({ error: 'driverId, startDate, and endDate are required' });
+  }
+
+  try {
+    const { data: driver } = await adminClient.from('drivers').select('*').eq('id', driverId).single();
+    if (!driver) return res.status(404).json({ error: 'Driver not found' });
+
+    const startIso = new Date(startDate).toISOString();
+    const endD = new Date(endDate);
+    endD.setHours(23, 59, 59, 999);
+    const endIso = endD.toISOString();
+
+    // Get all trips for this driver in date range
+    const { data: allTrips } = await adminClient
+      .from('trips')
+      .select('*')
+      .gte('created_at', startIso)
+      .lte('created_at', endIso);
+
+    const trips = (allTrips || []).filter(t => t.driver_name === driver.name);
+
+    // Get visits for these trips
+    const tripIds = trips.map(t => t.id);
+    let visits = [];
+    if (tripIds.length > 0) {
+      const { data: visitsData } = await adminClient
+        .from('trip_bmc_visits')
+        .select('*')
+        .in('trip_id', tripIds);
+      visits = visitsData || [];
+    }
+
+    // Calculate metrics
+    const completedTrips = trips.filter(t => t.status === 'completed');
+    const totalVisits = visits.length;
+
+    const durationsMs = completedTrips
+      .filter(t => t.out_time && t.in_time)
+      .map(t => new Date(t.in_time) - new Date(t.out_time))
+      .filter(d => d > 0);
+
+    const avgDurationMs = durationsMs.length > 0
+      ? durationsMs.reduce((sum, d) => sum + d, 0) / durationsMs.length
+      : 0;
+
+    const totalHoursMs = durationsMs.reduce((sum, d) => sum + d, 0);
+
+    const daysDiff = Math.max(1, Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)));
+    const tripsPerDay = trips.length / daysDiff;
+    const visitsPerTrip = trips.length > 0 ? totalVisits / trips.length : 0;
+
+    const metrics = {
+      total_trips: trips.length,
+      completed_trips: completedTrips.length,
+      total_visits: totalVisits,
+      avg_duration_ms: Math.round(avgDurationMs),
+      total_hours_ms: totalHoursMs,
+      trips_per_day: tripsPerDay,
+      visits_per_trip: visitsPerTrip
+    };
+
+    // Chart data - group by date
+    const dateMap = {};
+    trips.forEach(trip => {
+      const date = new Date(trip.created_at).toISOString().split('T')[0];
+      if (!dateMap[date]) {
+        dateMap[date] = { trips: 0, visits: 0, duration: 0, dutyHours: 0 };
+      }
+      dateMap[date].trips += 1;
+      
+      const tripVisits = visits.filter(v => v.trip_id === trip.id).length;
+      dateMap[date].visits += tripVisits;
+
+      if (trip.out_time && trip.in_time) {
+        const durationMs = new Date(trip.in_time) - new Date(trip.out_time);
+        if (durationMs > 0) {
+          dateMap[date].duration += durationMs / (1000 * 60 * 60); // hours
+          dateMap[date].dutyHours += durationMs / (1000 * 60 * 60);
+        }
+      }
+    });
+
+    const dates = Object.keys(dateMap).sort();
+    const chartData = {
+      dates: dates.map(d => new Date(d).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })),
+      trips_by_date: dates.map(d => dateMap[d].trips),
+      visits_by_date: dates.map(d => dateMap[d].visits),
+      duration_by_date: dates.map(d => dateMap[d].duration.toFixed(1)),
+      duty_hours_by_date: dates.map(d => dateMap[d].dutyHours.toFixed(1))
+    };
+
+    // Enrich trips with visit count and duration
+    const enrichedTrips = trips.map(trip => {
+      const tripVisits = visits.filter(v => v.trip_id === trip.id);
+      let durationMs = null;
+      if (trip.out_time && trip.in_time) {
+        durationMs = new Date(trip.in_time) - new Date(trip.out_time);
+      }
+
+      return {
+        ...trip,
+        visits_count: tripVisits.length,
+        duration_ms: durationMs,
+        vehicle_number: trip.tanker_number
+      };
+    });
+
+    res.json({
+      metrics,
+      chartData,
+      trips: enrichedTrips
+    });
+
+  } catch (err) {
+    console.error('Driver analysis error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch driver analysis' });
+  }
+});
 
 // API 404 Fallback — ensures API routes return JSON, never HTML index.html
 app.use('/api/*', (req, res) => {

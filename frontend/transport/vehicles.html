@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vehicles Management — Transport Officer</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="transport-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>Transport Officer</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Dashboard</a>
+        <a href="drivers.html" class="admin-nav-item"><span>👨‍✈️</span> Drivers</a>
+        <a href="vehicles.html" class="admin-nav-item active"><span>🚛</span> Vehicles</a>
+        <a href="duty.html" class="admin-nav-item"><span>📋</span> Duty</a>
+        <a href="driver-analysis.html" class="admin-nav-item"><span>📈</span> Driver Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>Vehicle Management</h2>
+            <p>Manage fleet and vehicle records</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar">TO</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-to-name">Transport Officer</div>
+              <div class="header-user-role">Fleet Management</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-to-content">
+
+          <!-- Vehicles Table -->
+          <div class="table-card">
+            <div class="table-card-header">
+              <h4>🚛 Vehicle Fleet</h4>
+              <div class="table-filter-controls">
+                <input type="text" id="vehicle-search-input" class="table-search-input" placeholder="🔍 Search vehicle number...">
+                <button id="open-add-vehicle-btn" class="btn-create-bmc">
+                  <span>➕</span> Add Vehicle
+                </button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="gm-table-v2">
+                <thead>
+                  <tr>
+                    <th>Vehicle Number</th>
+                    <th>Vehicle Type</th>
+                    <th>Capacity</th>
+                    <th>Assigned Driver</th>
+                    <th>Total Trips</th>
+                    <th>Recent Usage</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="vehicles-table-body">
+                  <tr><td colspan="8" class="text-center text-muted" style="padding:24px;">Loading vehicles...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Add/Edit Vehicle Modal -->
+  <div id="vehicle-modal" class="modal-overlay hidden">
+    <div class="modal-content modal-lg">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 id="vehicle-modal-title" style="margin:0; font-weight:800; color:#0F172A;">➕ Add New Vehicle</h3>
+        <button id="vehicle-modal-close" class="btn btn-ghost">✕</button>
+      </div>
+
+      <form id="vehicle-form">
+        <input type="hidden" id="vehicle-id">
+        
+        <div class="form-grid-2">
+          <div class="form-group mb-3">
+            <label class="form-label">Vehicle Board Number *</label>
+            <input type="text" id="vehicle-board-number" class="form-input" placeholder="e.g. TN 64 R 3319" required>
+          </div>
+          <div class="form-group mb-3">
+            <label class="form-label">Capacity (Liters)</label>
+            <input type="number" id="vehicle-capacity" class="form-input" placeholder="e.g. 5000" value="5000">
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group mb-3">
+            <label class="form-label">Compartments</label>
+            <input type="number" id="vehicle-compartments" class="form-input" value="2" min="1" max="4">
+          </div>
+          <div class="form-group mb-3">
+            <label class="form-label">Status</label>
+            <select id="vehicle-status" class="form-input">
+              <option value="true">Active</option>
+              <option value="false">Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2" style="margin-top: 24px;">
+          <button type="button" id="vehicle-cancel-btn" class="btn btn-outline">Cancel</button>
+          <button type="submit" id="vehicle-submit-btn" class="btn btn-primary">Save Vehicle</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Vehicle Profile/Details Modal -->
+  <div id="vehicle-profile-modal" class="modal-overlay hidden">
+    <div class="modal-content modal-lg">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 style="margin:0; font-weight:800; color:#0F172A;">🚛 Vehicle Profile</h3>
+        <button id="vehicle-profile-close" class="btn btn-ghost">✕</button>
+      </div>
+
+      <div class="trip-detail-header-card">
+        <div style="font-size: 1.2rem; font-weight: 800;" id="profile-vehicle-number">—</div>
+        <div style="font-size: 0.85rem; opacity: 0.88; margin-top: 4px;" id="profile-vehicle-meta">—</div>
+      </div>
+
+      <div class="trip-detail-grid">
+        <div class="detail-item-box">
+          <div class="lbl">Vehicle Type</div>
+          <div class="val" id="profile-vehicle-type">Milk Tanker</div>
+        </div>
+        <div class="detail-item-box">
+          <div class="lbl">Capacity</div>
+          <div class="val" id="profile-capacity">—</div>
+        </div>
+        <div class="detail-item-box">
+          <div class="lbl">Compartments</div>
+          <div class="val" id="profile-compartments">—</div>
+        </div>
+        <div class="detail-item-box">
+          <div class="lbl">Current Status</div>
+          <div class="val" id="profile-vehicle-status">—</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 24px;">
+        <h4 style="font-weight: 700; color: #0F172A; margin-bottom: 12px;">Usage Summary</h4>
+        <div class="trip-detail-grid">
+          <div class="detail-item-box">
+            <div class="lbl">Assigned Driver</div>
+            <div class="val" id="profile-assigned-driver">—</div>
+          </div>
+          <div class="detail-item-box">
+            <div class="lbl">Total Trips</div>
+            <div class="val" id="profile-vehicle-trips">—</div>
+          </div>
+          <div class="detail-item-box">
+            <div class="lbl">Total BMC Visits</div>
+            <div class="val" id="profile-vehicle-visits">—</div>
+          </div>
+          <div class="detail-item-box">
+            <div class="lbl">Last Used</div>
+            <div class="val" id="profile-last-used">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:right; margin-top: 20px;">
+        <button id="vehicle-profile-dismiss-btn" class="btn btn-outline btn-sm">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/transport-api.js"></script>
+  <script src="../js/transport-vehicles.js"></script>
+</body>
+</html>

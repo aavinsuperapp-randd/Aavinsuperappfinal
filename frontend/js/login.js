@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
           .eq('id', userId)
           .single();
           
-        // Auto-seed admin profile if missing
+        // Auto-seed admin/driver profiles if missing
         if ((profileError || !profile) && email === 'admin@gmail.com') {
           const { error: insertError } = await client
             .from('profiles')
@@ -61,10 +61,37 @@ document.addEventListener('DOMContentLoaded', () => {
             
           if (refetchError) throw refetchError;
           profile = adminProfile;
+        } else if ((profileError || !profile) && (email.startsWith('demodriver') || email.includes('driver'))) {
+          const { error: insertError } = await client
+            .from('profiles')
+            .insert({
+              id: userId,
+              name: 'Demo Driver',
+              dob: '1992-05-15',
+              email: email,
+              role: 'driver',
+              status: 'approved'
+            });
+          if (insertError) throw insertError;
+          
+          const { data: driverProfile, error: refetchError } = await client
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+            
+          if (refetchError) throw refetchError;
+          profile = driverProfile;
         } else if (profileError || !profile) {
           throw new Error("User profile not found. Please register or contact administration.");
         }
         
+        // Auto-approve demo driver test accounts
+        if (profile && profile.status === 'pending' && (profile.email.startsWith('demodriver') || profile.email.includes('driver'))) {
+          await client.from('profiles').update({ status: 'approved' }).eq('id', userId);
+          profile.status = 'approved';
+        }
+
         // 4. Handle Redirection based on Role and Approval Status
         toggleLoading(false);
         
@@ -80,7 +107,15 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (profile.status === 'approved') {
           showToast(`Welcome back, ${profile.name}!`, "success");
           setTimeout(() => {
-            window.location.href = getPath(profile.role === 'gm' ? 'gm.html' : 'worker.html');
+            // Route based on role
+            if (profile.role === 'gm') {
+              window.location.href = getPath('gm.html');
+            } else if (profile.role === 'transport_officer' || profile.role === 'driver') {
+              window.location.href = getPath('transport.html');
+            } else {
+              // Default to worker for 'user' role
+              window.location.href = getPath('worker.html');
+            }
           }, 800);
         }
       } catch (err) {

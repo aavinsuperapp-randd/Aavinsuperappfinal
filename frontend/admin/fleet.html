@@ -3,31 +3,33 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fleet & Driver Management — AAVIN Admin</title>
+  <title>Fleet Management — Moved to Transport Officer</title>
   <link rel="stylesheet" href="../css/global.css">
   <link rel="stylesheet" href="../css/admin.css">
-  <link rel="stylesheet" href="../css/bmc-admin.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    .fleet-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      gap: 24px;
-    }
-    .fleet-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 24px;
-      box-shadow: var(--shadow-sm);
-    }
-    .fleet-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 14px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
+</head>
+<body>
+  <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%); padding: 20px;">
+    <div style="background: white; border-radius: 20px; padding: 48px 40px; max-width: 540px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+      <div style="font-size: 4rem; margin-bottom: 24px;">🚛</div>
+      <h1 style="font-size: 1.75rem; font-weight: 800; color: #0F172A; margin: 0 0 16px;">Driver & Vehicle Management Moved</h1>
+      <p style="color: #64748B; font-size: 1rem; line-height: 1.6; margin-bottom: 32px;">
+        Driver and Vehicle management has been moved to the <strong>Transport Officer Portal</strong> for better fleet operations management.
+      </p>
+      <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+        <a href="dashboard.html" style="display: inline-flex; align-items: center; justify-content: center; padding: 12px 24px; background: #2563EB; color: white; border-radius: 10px; text-decoration: none; font-weight: 600; transition: all 0.2s;">
+          ← Back to Admin Dashboard
+        </a>
+        <a href="../transport/dashboard.html" style="display: inline-flex; align-items: center; justify-content: center; padding: 12px 24px; background: white; color: #2563EB; border: 2px solid #2563EB; border-radius: 10px; text-decoration: none; font-weight: 600; transition: all 0.2s;">
+          Go to Transport Officer Portal →
+        </a>
+      </div>
+      <p style="color: #94A3B8; font-size: 0.85rem; margin-top: 24px;">
+        Please contact the Transport Officer for driver and vehicle operations.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
       margin-bottom: 10px;
       background: var(--gray-50);
     }

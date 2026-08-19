@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transport Officer Portal — AAVIN</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="css/gm-portal.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="landing-container">
+    <div class="landing-card">
+      <div class="landing-header">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo" class="landing-logo">
+        <h1>Transport Officer Portal</h1>
+        <p>Fleet Management & Driver Operations</p>
+      </div>
+      <div class="loading-spinner">
+        <div class="spinner"></div>
+        <p>Verifying credentials...</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/supabase.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      const profile = await checkAuth('transport_officer');
+      if (!profile) {
+        window.location.href = '/login.html';
+        return;
+      }
+      window.location.href = '/transport/dashboard.html';
+    });
+  </script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Outfit', system-ui, sans-serif;
+      background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .landing-container {
+      width: 100%;
+      max-width: 420px;
+      padding: 20px;
+    }
+    .landing-card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 48px 40px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    .landing-logo {
+      width: 80px;
+      height: 80px;
+      margin-bottom: 24px;
+    }
+    .landing-header h1 {
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: #0F172A;
+      margin: 0 0 8px;
+    }
+    .landing-header p {
+      color: #64748B;
+      font-size: 0.95rem;
+      margin: 0;
+    }
+    .loading-spinner {
+      margin-top: 32px;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      margin: 0 auto 16px;
+      border: 3px solid #E2E8F0;
+      border-top-color: #2563EB;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .loading-spinner p {
+      color: #64748B;
+      font-size: 0.9rem;
+    }
+  </style>
+</body>
+</html>

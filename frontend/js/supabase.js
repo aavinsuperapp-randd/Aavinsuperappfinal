@@ -6,7 +6,7 @@ let supabaseClient = null;
 function getPath(target) {
   const isFileProtocol = window.location.protocol === 'file:';
   const pathname = (window.location.pathname || '').replace(/\\/g, '/');
-  const inSubfolder = pathname.includes('/gm/') || pathname.includes('/worker/') || pathname.includes('/admin/');
+  const inSubfolder = pathname.includes('/gm/') || pathname.includes('/worker/') || pathname.includes('/admin/') || pathname.includes('/transport/');
 
   if (isFileProtocol) {
     if (inSubfolder) {

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Driver Analysis — Transport Officer</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="transport-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>Transport Officer</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Dashboard</a>
+        <a href="drivers.html" class="admin-nav-item"><span>👨‍✈️</span> Drivers</a>
+        <a href="vehicles.html" class="admin-nav-item"><span>🚛</span> Vehicles</a>
+        <a href="duty.html" class="admin-nav-item"><span>📋</span> Duty</a>
+        <a href="driver-analysis.html" class="admin-nav-item active"><span>📈</span> Driver Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>Deep Driver Analysis</h2>
+            <p>Comprehensive driver performance analysis</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar">TO</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-to-name">Transport Officer</div>
+              <div class="header-user-role">Fleet Management</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-to-content">
+
+          <!-- Filter Bar -->
+          <div class="filter-bar">
+            <div class="filter-group">
+              <span class="filter-label">👨‍✈️ Select Driver:</span>
+              <select id="driver-select" class="form-control form-control-sm" style="min-width:200px;">
+                <option value="">-- Select Driver --</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">📅 Date Range:</span>
+              <select id="date-range-preset" class="form-control form-control-sm" style="width:auto;">
+                <option value="today">Today</option>
+                <option value="this_week">This Week</option>
+                <option value="last_week">Last Week</option>
+                <option value="this_month">This Month</option>
+                <option value="last_month">Last Month</option>
+                <option value="last_3_months">Last 3 Months</option>
+                <option value="custom">Custom Range</option>
+              </select>
+              <div id="custom-date-inputs" class="filter-group hidden" style="display:none;">
+                <input type="date" id="start-date-input" class="form-control form-control-sm">
+                <span>to</span>
+                <input type="date" id="end-date-input" class="form-control form-control-sm">
+              </div>
+            </div>
+            <button id="apply-analysis-btn" class="btn btn-primary btn-sm">Analyze</button>
+          </div>
+
+          <!-- Selected Driver Header -->
+          <div id="selected-driver-header" class="content-card hidden" style="background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%); border: 2px solid #C7D2FE; margin-top: 24px;">
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <div style="width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, #2563EB, #1D4ED8); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.5rem; font-weight: 700;">
+                👨‍✈️
+              </div>
+              <div style="flex: 1;">
+                <div style="font-size: 1.25rem; font-weight: 800; color: #1E40AF; margin-bottom: 4px;" id="analysis-driver-name">—</div>
+                <div style="font-size: 0.85rem; color: #3730A3;" id="analysis-date-range">—</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Performance Metrics -->
+          <div id="metrics-section" class="hidden">
+            <div class="kpi-grid-5" style="margin-top: 24px;">
+              <div class="kpi-card-v2 blue">
+                <div class="kpi-icon-wrap">🚛</div>
+                <div>
+                  <div class="kpi-val" id="metric-total-trips">0</div>
+                  <div class="kpi-title">Total Trips</div>
+                </div>
+              </div>
+              <div class="kpi-card-v2 green">
+                <div class="kpi-icon-wrap">✅</div>
+                <div>
+                  <div class="kpi-val" id="metric-completed-trips">0</div>
+                  <div class="kpi-title">Completed Trips</div>
+                </div>
+              </div>
+              <div class="kpi-card-v2 amber">
+                <div class="kpi-icon-wrap">🏭</div>
+                <div>
+                  <div class="kpi-val" id="metric-total-visits">0</div>
+                  <div class="kpi-title">Total BMC Visits</div>
+                </div>
+              </div>
+              <div class="kpi-card-v2 purple">
+                <div class="kpi-icon-wrap">⏱️</div>
+                <div>
+                  <div class="kpi-val" id="metric-avg-duration">0h 0m</div>
+                  <div class="kpi-title">Avg Trip Duration</div>
+                </div>
+              </div>
+              <div class="kpi-card-v2 cyan">
+                <div class="kpi-icon-wrap">⏰</div>
+                <div>
+                  <div class="kpi-val" id="metric-total-hours">0h</div>
+                  <div class="kpi-title">Total Duty Hours</div>
+                </div>
+              </div>
+              <div class="kpi-card-v2 rose">
+                <div class="kpi-icon-wrap">📊</div>
+                <div>
+                  <div class="kpi-val" id="metric-trips-per-day">0</div>
+                  <div class="kpi-title">Trips per Day</div>
+                </div>
+              </div>
+              <div class="kpi-card-v2 green">
+                <div class="kpi-icon-wrap">🏭</div>
+                <div>
+                  <div class="kpi-val" id="metric-visits-per-trip">0</div>
+                  <div class="kpi-title">BMC Visits per Trip</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="two-col" style="margin-top: 24px;">
+              <div class="content-card">
+                <div class="card-header"><h3>📈 Trips Over Time</h3></div>
+                <div class="chart-wrap"><canvas id="tripsOverTimeChart"></canvas></div>
+              </div>
+              <div class="content-card">
+                <div class="card-header"><h3>🏭 BMC Visits Over Time</h3></div>
+                <div class="chart-wrap"><canvas id="visitsOverTimeChart"></canvas></div>
+              </div>
+            </div>
+
+            <div class="two-col">
+              <div class="content-card">
+                <div class="card-header"><h3>⏱️ Trip Duration Over Time</h3></div>
+                <div class="chart-wrap"><canvas id="durationOverTimeChart"></canvas></div>
+              </div>
+              <div class="content-card">
+                <div class="card-header"><h3>⏰ Duty Hours Over Time</h3></div>
+                <div class="chart-wrap"><canvas id="dutyHoursChart"></canvas></div>
+              </div>
+            </div>
+
+            <!-- Trip History Table -->
+            <div class="content-card">
+              <div class="card-header">
+                <h3>🚛 Driver Trip History</h3>
+                <span class="text-xs text-muted" id="trip-count-label">0 trips in selected period</span>
+              </div>
+              <div class="table-responsive">
+                <table class="gm-table-v2">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Trip</th>
+                      <th>Vehicle</th>
+                      <th>BMC Visits</th>
+                      <th>Out Time</th>
+                      <th>In Time</th>
+                      <th>Trip Duration</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="trip-history-body">
+                    <tr><td colspan="8" class="text-center text-muted" style="padding:24px;">No trips found for selected period</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div id="empty-state" class="content-card" style="margin-top: 24px; text-align: center; padding: 60px 40px;">
+            <div style="font-size: 3rem; margin-bottom: 16px;">📊</div>
+            <h3 style="font-weight: 700; color: #111827; margin-bottom: 8px;">Select a Driver to Begin Analysis</h3>
+            <p style="color: #6B7280; font-size: 0.9rem;">Choose a driver from the dropdown above and select a date range to view comprehensive performance metrics and trip history.</p>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/transport-api.js"></script>
+  <script src="../js/transport-driver-analysis.js"></script>
+</body>
+</html>

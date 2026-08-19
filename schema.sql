@@ -41,7 +41,7 @@ create table public.profiles (
     dob date not null,
     email text not null unique,
     profile_image_url text,
-    role text not null check (role in ('user', 'gm', 'admin')),
+    role text not null check (role in ('user', 'gm', 'admin', 'transport_officer', 'driver')),
     status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()

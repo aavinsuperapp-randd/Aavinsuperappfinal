@@ -1,4 +1,6 @@
 // admin-fleet.js — Admin Drivers and Vehicles Management
+// ⚠️ DEPRECATED: Driver and Vehicle management has been moved to Transport Officer Portal
+// This file is kept for backwards compatibility but is no longer used in Admin dashboard
 
 async function adminFetch(endpoint, options = {}) {
   const client = await initSupabase();
