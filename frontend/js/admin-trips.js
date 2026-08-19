@@ -216,16 +216,16 @@ window.openTripDetailModal = function(tripId) {
       vBody.innerHTML = `<tr><td colspan="5" class="text-muted text-center" style="padding:20px;">No BMC visits recorded for this trip yet.</td></tr>`;
     } else {
       vBody.innerHTML = visits.map(v => {
-        const ftirBadge = v.ftir_result && v.ftir_result.includes('✓') ? 'completed' : (v.ftir_result === 'Not Tested' ? 'cancelled' : 'pending');
-        const gerberBadge = v.gerber_result && v.gerber_result.includes('✓') ? 'completed' : (v.gerber_result === 'Not Tested' ? 'cancelled' : 'pending');
+        const displayFtir = v.ftir_result ? v.ftir_result.replace(/\s*\[FAIL\]/gi, '').replace(/\s*\[PASS\]/gi, '') : '';
+        const displayGerber = v.gerber_result ? v.gerber_result.replace(/\s*\[FAIL\]/gi, '').replace(/\s*\[PASS\]/gi, '') : '';
 
         return `
           <tr>
             <td><strong>${v.visit_sequence || '—'}</strong></td>
             <td><strong>${esc(v.bmc_name)}</strong></td>
             <td>${esc(v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'))}</td>
-            <td><span class="status-badge ${ftirBadge}">${esc(v.ftir_result)}</span></td>
-            <td><span class="status-badge ${gerberBadge}">${esc(v.gerber_result)}</span></td>
+            <td><span>${esc(displayFtir)}</span></td>
+            <td><span>${esc(displayGerber)}</span></td>
           </tr>
         `;
       }).join('');

@@ -68,9 +68,6 @@ async function loadDashboard() {
     // Render duties table
     renderDutiesTable(data.recentDuties || []);
 
-    // Render drivers table
-    renderDriversTable(data.activeDrivers || [], data.driverStats || {});
-
   } catch (err) {
     console.error('Failed to load dashboard:', err);
     showToast(err.message || 'Failed to load dashboard data', 'error');
@@ -209,59 +206,6 @@ function filterDuties() {
 function viewDutyDetails(dutyId) {
   // Navigate to duty page with filter
   window.location.href = `duty.html?id=${dutyId}`;
-}
-
-/**
- * Render Drivers Table
- */
-let allDriversData = [];
-let driverStatsMap = {};
-
-function renderDriversTable(drivers, stats) {
-  allDriversData = drivers;
-  driverStatsMap = stats;
-  
-  const tbody = document.getElementById('drivers-table-body');
-  if (!tbody) return;
-
-  if (drivers.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding:24px;">No active drivers found</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = drivers.map(driver => {
-    const stat = stats[driver.id] || {};
-    const totalTrips = stat.total_trips || 0;
-    const assignedVehicle = stat.assigned_vehicle || '—';
-    const lastActivity = stat.last_activity ? formatDate(stat.last_activity) : '—';
-    
-    return `
-      <tr>
-        <td><strong>${driver.name}</strong></td>
-        <td>${driver.phone || '—'}</td>
-        <td>${assignedVehicle}</td>
-        <td>${totalTrips}</td>
-        <td><span class="badge badge-${driver.is_active ? 'success' : 'neutral'}">${driver.is_active ? 'Active' : 'Inactive'}</span></td>
-        <td>
-          <button class="btn btn-ghost btn-sm" onclick="viewDriverProfile('${driver.id}')">View</button>
-        </td>
-      </tr>
-    `;
-  }).join('');
-}
-
-function filterDrivers() {
-  const query = document.getElementById('driver-search-input')?.value.toLowerCase() || '';
-  const filtered = allDriversData.filter(driver => 
-    (driver.name || '').toLowerCase().includes(query) ||
-    (driver.phone || '').toLowerCase().includes(query)
-  );
-  renderDriversTable(filtered, driverStatsMap);
-}
-
-function viewDriverProfile(driverId) {
-  // Navigate to drivers page
-  window.location.href = `drivers.html?id=${driverId}`;
 }
 
 /**
