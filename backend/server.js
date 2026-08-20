@@ -413,14 +413,14 @@ app.delete('/api/admin/trips/:id', requireAdminRole, async (req, res) => {
   res.json({ success: true, message: 'Trip deleted successfully.' });
 });
 
-// ─── ADMIN BMCS ENDPOINTS ────────────────────────────────────────────────────
-app.delete('/api/admin/bmcs/all', requireAdminRole, async (req, res) => {
+// ─── ADMIN / GM BMCS DELETE ENDPOINTS ───────────────────────────────────────
+app.delete('/api/admin/bmcs/all', requireGm, async (req, res) => {
   const { error } = await req.adminClient.from('bmcs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true, message: 'All BMC records deleted successfully.' });
 });
 
-app.delete('/api/admin/bmcs/:id', requireAdminRole, async (req, res) => {
+app.delete('/api/admin/bmcs/:id', requireGm, async (req, res) => {
   const { error } = await req.adminClient.from('bmcs').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true, message: 'BMC deleted successfully.' });
@@ -1515,18 +1515,77 @@ app.patch('/api/gm/issues/:id/complete', requireGm, async (req, res) => {
   }
 });
 
-// ─── GET /api/gm/bmcs (LIST ALL BMCS FOR GM SEARCH) ───────────────────────────
+// ─── GET /api/gm/bmcs (LIST ALL BMCS WITH FULL DATA FOR GM) ───────────────────
 app.get('/api/gm/bmcs', requireGm, async (req, res) => {
   const { adminClient } = req;
   try {
     const { data: bmcs, error } = await adminClient
       .from('bmcs')
-      .select('id, name, district, location, is_active')
-      .order('name');
+      .select('*')
+      .order('created_at', { ascending: false });
     if (error) throw error;
     res.json({ bmcs: bmcs || [] });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to load BMC list.' });
+  }
+});
+
+// ─── PUT /api/gm/bmcs/:id (UPDATE BMC DETAILS) ─────────────────────────────────
+app.put('/api/gm/bmcs/:id', requireGm, async (req, res) => {
+  const { adminClient } = req;
+  const bmcId = req.params.id;
+  const { name, district, location, contact_number, latitude, longitude, profile_image_url } = req.body;
+
+  if (!name || !district || !location || !contact_number) {
+    return res.status(400).json({ error: 'Name, district, location, and contact number are required.' });
+  }
+
+  try {
+    const payload = {
+      name: name.trim(),
+      district: district.trim(),
+      location: location.trim(),
+      contact_number: contact_number.trim(),
+      latitude: latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null,
+      longitude: longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null,
+      updated_at: new Date()
+    };
+    if (profile_image_url !== undefined) payload.profile_image_url = profile_image_url;
+
+    const { data, error } = await adminClient
+      .from('bmcs')
+      .update(payload)
+      .eq('id', bmcId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ bmc: data });
+  } catch (err) {
+    console.error('❌ Update BMC error:', err);
+    res.status(500).json({ error: err.message || 'Failed to update BMC.' });
+  }
+});
+
+// ─── PUT /api/gm/bmcs/:id/toggle (TOGGLE BMC ACTIVE STATUS) ────────────────────
+app.put('/api/gm/bmcs/:id/toggle', requireGm, async (req, res) => {
+  const { adminClient } = req;
+  const bmcId = req.params.id;
+  const { is_active } = req.body;
+
+  try {
+    const { data, error } = await adminClient
+      .from('bmcs')
+      .update({ is_active: !!is_active, updated_at: new Date() })
+      .eq('id', bmcId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ bmc: data });
+  } catch (err) {
+    console.error('❌ Toggle BMC status error:', err);
+    res.status(500).json({ error: err.message || 'Failed to toggle BMC status.' });
   }
 });
 

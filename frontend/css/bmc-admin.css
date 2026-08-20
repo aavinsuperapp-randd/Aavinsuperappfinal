@@ -343,10 +343,52 @@
   color: var(--gray-600);
 }
 
+/* Leaflet Map Card */
+.bmc-map-card {
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  box-shadow: var(--shadow-xs);
+  margin-bottom: 16px;
+}
+.bmc-map-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.bmc-map-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#bmc-leaflet-map {
+  height: 380px;
+  width: 100%;
+  border-radius: var(--radius, 8px);
+  border: 1px solid var(--gray-200);
+  z-index: 1;
+}
+
 /* Responsive */
+@media (max-width: 768px) {
+  #bmc-leaflet-map {
+    height: 320px;
+  }
+}
 @media (max-width: 640px) {
   .bmc-stats-row { grid-template-columns: 1fr 1fr; }
   .bmc-filter-select { width: 100%; }
   .bmc-grid { grid-template-columns: 1fr; }
   .bmc-viewer-grid { grid-template-columns: 1fr; }
 }
+@media (max-width: 480px) {
+  #bmc-leaflet-map {
+    height: 280px;
+  }
+}
+
