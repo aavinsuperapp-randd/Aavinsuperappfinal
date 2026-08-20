@@ -392,3 +392,84 @@
   }
 }
 
+/* ── Silo Management UI ────────────────────────────── */
+.silo-card {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius, 8px);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  transition: background 0.2s, border-color 0.2s;
+}
+.silo-card:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+.silo-badge {
+  background: var(--blue-50, #eff6ff);
+  color: var(--blue-700, #1d4ed8);
+  border: 1px solid var(--blue-200, #bfdbfe);
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 5px 12px;
+  border-radius: 6px;
+  white-space: nowrap;
+  min-width: 75px;
+  text-align: center;
+}
+.silo-capacity-wrapper {
+  flex: 1;
+  min-width: 150px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.silo-capacity-wrapper input {
+  flex: 1;
+}
+.silo-delete-btn {
+  background: #fef2f2;
+  color: #ef4444;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.silo-delete-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+
+/* ── Madurai Preset Chips ───────────────────────────── */
+.madurai-preset-chip {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  border-radius: 14px;
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+}
+.madurai-preset-chip:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+  transform: translateY(-1px);
+}
+
+
+

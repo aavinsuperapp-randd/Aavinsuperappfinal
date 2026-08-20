@@ -1,4 +1,4 @@
-// gm-bmcs.js — GM BMC Management (Exact Admin BMC UI + Leaflet Map)
+// gm-bmcs.js — GM BMC Management (Full Form, Address Geocoding & Silo Management)
 
 let allBmcs = [];
 let editingBmcId = null;
@@ -7,13 +7,12 @@ let detectedLat = null;
 let detectedLng = null;
 let mapInstance = null;
 let markersGroup = null;
+let currentSilos = [];
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-  // Only run on GM BMC page
   if (!document.getElementById('bmc-grid')) return;
 
-  // Auth guard — must be GM (or admin)
   const profile = await checkAuth('gm');
   if (!profile) return;
 
@@ -33,12 +32,10 @@ async function loadBmcs() {
   }
 
   try {
-    // Primary: fetch via backend GM API
     const res = await apiGetGmBmcs();
     allBmcs = res.bmcs || [];
   } catch (err) {
     console.warn('Backend API load failed, trying direct database fetch:', err);
-    // Fallback: direct Supabase query
     const client = await initSupabase();
     if (client) {
       const { data, error } = await client
@@ -48,6 +45,18 @@ async function loadBmcs() {
 
       if (!error && data) {
         allBmcs = data;
+        // Try fetching silos as well
+        try {
+          const { data: sData } = await client.from('bmc_silos').select('*').order('silo_number', { ascending: true });
+          if (sData) {
+            const sMap = {};
+            sData.forEach(s => {
+              if (!sMap[s.bmc_id]) sMap[s.bmc_id] = [];
+              sMap[s.bmc_id].push(s);
+            });
+            allBmcs.forEach(b => { b.silos = sMap[b.id] || []; });
+          }
+        } catch (e) {}
       } else {
         if (typeof showToast === 'function') showToast('Failed to load BMCs: ' + (error?.message || err.message), 'error');
         allBmcs = [];
@@ -82,12 +91,11 @@ function renderMap(list) {
   const mapEl = document.getElementById('bmc-leaflet-map');
   if (!mapEl || typeof L === 'undefined') return;
 
-  // Initialize Leaflet map if not already done
   if (!mapInstance) {
     mapInstance = L.map('bmc-leaflet-map', {
       zoomControl: true,
       scrollWheelZoom: true
-    }).setView([11.1271, 78.6569], 7); // Default center (Tamil Nadu)
+    }).setView([11.1271, 78.6569], 7);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -112,12 +120,17 @@ function renderMap(list) {
         ? `<span class="bmc-status-badge bmc-status-active">● Active</span>`
         : `<span class="bmc-status-badge bmc-status-inactive">● Inactive</span>`;
 
+      const capacityKg = bmc.total_capacity ? Number(bmc.total_capacity).toLocaleString() + ' KG' : '—';
+      const siloCount = bmc.silos ? bmc.silos.length : 0;
+
       const popupContent = `
-        <div style="font-family: inherit; min-width: 170px; padding: 2px;">
+        <div style="font-family: inherit; min-width: 180px; padding: 2px;">
           <h4 style="margin: 0 0 6px 0; font-size: 0.95rem; font-weight: 700; color: #0f172a;">${escHtml(bmc.name)}</h4>
           <div style="font-size: 0.8rem; color: #475569; margin-bottom: 3px;">🗺️ <b>District:</b> ${escHtml(bmc.district)}</div>
           <div style="font-size: 0.8rem; color: #475569; margin-bottom: 3px;">📍 <b>Location:</b> ${escHtml(bmc.location)}</div>
-          <div style="font-size: 0.8rem; color: #475569; margin-bottom: 6px;">📞 <b>Contact:</b> ${escHtml(bmc.contact_number || '—')}</div>
+          <div style="font-size: 0.8rem; color: #475569; margin-bottom: 3px;">📞 <b>Contact:</b> ${escHtml(bmc.contact_number || '—')}</div>
+          <div style="font-size: 0.8rem; color: #475569; margin-bottom: 3px;">🏋️ <b>Capacity:</b> ${capacityKg}</div>
+          <div style="font-size: 0.8rem; color: #475569; margin-bottom: 6px;">🛢️ <b>Silos:</b> ${siloCount} Silos</div>
           <div>${statusBadge}</div>
         </div>
       `;
@@ -139,7 +152,6 @@ function renderMap(list) {
     mapInstance.setView([11.1271, 78.6569], 7);
   }
 
-  // Ensure Leaflet map resizes properly without rendering gray tiles
   setTimeout(() => {
     if (mapInstance) mapInstance.invalidateSize();
   }, 300);
@@ -160,7 +172,11 @@ function renderGrid(list) {
     return;
   }
 
-  grid.innerHTML = list.map(bmc => `
+  grid.innerHTML = list.map(bmc => {
+    const capacityKg = bmc.total_capacity ? Number(bmc.total_capacity).toLocaleString() + ' KG' : '—';
+    const siloCount = bmc.silos ? bmc.silos.length : 0;
+
+    return `
     <div class="bmc-card ${bmc.is_active === false ? 'inactive-card' : ''}">
       ${bmc.profile_image_url
         ? `<img src="${escHtml(bmc.profile_image_url)}" class="bmc-card-image" alt="${escHtml(bmc.name)}">`
@@ -171,6 +187,7 @@ function renderGrid(list) {
           <div class="bmc-card-meta-item"><span>🗺️</span>${escHtml(bmc.district)}</div>
           <div class="bmc-card-meta-item"><span>📍</span>${escHtml(bmc.location)}</div>
           <div class="bmc-card-meta-item"><span>📞</span>${escHtml(bmc.contact_number)}</div>
+          <div class="bmc-card-meta-item"><span>🏋️</span>Capacity: <b>${capacityKg}</b> | 🛢️ <b>${siloCount}</b> Silo${siloCount !== 1 ? 's' : ''}</div>
           ${bmc.latitude ? `<div class="bmc-card-meta-item"><span>🛰️</span>${Number(bmc.latitude).toFixed(5)}, ${Number(bmc.longitude).toFixed(5)}</div>` : ''}
         </div>
         <div class="bmc-card-status">
@@ -187,8 +204,114 @@ function renderGrid(list) {
         <button class="btn btn-danger btn-sm" onclick="deleteBmc('${bmc.id}')" title="Delete BMC" style="padding: 0 10px;">🗑️</button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
+
+// ── Silo Management Functions ─────────────────────────────────────────────────
+function renderSilos() {
+  const container = document.getElementById('silo-list-container');
+  const countLabel = document.getElementById('total-silos-count-label');
+  if (!container) return;
+
+  if (countLabel) {
+    countLabel.textContent = `Total Silos: ${currentSilos.length} (Max 10)`;
+  }
+
+  if (currentSilos.length === 0) {
+    container.innerHTML = `
+      <div class="text-xs text-muted text-center" style="padding: 12px; background: var(--gray-50); border: 1px dashed var(--gray-200); border-radius: 6px;">
+        No silos added yet. Click "+ Add Silo" above to register silos.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = currentSilos.map((silo, idx) => {
+    const siloNum = idx + 1;
+    silo.silo_number = siloNum;
+    silo.silo_name = `Silo ${siloNum}`;
+
+    return `
+      <div class="silo-card" data-index="${idx}">
+        <span class="silo-badge">Silo ${siloNum}</span>
+        <div class="silo-capacity-wrapper">
+          <input 
+            type="number" 
+            class="form-input silo-capacity-input" 
+            data-index="${idx}" 
+            value="${silo.capacity_kg !== undefined && silo.capacity_kg !== null ? silo.capacity_kg : ''}" 
+            placeholder="Capacity in KG (e.g. 1000)" 
+            min="1" 
+            step="any"
+            oninput="updateSiloCapacity(${idx}, this.value)"
+          >
+          <span class="text-xs text-muted font-bold">KG</span>
+        </div>
+        <button type="button" class="silo-delete-btn" onclick="removeSilo(${idx})" title="Delete Silo ${siloNum}">
+          🗑️ Remove
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  recalculateTotalCapacityFromSilos();
+}
+
+window.addSilo = function() {
+  if (currentSilos.length >= 10) {
+    if (typeof showToast === 'function') showToast('Maximum 10 silos allowed per BMC.', 'warning');
+    return;
+  }
+  const nextNum = currentSilos.length + 1;
+  currentSilos.push({
+    silo_number: nextNum,
+    silo_name: `Silo ${nextNum}`,
+    capacity_kg: ''
+  });
+  renderSilos();
+};
+
+window.removeSilo = function(idx) {
+  if (idx >= 0 && idx < currentSilos.length) {
+    currentSilos.splice(idx, 1);
+    // Automatic re-numbering
+    currentSilos.forEach((s, i) => {
+      s.silo_number = i + 1;
+      s.silo_name = `Silo ${i + 1}`;
+    });
+    renderSilos();
+  }
+};
+
+window.updateSiloCapacity = function(idx, value) {
+  if (idx >= 0 && idx < currentSilos.length) {
+    currentSilos[idx].capacity_kg = value;
+    recalculateTotalCapacityFromSilos();
+  }
+};
+
+function recalculateTotalCapacityFromSilos() {
+  const capInput = document.getElementById('bmc-capacity');
+  if (!capInput) return;
+
+  let sum = 0;
+  let hasValid = false;
+  currentSilos.forEach(s => {
+    const val = parseFloat(s.capacity_kg);
+    if (!isNaN(val) && val > 0) {
+      sum += val;
+      hasValid = true;
+    }
+  });
+
+  if (hasValid && (!capInput.value || capInput.getAttribute('data-auto') === 'true')) {
+    capInput.value = sum;
+    capInput.setAttribute('data-auto', 'true');
+  }
+}
+
+
 
 // ── Delete BMC ────────────────────────────────────────────────────────────────
 window.deleteBmc = async function(id) {
@@ -196,7 +319,7 @@ window.deleteBmc = async function(id) {
   toggleLoading(true);
   try {
     const client = await initSupabase();
-    if (!client) { throw new Error('Database offline.'); }
+    if (!client) throw new Error('Database offline.');
     
     const { error } = await client.from('bmcs').delete().eq('id', id);
     if (error) throw error;
@@ -237,8 +360,6 @@ function bindEvents() {
   const addBtn = document.getElementById('add-bmc-btn');
   if (addBtn) addBtn.addEventListener('click', openAddModal);
 
-
-
   const modalClose = document.getElementById('bmc-modal-close');
   if (modalClose) modalClose.addEventListener('click', closeModal);
 
@@ -251,11 +372,21 @@ function bindEvents() {
   const detectBtn = document.getElementById('detect-location-btn');
   if (detectBtn) detectBtn.addEventListener('click', detectLocation);
 
+  const addSiloBtn = document.getElementById('add-silo-btn');
+  if (addSiloBtn) addSiloBtn.addEventListener('click', window.addSilo);
+
   const searchInput = document.getElementById('bmc-search');
   if (searchInput) searchInput.addEventListener('input', applyFilters);
 
   const filterSelect = document.getElementById('bmc-filter-status');
   if (filterSelect) filterSelect.addEventListener('change', applyFilters);
+
+  const capInput = document.getElementById('bmc-capacity');
+  if (capInput) {
+    capInput.addEventListener('input', () => {
+      capInput.removeAttribute('data-auto');
+    });
+  }
 
   // Image upload zone
   const imageZone = document.getElementById('bmc-image-drop');
@@ -265,7 +396,6 @@ function bindEvents() {
     imageInput.addEventListener('change', e => handleImageSelect(e.target.files[0]));
   }
 
-  // Close modal on overlay click
   const modalOverlay = document.getElementById('bmc-modal');
   if (modalOverlay) {
     modalOverlay.addEventListener('click', e => {
@@ -273,11 +403,9 @@ function bindEvents() {
     });
   }
 
-  // Logout button
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
 
-  // Window resize handler to invalidate map size
   window.addEventListener('resize', () => {
     if (mapInstance) mapInstance.invalidateSize();
   });
@@ -314,7 +442,7 @@ function detectLocation() {
     btn.disabled = true;
     btn.textContent = '📡 Detecting…';
   }
-  if (status) status.textContent = 'Requesting location permission…';
+  if (status) status.textContent = 'Requesting device location permission…';
 
   navigator.geolocation.getCurrentPosition(
     pos => {
@@ -324,14 +452,12 @@ function detectLocation() {
       document.getElementById('bmc-latitude').value = detectedLat;
       document.getElementById('bmc-longitude').value = detectedLng;
 
-
-
-      if (status) status.textContent = '✅ Location detected! Confirm and save.';
+      if (status) status.textContent = `✅ Location detected: ${detectedLat.toFixed(5)}, ${detectedLng.toFixed(5)}`;
       if (btn) {
         btn.disabled = false;
         btn.textContent = '📡 Re-detect Location';
       }
-      if (typeof showToast === 'function') showToast('Location detected successfully.', 'success');
+      if (typeof showToast === 'function') showToast('Device location detected successfully.', 'success');
     },
     err => {
       if (btn) {
@@ -339,9 +465,9 @@ function detectLocation() {
         btn.textContent = '📡 Detect My Location';
       }
       const msgs = {
-        1: 'Permission denied. Please allow location access in your browser.',
-        2: 'Position unavailable. Try again.',
-        3: 'Request timed out. Try again.'
+        1: 'Permission denied. Allow location access in browser.',
+        2: 'Position unavailable.',
+        3: 'Request timed out.'
       };
       if (status) status.textContent = '❌ ' + (msgs[err.code] || 'Unknown error.');
       if (typeof showToast === 'function') showToast('Location detection failed: ' + (msgs[err.code] || 'Error'), 'error');
@@ -356,11 +482,16 @@ function openAddModal() {
   selectedFile = null;
   detectedLat = null;
   detectedLng = null;
+  currentSilos = [
+    { silo_number: 1, silo_name: 'Silo 1', capacity_kg: '' }
+  ];
 
   document.getElementById('bmc-modal-title').textContent = 'Add New BMC';
   document.getElementById('bmc-name').value = '';
   document.getElementById('bmc-district').value = '';
   document.getElementById('bmc-contact').value = '';
+  document.getElementById('bmc-capacity').value = '';
+  document.getElementById('bmc-capacity').setAttribute('data-auto', 'true');
   document.getElementById('bmc-location-text').value = '';
   document.getElementById('bmc-latitude').value = '';
   document.getElementById('bmc-longitude').value = '';
@@ -373,7 +504,6 @@ function openAddModal() {
     detectBtn.disabled = false;
   }
 
-  // Reset image preview
   const img = document.getElementById('bmc-preview-img');
   if (img) {
     img.src = '';
@@ -385,6 +515,7 @@ function openAddModal() {
   const imageInput = document.getElementById('bmc-image-input');
   if (imageInput) imageInput.value = '';
 
+  renderSilos();
   document.getElementById('bmc-modal').classList.remove('hidden');
 }
 
@@ -398,18 +529,30 @@ window.openEditModal = function(id) {
   detectedLat = bmc.latitude || null;
   detectedLng = bmc.longitude || null;
 
+  // Load existing silos or initialize default if none exist
+  if (Array.isArray(bmc.silos) && bmc.silos.length > 0) {
+    currentSilos = bmc.silos.map(s => ({
+      id: s.id,
+      silo_number: s.silo_number,
+      silo_name: s.silo_name || `Silo ${s.silo_number}`,
+      capacity_kg: s.capacity_kg
+    }));
+  } else {
+    currentSilos = [];
+  }
+
   document.getElementById('bmc-modal-title').textContent = 'Edit BMC';
   document.getElementById('bmc-name').value = bmc.name || '';
   document.getElementById('bmc-district').value = bmc.district || '';
   document.getElementById('bmc-contact').value = bmc.contact_number || '';
+  document.getElementById('bmc-capacity').value = bmc.total_capacity !== undefined && bmc.total_capacity !== null ? bmc.total_capacity : '';
+  document.getElementById('bmc-capacity').removeAttribute('data-auto');
   document.getElementById('bmc-location-text').value = bmc.location || '';
-  document.getElementById('bmc-latitude').value = bmc.latitude || '';
-  document.getElementById('bmc-longitude').value = bmc.longitude || '';
+  document.getElementById('bmc-latitude').value = bmc.latitude !== undefined && bmc.latitude !== null ? bmc.latitude : '';
+  document.getElementById('bmc-longitude').value = bmc.longitude !== undefined && bmc.longitude !== null ? bmc.longitude : '';
 
   const statusText = document.getElementById('location-status');
-  if (statusText) statusText.textContent = bmc.latitude ? '✅ Coordinates saved.' : '';
-
-
+  if (statusText) statusText.textContent = bmc.latitude ? `✅ Coordinates: ${bmc.latitude}, ${bmc.longitude}` : '';
 
   // Image preview
   const img = document.getElementById('bmc-preview-img');
@@ -431,6 +574,7 @@ window.openEditModal = function(id) {
   const imageInput = document.getElementById('bmc-image-input');
   if (imageInput) imageInput.value = '';
 
+  renderSilos();
   document.getElementById('bmc-modal').classList.remove('hidden');
 };
 
@@ -440,27 +584,45 @@ function closeModal() {
 
 // ── Save BMC ──────────────────────────────────────────────────────────────────
 async function saveBmc() {
+  const saveBtn = document.getElementById('bmc-save-btn');
   const name = document.getElementById('bmc-name').value.trim();
   const district = document.getElementById('bmc-district').value.trim();
   const contact = document.getElementById('bmc-contact').value.trim();
+  const capacityStr = document.getElementById('bmc-capacity').value.trim();
   const location = document.getElementById('bmc-location-text').value.trim();
-  const lat = document.getElementById('bmc-latitude').value;
-  const lng = document.getElementById('bmc-longitude').value;
+  const latStr = document.getElementById('bmc-latitude').value.trim();
+  const lngStr = document.getElementById('bmc-longitude').value.trim();
+
+  console.log('[saveBmc] Starting save. Values:', { name, district, contact, capacityStr, location, latStr, lngStr });
+  console.log('[saveBmc] currentSilos:', JSON.stringify(currentSilos));
 
   // Validation
   if (!name) { if (typeof showToast === 'function') showToast('BMC Name is required.', 'error'); return; }
   if (!district) { if (typeof showToast === 'function') showToast('District is required.', 'error'); return; }
   if (!contact) { if (typeof showToast === 'function') showToast('Contact number is required.', 'error'); return; }
-  if (!location) { if (typeof showToast === 'function') showToast('Location name is required.', 'error'); return; }
-  if (!lat || !lng) {
-    if (typeof showToast === 'function') showToast('GPS coordinates are required. Please click "Detect My Location".', 'error');
-    return;
+  const cleanContact = contact.replace(/[\s\-\(\)\+]/g, '');
+  if (!/^\d{7,15}$/.test(cleanContact)) { if (typeof showToast === 'function') showToast('Please enter a valid phone number (7-15 digits).', 'error'); return; }
+  if (!capacityStr || isNaN(capacityStr) || parseFloat(capacityStr) <= 0) { if (typeof showToast === 'function') showToast('Total BMC capacity must be a positive number in KG.', 'error'); return; }
+  if (!location) { if (typeof showToast === 'function') showToast('Address Reference is required.', 'error'); return; }
+  if (!latStr || !lngStr || isNaN(latStr) || isNaN(lngStr)) { if (typeof showToast === 'function') showToast('Valid Latitude and Longitude are required.', 'error'); return; }
+
+  const lat = parseFloat(latStr);
+  const lng = parseFloat(lngStr);
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) { if (typeof showToast === 'function') showToast('Latitude must be -90 to 90, Longitude -180 to 180.', 'error'); return; }
+
+  // Validate silos
+  for (let i = 0; i < currentSilos.length; i++) {
+    const sCap = parseFloat(currentSilos[i].capacity_kg);
+    if (currentSilos[i].capacity_kg === '' || currentSilos[i].capacity_kg === undefined || isNaN(sCap) || sCap <= 0) {
+      if (typeof showToast === 'function') showToast(`Silo ${i + 1} capacity must be a valid positive number.`, 'error');
+      return;
+    }
   }
 
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
   if (typeof toggleLoading === 'function') toggleLoading(true);
 
   try {
-    // Process image if selected
     let imageUrl = editingBmcId ? (allBmcs.find(b => b.id === editingBmcId)?.profile_image_url || null) : null;
 
     if (selectedFile) {
@@ -468,18 +630,15 @@ async function saveBmc() {
       if (client) {
         try {
           const ext = selectedFile.name.split('.').pop();
-          const path = `bmcs/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-          const { error: uploadErr } = await client.storage
-            .from('profile_images')
-            .upload(path, selectedFile, { cacheControl: '3600', upsert: true });
-
+          const storagePath = `bmcs/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          const { error: uploadErr } = await client.storage.from('profile_images').upload(storagePath, selectedFile, { cacheControl: '3600', upsert: true });
           if (!uploadErr) {
-            const { data: { publicUrl } } = client.storage.from('profile_images').getPublicUrl(path);
+            const { data: { publicUrl } } = client.storage.from('profile_images').getPublicUrl(storagePath);
             imageUrl = publicUrl;
           } else {
             imageUrl = await getOptimizedBase64(selectedFile);
           }
-        } catch (err) {
+        } catch (imgErr) {
           imageUrl = await getOptimizedBase64(selectedFile);
         }
       } else {
@@ -490,57 +649,133 @@ async function saveBmc() {
     const payload = {
       name,
       district,
-      contact_number: contact,
       location,
-      latitude: parseFloat(lat),
-      longitude: parseFloat(lng),
-      profile_image_url: imageUrl
+      contact_number: contact,
+      latitude: lat,
+      longitude: lng,
+      total_capacity: parseFloat(capacityStr),
+      profile_image_url: imageUrl,
+      silos: currentSilos.map((s, idx) => ({
+        id: s.id || undefined,
+        silo_number: idx + 1,
+        silo_name: `Silo ${idx + 1}`,
+        capacity_kg: parseFloat(s.capacity_kg)
+      }))
     };
 
+    console.log('[saveBmc] Payload being sent:', JSON.stringify(payload));
+
     if (editingBmcId) {
-      // Try backend PUT first
       try {
-        const token = window.localStorage.getItem('sb-access-token') || '';
-        const res = await fetch(`/api/gm/bmcs/${editingBmcId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) {
-          const json = await res.json().catch(() => ({}));
-          throw new Error(json.error || 'Backend update failed');
-        }
+        await apiGmUpdateBmc(editingBmcId, payload);
+        console.log('[saveBmc] Updated via GM API successfully.');
       } catch (apiErr) {
-        // Fallback to Supabase client
+        console.warn('[saveBmc] Backend PUT failed, falling back to direct Supabase update:', apiErr.message);
         const client = await initSupabase();
         if (!client) throw apiErr;
-        const { error } = await client.from('bmcs').update({ ...payload, updated_at: new Date() }).eq('id', editingBmcId);
-        if (error) throw error;
+
+        const bmcUpdatePayload = {
+          name: payload.name,
+          district: payload.district,
+          location: payload.location,
+          contact_number: payload.contact_number,
+          latitude: payload.latitude,
+          longitude: payload.longitude,
+          profile_image_url: payload.profile_image_url,
+          total_capacity: payload.total_capacity
+        };
+
+        // Note: Do NOT use .single() on .update() to avoid HTTP 406 error
+        const { error: updateErr } = await client
+          .from('bmcs')
+          .update(bmcUpdatePayload)
+          .eq('id', editingBmcId)
+          .select();
+
+        if (updateErr) {
+          console.error('[saveBmc] Direct Supabase update error:', updateErr);
+          throw updateErr;
+        }
+
+        // Sync Silos
+        if (Array.isArray(payload.silos)) {
+          try {
+            await client.from('bmc_silos').delete().eq('bmc_id', editingBmcId);
+            if (payload.silos.length > 0) {
+              const silosToInsert = payload.silos.map((s, idx) => ({
+                bmc_id: editingBmcId,
+                silo_number: idx + 1,
+                silo_name: `Silo ${idx + 1}`,
+                capacity_kg: parseFloat(s.capacity_kg) || 0
+              }));
+              await client.from('bmc_silos').insert(silosToInsert);
+            }
+          } catch (sErr) {
+            console.warn('[saveBmc] Silo sync fallback warning:', sErr.message);
+          }
+        }
       }
-      if (typeof showToast === 'function') showToast('BMC updated successfully!', 'success');
+      if (typeof showToast === 'function') showToast('BMC record updated successfully!', 'success');
     } else {
-      // Create new BMC
       try {
         await apiGmCreateBmc(payload);
+        console.log('[saveBmc] Created via GM API successfully.');
       } catch (apiErr) {
-        // Fallback to Supabase client
+        console.warn('[saveBmc] Backend POST failed, falling back to direct Supabase insert:', apiErr.message);
         const client = await initSupabase();
         if (!client) throw apiErr;
-        const { error } = await client.from('bmcs').insert({ ...payload, is_active: true });
-        if (error) throw error;
+
+        const bmcInsertPayload = {
+          name: payload.name,
+          district: payload.district,
+          location: payload.location,
+          contact_number: payload.contact_number,
+          latitude: payload.latitude,
+          longitude: payload.longitude,
+          profile_image_url: payload.profile_image_url,
+          total_capacity: payload.total_capacity,
+          is_active: true
+        };
+
+        const { data: insertedBmc, error: insertErr } = await client
+          .from('bmcs')
+          .insert(bmcInsertPayload)
+          .select();
+
+        if (insertErr) throw insertErr;
+
+        const newId = insertedBmc && insertedBmc[0] ? insertedBmc[0].id : null;
+        if (newId && Array.isArray(payload.silos) && payload.silos.length > 0) {
+          try {
+            const silosToInsert = payload.silos.map((s, idx) => ({
+              bmc_id: newId,
+              silo_number: idx + 1,
+              silo_name: `Silo ${idx + 1}`,
+              capacity_kg: parseFloat(s.capacity_kg) || 0
+            }));
+            await client.from('bmc_silos').insert(silosToInsert);
+          } catch (sErr) {
+            console.warn('[saveBmc] Silo insert fallback warning:', sErr.message);
+          }
+        }
       }
-      if (typeof showToast === 'function') showToast('BMC added successfully!', 'success');
+      if (typeof showToast === 'function') showToast('BMC record created successfully!', 'success');
     }
 
     closeModal();
     await loadBmcs();
+
   } catch (err) {
-    console.error('❌ Save BMC error:', err);
+    console.error('[saveBmc] ❌ Fatal error:', err);
     if (typeof showToast === 'function') showToast(err.message || 'Failed to save BMC.', 'error');
   } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save BMC'; }
     if (typeof toggleLoading === 'function') toggleLoading(false);
   }
 }
+
+
+
 
 // ── Toggle Active Status ──────────────────────────────────────────────────────
 window.toggleBmcStatus = async function(id, currentlyActive) {
@@ -558,12 +793,11 @@ window.toggleBmcStatus = async function(id, currentlyActive) {
     });
 
     if (!res.ok) {
-      // Fallback to direct Supabase update
       const client = await initSupabase();
       if (client) {
         const { error } = await client
           .from('bmcs')
-          .update({ is_active: !currentlyActive, updated_at: new Date() })
+          .update({ is_active: !currentlyActive })
           .eq('id', id);
         if (error) throw error;
       } else {

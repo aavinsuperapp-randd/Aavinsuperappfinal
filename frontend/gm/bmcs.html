@@ -113,9 +113,9 @@
     </div>
   </div>
 
-  <!-- ADD / EDIT BMC MODAL (EXACT COPY OF ADMIN MODAL) -->
+  <!-- ADD / EDIT BMC MODAL -->
   <div id="bmc-modal" class="bmc-modal-overlay hidden">
-    <div class="bmc-modal">
+    <div class="bmc-modal" style="max-width: 580px;">
       <div class="bmc-modal-header">
         <h3 id="bmc-modal-title">Add New BMC</h3>
         <button id="bmc-modal-close" class="bmc-modal-close">✕</button>
@@ -135,39 +135,67 @@
           </div>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
+        <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div class="form-group" style="flex:1; min-width:200px;">
             <label class="form-label" for="bmc-name">BMC Name *</label>
             <input type="text" id="bmc-name" class="form-input" placeholder="e.g. Erode Central BMC">
           </div>
-          <div class="form-group">
+          <div class="form-group" style="flex:1; min-width:200px;">
             <label class="form-label" for="bmc-district">District *</label>
             <input type="text" id="bmc-district" class="form-input" placeholder="e.g. Erode">
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label" for="bmc-contact">Contact Number *</label>
-          <input type="tel" id="bmc-contact" class="form-input" placeholder="e.g. 9876543210" maxlength="15">
+        <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div class="form-group" style="flex:1; min-width:200px;">
+            <label class="form-label" for="bmc-contact">Contact Number *</label>
+            <input type="tel" id="bmc-contact" class="form-input" placeholder="e.g. 9876543210" maxlength="15">
+          </div>
+          <div class="form-group" style="flex:1; min-width:200px;">
+            <label class="form-label" for="bmc-capacity">Total BMC Capacity (KG) *</label>
+            <input type="number" id="bmc-capacity" class="form-input" placeholder="e.g. 5000" min="1" step="any">
+          </div>
         </div>
 
-        <!-- Location Block -->
+        <!-- Address & Coordinates Section -->
         <div class="form-group">
-          <label class="form-label">Location *</label>
-          <div class="bmc-location-block" id="bmc-location-block">
-            <input type="text" id="bmc-location-text" class="form-input" placeholder="Location name / address" style="margin-bottom:10px;">
-            <div style="display:flex; gap:10px; margin-bottom:10px;">
-              <input type="number" id="bmc-latitude" class="form-input" placeholder="Latitude" step="any">
-              <input type="number" id="bmc-longitude" class="form-input" placeholder="Longitude" step="any">
-            </div>
-            <div class="bmc-location-actions">
-              <button type="button" id="detect-location-btn" class="btn btn-outline btn-sm">
-                📡 Detect My Location
-              </button>
-              <span id="location-status" class="text-sm text-muted"></span>
-            </div>
+          <label class="form-label" for="bmc-location-text">Address Reference *</label>
+          <input type="text" id="bmc-location-text" class="form-input" placeholder="e.g. Sakkimangalam Road, KK Nagar, Madurai">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="flex:1; min-width:180px;">
+            <label class="form-label" for="bmc-latitude">Latitude *</label>
+            <input type="number" id="bmc-latitude" class="form-input" placeholder="e.g. 9.9142" step="any">
           </div>
-          <div class="form-hint">GPS coordinates are required. Enter them manually or click "Detect My Location" to auto-fill.</div>
+          <div class="form-group" style="flex:1; min-width:180px;">
+            <label class="form-label" for="bmc-longitude">Longitude *</label>
+            <input type="number" id="bmc-longitude" class="form-input" placeholder="e.g. 78.1631" step="any">
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:8px;">
+          <button type="button" id="detect-location-btn" class="btn btn-outline btn-sm" style="border-color:#cbd5e1; font-weight:600;">
+            📡 Detect My Location
+          </button>
+          <span id="location-status" class="text-sm text-muted"></span>
+        </div>
+
+        <!-- Silo Management Section -->
+        <div class="form-group mt-3" style="border-top:1px solid var(--gray-200, #e2e8f0); padding-top:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+            <div>
+              <label class="form-label" style="margin-bottom:0; font-weight:700; color:var(--gray-900);">Silo Management</label>
+              <div class="text-xs text-muted" id="total-silos-count-label">Total Silos: 0 (Max 10)</div>
+            </div>
+            <button type="button" id="add-silo-btn" class="btn btn-primary btn-sm" style="font-weight:600;">
+              + Add Silo
+            </button>
+          </div>
+
+          <div id="silo-list-container" style="display:flex; flex-direction:column; gap:10px;">
+            <!-- Dynamic Silo Cards -->
+          </div>
         </div>
 
       </div>

@@ -945,12 +945,12 @@ app.get('/api/gm/dashboard-v2', requireGm, async (req, res) => {
 // ─── POST /api/gm/create-bmc (GM BMC CREATION) ───────────────────────────────
 app.post('/api/gm/create-bmc', requireGm, async (req, res) => {
   const { adminClient } = req;
-  const { name, district, location, contact_number, latitude, longitude, profile_image_url } = req.body;
+  const { name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos } = req.body;
 
   if (!name || !district || !location || !contact_number) {
     return res.status(400).json({ error: 'Name, district, location, and contact number are required.' });
   }
-  if (latitude === undefined || latitude === null || longitude === undefined || longitude === null) {
+  if (latitude === undefined || latitude === null || longitude === undefined || longitude === null || latitude === '' || longitude === '') {
     return res.status(400).json({ error: 'GPS coordinates (latitude and longitude) are required.' });
   }
 
@@ -965,7 +965,7 @@ app.post('/api/gm/create-bmc', requireGm, async (req, res) => {
       return res.status(409).json({ error: 'A BMC with this name already exists.' });
     }
 
-    const { data, error } = await adminClient.from('bmcs').insert({
+    const bmcPayload = {
       name: name.trim(),
       district: district.trim(),
       location: location.trim(),
@@ -974,15 +974,58 @@ app.post('/api/gm/create-bmc', requireGm, async (req, res) => {
       longitude: parseFloat(longitude),
       profile_image_url: profile_image_url || null,
       is_active: true
-    }).select().single();
+    };
+    if (total_capacity !== undefined && total_capacity !== null) {
+      bmcPayload.total_capacity = parseFloat(total_capacity) || 0;
+    }
+
+    let data = null;
+    let error = null;
+
+    const result = await adminClient.from('bmcs').insert(bmcPayload).select();
+
+    if (result.error) {
+      if (result.error.code === '42703' || (result.error.message && result.error.message.includes('total_capacity'))) {
+        const retryPayload = { ...bmcPayload };
+        delete retryPayload.total_capacity;
+        const retryResult = await adminClient.from('bmcs').insert(retryPayload).select();
+        data = retryResult.data ? retryResult.data[0] : null;
+        error = retryResult.error;
+      } else {
+        error = result.error;
+      }
+    } else {
+      data = result.data ? result.data[0] : null;
+    }
 
     if (error) throw error;
-    res.status(201).json({ bmc: data });
+
+    let insertedSilos = [];
+    if (Array.isArray(silos) && silos.length > 0 && data?.id) {
+      try {
+        const silosToInsert = silos.map((s, idx) => ({
+          bmc_id: data.id,
+          silo_number: idx + 1,
+          silo_name: `Silo ${idx + 1}`,
+          capacity_kg: parseFloat(s.capacity_kg) || 0
+        }));
+        const { data: sData } = await adminClient
+          .from('bmc_silos')
+          .insert(silosToInsert)
+          .select();
+        insertedSilos = sData || [];
+      } catch (sErr) {
+        console.warn('⚠️ Silo insertion skipped/failed:', sErr.message);
+      }
+    }
+
+    res.status(201).json({ bmc: { ...data, silos: insertedSilos } });
   } catch (err) {
     console.error('❌ GM Create BMC error:', err);
     res.status(500).json({ error: err.message || 'Failed to create BMC.' });
   }
 });
+
 
 // ─── GET /api/gm/analysis (VEHICLE / DRIVER / WORKER DEEP ANALYSIS) ─────────
 app.get('/api/gm/analysis', requireGm, async (req, res) => {
@@ -1524,7 +1567,30 @@ app.get('/api/gm/bmcs', requireGm, async (req, res) => {
       .select('*')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    res.json({ bmcs: bmcs || [] });
+
+    let silosList = [];
+    try {
+      const { data: silosData } = await adminClient
+        .from('bmc_silos')
+        .select('*')
+        .order('silo_number', { ascending: true });
+      silosList = silosData || [];
+    } catch (siloErr) {
+      silosList = [];
+    }
+
+    const silosMap = {};
+    silosList.forEach(s => {
+      if (!silosMap[s.bmc_id]) silosMap[s.bmc_id] = [];
+      silosMap[s.bmc_id].push(s);
+    });
+
+    const enrichedBmcs = (bmcs || []).map(b => ({
+      ...b,
+      silos: silosMap[b.id] || []
+    }));
+
+    res.json({ bmcs: enrichedBmcs });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to load BMC list.' });
   }
@@ -1534,7 +1600,9 @@ app.get('/api/gm/bmcs', requireGm, async (req, res) => {
 app.put('/api/gm/bmcs/:id', requireGm, async (req, res) => {
   const { adminClient } = req;
   const bmcId = req.params.id;
-  const { name, district, location, contact_number, latitude, longitude, profile_image_url } = req.body;
+  const { name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos } = req.body;
+
+  console.log(`[GM BMC UPDATE] id=${bmcId} total_capacity=${total_capacity} silos_count=${Array.isArray(silos) ? silos.length : 'none'}`);
 
   if (!name || !district || !location || !contact_number) {
     return res.status(400).json({ error: 'Name, district, location, and contact number are required.' });
@@ -1547,20 +1615,95 @@ app.put('/api/gm/bmcs/:id', requireGm, async (req, res) => {
       location: location.trim(),
       contact_number: contact_number.trim(),
       latitude: latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null,
-      longitude: longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null,
-      updated_at: new Date()
+      longitude: longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null
     };
     if (profile_image_url !== undefined) payload.profile_image_url = profile_image_url;
+    if (total_capacity !== undefined && total_capacity !== null) {
+      payload.total_capacity = parseFloat(total_capacity) || 0;
+      console.log(`[GM BMC UPDATE] Setting total_capacity=${payload.total_capacity}`);
+    }
 
-    const { data, error } = await adminClient
+    let data = null;
+    let error = null;
+
+    const result = await adminClient
       .from('bmcs')
       .update(payload)
       .eq('id', bmcId)
-      .select()
-      .single();
+      .select();
+
+    if (result.error) {
+      console.warn('[GM BMC UPDATE] Initial update error:', result.error.message);
+      if (result.error.code === '42703' || (result.error.message && result.error.message.includes('total_capacity'))) {
+        console.warn('[GM BMC UPDATE] Retrying update without total_capacity...');
+        const retryPayload = { ...payload };
+        delete retryPayload.total_capacity;
+        const retryResult = await adminClient
+          .from('bmcs')
+          .update(retryPayload)
+          .eq('id', bmcId)
+          .select();
+        data = retryResult.data ? retryResult.data[0] : null;
+        error = retryResult.error;
+      } else {
+        error = result.error;
+      }
+    } else {
+      data = result.data ? result.data[0] : null;
+    }
 
     if (error) throw error;
-    res.json({ bmc: data });
+
+    let updatedSilos = [];
+    if (Array.isArray(silos)) {
+      console.log(`[GM BMC UPDATE] Processing ${silos.length} silos for bmc_id=${bmcId}`);
+      try {
+        const { data: existingSilos, error: selErr } = await adminClient
+          .from('bmc_silos')
+          .select('id')
+          .eq('bmc_id', bmcId);
+        if (selErr) console.error('[GM BMC UPDATE] Error fetching existing silos:', selErr.message);
+
+        const existingIds = (existingSilos || []).map(s => s.id);
+        const payloadSiloIds = silos.filter(s => s.id).map(s => s.id);
+        const idsToDelete = existingIds.filter(id => !payloadSiloIds.includes(id));
+
+        if (idsToDelete.length > 0) {
+          const { error: delErr } = await adminClient.from('bmc_silos').delete().in('id', idsToDelete);
+          if (delErr) console.error('[GM BMC UPDATE] Error deleting old silos:', delErr.message);
+        }
+
+        for (let i = 0; i < silos.length; i++) {
+          const s = silos[i];
+          const siloData = {
+            bmc_id: bmcId,
+            silo_number: i + 1,
+            silo_name: `Silo ${i + 1}`,
+            capacity_kg: parseFloat(s.capacity_kg) || 0
+          };
+
+          if (s.id && existingIds.includes(s.id)) {
+            const { error: uErr } = await adminClient.from('bmc_silos').update(siloData).eq('id', s.id);
+            if (uErr) console.error(`[GM BMC UPDATE] Silo ${i+1} update error:`, uErr.message);
+          } else {
+            const { error: iErr } = await adminClient.from('bmc_silos').insert(siloData);
+            if (iErr) console.error(`[GM BMC UPDATE] Silo ${i+1} insert error:`, iErr.message);
+          }
+        }
+        console.log('[GM BMC UPDATE] Silos processed OK');
+
+        const { data: refSilos } = await adminClient
+          .from('bmc_silos')
+          .select('*')
+          .eq('bmc_id', bmcId)
+          .order('silo_number', { ascending: true });
+        updatedSilos = refSilos || [];
+      } catch (sErr) {
+        console.error('⚠️ Silo update exception:', sErr.message);
+      }
+    }
+
+    res.json({ bmc: { ...data, silos: updatedSilos } });
   } catch (err) {
     console.error('❌ Update BMC error:', err);
     res.status(500).json({ error: err.message || 'Failed to update BMC.' });

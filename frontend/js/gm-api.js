@@ -50,6 +50,15 @@ async function apiGmCreateBmc(data) {
   });
 }
 
+// Update BMC via GM Portal
+async function apiGmUpdateBmc(id, data) {
+  return gmFetch(`/api/gm/bmcs/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+
 // Fetch GM Operational Analysis Data
 async function apiGetGmAnalysis({ type = 'vehicle', entityId = '', startDate = '', endDate = '' } = {}) {
   const queryParams = new URLSearchParams();
