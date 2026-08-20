@@ -147,23 +147,8 @@ function renderTripsTable() {
 function setupFilterHandlers() {
   const searchInput = document.getElementById('trip-search');
   const statusSelect = document.getElementById('trip-filter-status');
-  const purgeBtn = document.getElementById('purge-trips-btn');
-
   if (searchInput) searchInput.addEventListener('input', renderTripsTable);
   if (statusSelect) statusSelect.addEventListener('change', renderTripsTable);
-
-  if (purgeBtn) {
-    purgeBtn.addEventListener('click', async () => {
-      if (!confirm('⚠️ ARE YOU SURE?\nThis will permanently DELETE ALL trip records from the system.')) return;
-      try {
-        await adminFetch('/api/admin/trips/all', { method: 'DELETE' });
-        showToast('All trip records deleted successfully!', 'success');
-        await loadAdminTrips();
-      } catch (err) {
-        showToast(err.message || 'Failed to delete trips.', 'error');
-      }
-    });
-  }
 }
 
 function setupTripDetailModal() {

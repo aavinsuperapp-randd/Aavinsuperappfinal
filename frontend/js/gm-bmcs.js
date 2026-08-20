@@ -193,20 +193,20 @@ function renderGrid(list) {
 // ── Delete BMC ────────────────────────────────────────────────────────────────
 window.deleteBmc = async function(id) {
   if (!confirm('Are you sure you want to delete this BMC record?')) return;
+  toggleLoading(true);
   try {
-    const token = window.localStorage.getItem('sb-access-token') || '';
-    const res = await fetch(`/api/admin/bmcs/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({}));
-      throw new Error(json.error || 'Failed to delete BMC');
-    }
+    const client = await initSupabase();
+    if (!client) { throw new Error('Database offline.'); }
+    
+    const { error } = await client.from('bmcs').delete().eq('id', id);
+    if (error) throw error;
+    
     if (typeof showToast === 'function') showToast('BMC deleted successfully', 'success');
     await loadBmcs();
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to delete BMC', 'error');
+  } finally {
+    toggleLoading(false);
   }
 };
 
@@ -237,24 +237,7 @@ function bindEvents() {
   const addBtn = document.getElementById('add-bmc-btn');
   if (addBtn) addBtn.addEventListener('click', openAddModal);
 
-  const purgeBtn = document.getElementById('purge-bmcs-btn');
-  if (purgeBtn) {
-    purgeBtn.addEventListener('click', async () => {
-      if (!confirm('⚠️ ARE YOU SURE?\nThis will permanently DELETE ALL BMC records from the system.')) return;
-      try {
-        const token = window.localStorage.getItem('sb-access-token') || '';
-        const res = await fetch('/api/admin/bmcs/all', {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (!res.ok) throw new Error('Failed to remove all BMCs');
-        if (typeof showToast === 'function') showToast('All BMC records removed successfully!', 'success');
-        await loadBmcs();
-      } catch (err) {
-        if (typeof showToast === 'function') showToast(err.message || 'Failed to remove BMCs.', 'error');
-      }
-    });
-  }
+
 
   const modalClose = document.getElementById('bmc-modal-close');
   if (modalClose) modalClose.addEventListener('click', closeModal);
@@ -341,9 +324,7 @@ function detectLocation() {
       document.getElementById('bmc-latitude').value = detectedLat;
       document.getElementById('bmc-longitude').value = detectedLng;
 
-      document.getElementById('lat-display').textContent = detectedLat.toFixed(6);
-      document.getElementById('lng-display').textContent = detectedLng.toFixed(6);
-      document.getElementById('bmc-coords-display').style.display = 'flex';
+
 
       if (status) status.textContent = '✅ Location detected! Confirm and save.';
       if (btn) {
@@ -383,7 +364,7 @@ function openAddModal() {
   document.getElementById('bmc-location-text').value = '';
   document.getElementById('bmc-latitude').value = '';
   document.getElementById('bmc-longitude').value = '';
-  document.getElementById('bmc-coords-display').style.display = 'none';
+
   document.getElementById('location-status').textContent = '';
 
   const detectBtn = document.getElementById('detect-location-btn');
@@ -428,13 +409,7 @@ window.openEditModal = function(id) {
   const statusText = document.getElementById('location-status');
   if (statusText) statusText.textContent = bmc.latitude ? '✅ Coordinates saved.' : '';
 
-  if (bmc.latitude) {
-    document.getElementById('lat-display').textContent = Number(bmc.latitude).toFixed(6);
-    document.getElementById('lng-display').textContent = Number(bmc.longitude).toFixed(6);
-    document.getElementById('bmc-coords-display').style.display = 'flex';
-  } else {
-    document.getElementById('bmc-coords-display').style.display = 'none';
-  }
+
 
   // Image preview
   const img = document.getElementById('bmc-preview-img');

@@ -164,33 +164,7 @@ function setupModalHandlers() {
   const driverModal = document.getElementById('driver-modal');
   const tankerModal = document.getElementById('tanker-modal');
 
-  const purgeDriversBtn = document.getElementById('purge-drivers-btn');
-  if (purgeDriversBtn) {
-    purgeDriversBtn.addEventListener('click', async () => {
-      if (!confirm('⚠️ Are you sure you want to remove ALL registered drivers?')) return;
-      try {
-        await adminFetch('/api/admin/drivers/all', { method: 'DELETE' });
-        showToast('All drivers removed!', 'success');
-        await loadDrivers();
-      } catch (err) {
-        showToast(err.message || 'Failed to remove drivers.', 'error');
-      }
-    });
-  }
 
-  const purgeTankersBtn = document.getElementById('purge-tankers-btn');
-  if (purgeTankersBtn) {
-    purgeTankersBtn.addEventListener('click', async () => {
-      if (!confirm('⚠️ Are you sure you want to remove ALL registered vehicles?')) return;
-      try {
-        await adminFetch('/api/admin/tankers/all', { method: 'DELETE' });
-        showToast('All vehicles removed!', 'success');
-        await loadTankers();
-      } catch (err) {
-        showToast(err.message || 'Failed to remove vehicles.', 'error');
-      }
-    });
-  }
 
   document.getElementById('add-driver-btn').addEventListener('click', () => {
     document.getElementById('driver-name-input').value = '';

@@ -286,8 +286,6 @@ function setupCreateBmcModal() {
   const detectLocBtn = document.getElementById('create-detect-location-btn');
   const locStatus = document.getElementById('create-location-status');
   const coordsDisplay = document.getElementById('create-coords-display');
-  const latDisplay = document.getElementById('create-lat-display');
-  const lngDisplay = document.getElementById('create-lng-display');
   const latInput = document.getElementById('create-bmc-latitude');
   const lngInput = document.getElementById('create-bmc-longitude');
 
@@ -310,7 +308,6 @@ function setupCreateBmcModal() {
     contactInput.value = '';
     latInput.value = '';
     lngInput.value = '';
-    coordsDisplay.style.display = 'none';
     locStatus.textContent = '';
     detectLocBtn.textContent = '📡 Detect My Location';
     detectLocBtn.disabled = false;
@@ -357,9 +354,6 @@ function setupCreateBmcModal() {
         latInput.value = detectedLat;
         lngInput.value = detectedLng;
 
-        latDisplay.textContent = detectedLat.toFixed(6);
-        lngDisplay.textContent = detectedLng.toFixed(6);
-        coordsDisplay.style.display = 'flex';
 
         locStatus.textContent = '✅ Location detected!';
         detectLocBtn.disabled = false;

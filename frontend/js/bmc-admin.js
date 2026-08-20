@@ -100,11 +100,12 @@ function renderGrid(list) {
 window.deleteBmc = async function(id) {
   if (!confirm('Are you sure you want to delete this BMC record?')) return;
   try {
-    const res = await fetch(`/api/admin/bmcs/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${window.localStorage.getItem('sb-access-token') || ''}` }
-    });
-    if (!res.ok) throw new Error('Failed to delete BMC');
+    const client = await initSupabase();
+    if (!client) { showToast('Database offline.', 'error'); return; }
+    
+    const { error } = await client.from('bmcs').delete().eq('id', id);
+    if (error) throw error;
+    
     showToast('BMC deleted', 'success');
     await loadBmcs();
   } catch (err) {
@@ -128,23 +129,7 @@ function applyFilters() {
 function bindEvents() {
   document.getElementById('add-bmc-btn').addEventListener('click', openAddModal);
   
-  const purgeBtn = document.getElementById('purge-bmcs-btn');
-  if (purgeBtn) {
-    purgeBtn.addEventListener('click', async () => {
-      if (!confirm('⚠️ ARE YOU SURE?\nThis will permanently DELETE ALL BMC records from the system.')) return;
-      try {
-        const res = await fetch('/api/admin/bmcs/all', {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${window.localStorage.getItem('sb-access-token') || ''}` }
-        });
-        if (!res.ok) throw new Error('Failed to remove all BMCs');
-        showToast('All BMC records removed successfully!', 'success');
-        await loadBmcs();
-      } catch (err) {
-        showToast(err.message || 'Failed to remove BMCs.', 'error');
-      }
-    });
-  }
+
 
   document.getElementById('bmc-modal-close').addEventListener('click', closeModal);
   document.getElementById('bmc-cancel-btn').addEventListener('click', closeModal);
@@ -212,10 +197,6 @@ function detectLocation() {
       document.getElementById('bmc-latitude').value = detectedLat;
       document.getElementById('bmc-longitude').value = detectedLng;
 
-      document.getElementById('lat-display').textContent = detectedLat.toFixed(6);
-      document.getElementById('lng-display').textContent = detectedLng.toFixed(6);
-      document.getElementById('bmc-coords-display').style.display = 'flex';
-
       status.textContent = '✅ Location detected! Confirm and save.';
       btn.disabled = false;
       btn.textContent = '📡 Re-detect Location';
@@ -250,7 +231,6 @@ function openAddModal() {
   document.getElementById('bmc-location-text').value = '';
   document.getElementById('bmc-latitude').value = '';
   document.getElementById('bmc-longitude').value = '';
-  document.getElementById('bmc-coords-display').style.display = 'none';
   document.getElementById('location-status').textContent = '';
   document.getElementById('detect-location-btn').textContent = '📡 Detect My Location';
   document.getElementById('detect-location-btn').disabled = false;
@@ -284,13 +264,7 @@ function openEditModal(id) {
   document.getElementById('bmc-longitude').value = bmc.longitude || '';
   document.getElementById('location-status').textContent = bmc.latitude ? '✅ Coordinates saved.' : '';
 
-  if (bmc.latitude) {
-    document.getElementById('lat-display').textContent = Number(bmc.latitude).toFixed(6);
-    document.getElementById('lng-display').textContent = Number(bmc.longitude).toFixed(6);
-    document.getElementById('bmc-coords-display').style.display = 'flex';
-  } else {
-    document.getElementById('bmc-coords-display').style.display = 'none';
-  }
+
 
   // Image
   const img = document.getElementById('bmc-preview-img');

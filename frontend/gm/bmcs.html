@@ -62,9 +62,7 @@
               <p class="text-muted text-sm">Manage all registered BMC units across districts.</p>
             </div>
             <div class="d-flex gap-2">
-              <button id="purge-bmcs-btn" class="btn btn-danger">
-                🗑️ Remove All
-              </button>
+
               <button id="add-bmc-btn" class="btn btn-primary">
                 <span>+</span> Add New BMC
               </button>
@@ -158,12 +156,10 @@
           <label class="form-label">Location *</label>
           <div class="bmc-location-block" id="bmc-location-block">
             <input type="text" id="bmc-location-text" class="form-input" placeholder="Location name / address" style="margin-bottom:10px;">
-            <div class="bmc-location-coords" id="bmc-coords-display" style="display:none;">
-              <span class="bmc-coord-badge">📍 Lat: <b id="lat-display">—</b></span>
-              <span class="bmc-coord-badge">Lng: <b id="lng-display">—</b></span>
+            <div style="display:flex; gap:10px; margin-bottom:10px;">
+              <input type="number" id="bmc-latitude" class="form-input" placeholder="Latitude" step="any">
+              <input type="number" id="bmc-longitude" class="form-input" placeholder="Longitude" step="any">
             </div>
-            <input type="hidden" id="bmc-latitude">
-            <input type="hidden" id="bmc-longitude">
             <div class="bmc-location-actions">
               <button type="button" id="detect-location-btn" class="btn btn-outline btn-sm">
                 📡 Detect My Location
@@ -171,7 +167,7 @@
               <span id="location-status" class="text-sm text-muted"></span>
             </div>
           </div>
-          <div class="form-hint">GPS coordinates are required. Click "Detect My Location" to auto-fill.</div>
+          <div class="form-hint">GPS coordinates are required. Enter them manually or click "Detect My Location" to auto-fill.</div>
         </div>
 
       </div>

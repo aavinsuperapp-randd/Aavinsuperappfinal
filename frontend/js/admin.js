@@ -81,19 +81,7 @@ let currentUserFilter = 'pending';
 let allProfilesCache = [];
 
 function setupVerificationPage() {
-  const purgeBtn = document.getElementById('purge-users-btn');
-  if (purgeBtn) {
-    purgeBtn.addEventListener('click', async () => {
-      if (!confirm('⚠️ ARE YOU SURE?\nThis will permanently DELETE ALL registered non-admin users (Workers & GMs) from the system.')) return;
-      try {
-        await adminFetch('/api/admin/users/all', { method: 'DELETE' });
-        showToast('All non-admin users removed successfully!', 'success');
-        await loadUserRegistrations(currentUserFilter);
-      } catch (err) {
-        showToast(err.message || 'Failed to remove users.', 'error');
-      }
-    });
-  }
+
 
   const tabPending = document.getElementById('user-tab-pending');
   const tabAll = document.getElementById('user-tab-all');

@@ -181,12 +181,10 @@
           <label class="form-label">Location *</label>
           <div class="bmc-location-block" id="create-bmc-location-block">
             <input type="text" id="create-bmc-location" class="form-input" placeholder="Location name / address" style="margin-bottom:10px;">
-            <div class="bmc-location-coords" id="create-bmc-coords-display" style="display:none; gap:10px; margin-bottom:8px;">
-              <span class="bmc-coord-badge">📍 Lat: <b id="create-lat-display">—</b></span>
-              <span class="bmc-coord-badge">Lng: <b id="create-lng-display">—</b></span>
+            <div style="display:flex; gap:10px; margin-bottom:10px;">
+              <input type="number" id="create-bmc-latitude" class="form-input" placeholder="Latitude" step="any">
+              <input type="number" id="create-bmc-longitude" class="form-input" placeholder="Longitude" step="any">
             </div>
-            <input type="hidden" id="create-bmc-latitude">
-            <input type="hidden" id="create-bmc-longitude">
             <div class="bmc-location-actions">
               <button type="button" id="create-detect-location-btn" class="btn btn-outline btn-sm">
                 📡 Detect My Location
@@ -194,7 +192,7 @@
               <span id="create-location-status" class="text-sm text-muted"></span>
             </div>
           </div>
-          <div class="form-hint" style="font-size: 0.75rem; color: #6b7280; margin-top: 4px;">GPS coordinates are required. Click "Detect My Location" to auto-fill.</div>
+          <div class="form-hint" style="font-size: 0.75rem; color: #6b7280; margin-top: 4px;">GPS coordinates are required. Enter them manually or click "Detect My Location" to auto-fill.</div>
         </div>
 
       </div>
