@@ -30,10 +30,15 @@
     document.addEventListener('DOMContentLoaded', async () => {
       const profile = await checkAuth('transport_officer');
       if (!profile) {
-        window.location.href = '/login.html';
+        // checkAuth already initiates the correct redirect (e.g. to /driver/dashboard.html or /login.html).
         return;
       }
-      window.location.href = '/transport/dashboard.html';
+      // Route based on role: drivers go to Driver Dashboard, transport officers go to their own dashboard
+      if (profile.role === 'driver') {
+        window.location.href = '/driver/dashboard.html';
+      } else {
+        window.location.href = '/transport/dashboard.html';
+      }
     });
   </script>
 

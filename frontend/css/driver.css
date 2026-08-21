@@ -1,0 +1,893 @@
+/* ============================================================
+   AAVIN Driver Portal — CSS Additions
+   Extends gm-portal.css for driver-specific components.
+   ============================================================ */
+
+/* ── Sidebar Overlay (mobile) ── */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 199;
+  backdrop-filter: blur(2px);
+}
+.sidebar-overlay.show { display: block; }
+
+@media (max-width: 900px) {
+  .admin-sidebar {
+    transform: translateX(-100%);
+    z-index: 200;
+  }
+  .admin-sidebar.open { transform: translateX(0); }
+  .admin-main { margin-left: 0 !important; }
+}
+
+/* ── KPI Grid ── */
+.kpi-grid-5 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+@media (max-width: 640px) {
+  .kpi-grid-5 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Table Card ── */
+.table-card {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #F3F4F6;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  overflow: hidden;
+}
+.table-responsive { overflow-x: auto; }
+
+/* ── GM Table v2 (driver portal version) ── */
+.gm-table-v2 {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  font-family: 'Outfit', sans-serif;
+}
+.gm-table-v2 th {
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: #F9FAFB;
+  border-bottom: 1px solid #E5E7EB;
+  white-space: nowrap;
+}
+.gm-table-v2 td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #F3F4F6;
+  color: #374151;
+  white-space: nowrap;
+}
+.gm-table-v2 tr:last-child td { border-bottom: none; }
+.gm-table-v2 tr:hover td { background: #F9FAFB; }
+.gm-table-v2 .text-center { text-align: center; }
+
+/* ── Btn Ghost ── */
+.btn-ghost {
+  background: transparent;
+  border: 1px solid #E5E7EB;
+  color: #6B7280;
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-family: 'Outfit', sans-serif;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-ghost:hover { background: #F3F4F6; color: #374151; border-color: #D1D5DB; }
+
+
+
+/* ── Loading & Error States ── */
+.driver-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  text-align: center;
+  color: #6B7280;
+  font-size: 0.95rem;
+}
+
+.driver-spinner {
+  width: 44px;
+  height: 44px;
+  border: 3px solid #E5E7EB;
+  border-top-color: #2563EB;
+  border-radius: 50%;
+  animation: driverSpin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+@keyframes driverSpin { to { transform: rotate(360deg); } }
+
+.driver-mini-loading {
+  color: #6B7280;
+  font-size: 0.9rem;
+  padding: 24px;
+  text-align: center;
+}
+
+.driver-error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  text-align: center;
+}
+.driver-error-icon { font-size: 3rem; margin-bottom: 12px; }
+.driver-error-state h3 { color: #111827; margin: 0 0 8px; font-size: 1.2rem; }
+.driver-error-state p { color: #6B7280; margin: 0 0 20px; font-size: 0.9rem; }
+
+.driver-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #6B7280;
+  font-size: 0.9rem;
+}
+.driver-empty-state > div { margin-bottom: 12px; }
+
+/* ── Driver Profile Banner ── */
+.driver-profile-banner {
+  background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 60%, #2563EB 100%);
+  border-radius: 20px;
+  padding: 28px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  box-shadow: 0 8px 32px rgba(37, 99, 235, 0.2);
+  flex-wrap: wrap;
+}
+
+.driver-profile-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.driver-avatar-lg {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  border: 3px solid rgba(255,255,255,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #fff;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+.driver-avatar-lg img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.driver-profile-info h2 {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #fff;
+  margin: 0 0 8px;
+}
+.driver-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.driver-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.8);
+}
+.driver-meta-item strong { color: #fff; }
+
+/* ── Driver Status Badge ── */
+.driver-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 50px;
+  padding: 8px 18px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fff;
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+}
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #22C55E;
+  animation: pulseDot 2s ease infinite;
+  flex-shrink: 0;
+}
+.status-dot.orange { background: #F59E0B; }
+.status-dot.red { background: #EF4444; }
+.status-dot.blue { background: #60A5FA; }
+@keyframes pulseDot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+}
+
+/* ── KPI Cards Extras ── */
+.kpi-sub {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.65);
+  margin-top: 2px;
+}
+
+/* ── Active Trip Alert Banner ── */
+.driver-active-trip-alert {
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+  border: 2px solid #F59E0B;
+  border-radius: 16px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  animation: alertPulse 3s ease infinite;
+}
+.alert-icon { font-size: 1.5rem; flex-shrink: 0; }
+.alert-body { flex: 1; }
+.alert-body strong { display: block; color: #92400E; font-size: 1rem; }
+.alert-body span { color: #78350F; font-size: 0.85rem; }
+@keyframes alertPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.2); }
+  50% { box-shadow: 0 0 0 8px rgba(245,158,11,0); }
+}
+
+/* ── Vehicle Card ── */
+.vehicle-detail-card {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.vehicle-img-wrap {
+  width: 120px;
+  height: 90px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #F1F5F9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.vehicle-thumbnail { width: 100%; height: 100%; object-fit: cover; }
+.vehicle-img-placeholder { font-size: 3rem; }
+.vehicle-details { flex: 1; }
+.vehicle-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #F3F4F6;
+  font-size: 0.875rem;
+}
+.vehicle-detail-row:last-child { border-bottom: none; }
+.vd-label { color: #6B7280; }
+.vd-value { font-weight: 600; color: #111827; }
+
+/* ── Work Time Summary ── */
+.worktime-summary-list { display: flex; flex-direction: column; gap: 4px; }
+.wt-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid #F3F4F6;
+}
+.wt-item:last-child { border-bottom: none; }
+.wt-period { color: #6B7280; font-size: 0.875rem; }
+.wt-val { font-size: 1.25rem; font-weight: 700; color: #2563EB; }
+
+/* ── Trip Cards ── */
+.driver-trip-card {
+  border: 1px solid #E5E7EB;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 16px;
+  background: #fff;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.driver-trip-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  border-color: #BFDBFE;
+}
+.driver-trip-card.active-trip {
+  border-color: #2563EB;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+}
+.trip-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.trip-card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 4px;
+}
+.trip-card-subtitle { font-size: 0.8rem; color: #6B7280; }
+.trip-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: 0.8rem;
+  color: #6B7280;
+}
+.trip-card-meta-item { display: flex; align-items: center; gap: 4px; }
+.trip-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ── Badges ── */
+.badge-warning { background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; }
+.badge-info    { background: #DBEAFE; color: #1E40AF; border: 1px solid #BFDBFE; }
+.badge-primary { background: #EEF2FF; color: #3730A3; border: 1px solid #C7D2FE; }
+.badge-active  { background: #DCFCE7; color: #14532D; border: 1px solid #BBF7D0; }
+.badge-purple  { background: #F3E8FF; color: #581C87; border: 1px solid #E9D5FF; }
+.badge-success { background: #D1FAE5; color: #064E3B; border: 1px solid #A7F3D0; }
+.badge-neutral { background: #F3F4F6; color: #374151; border: 1px solid #E5E7EB; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 50px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* ── Step Cards (Trip workflow) ── */
+.driver-step-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 32px;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  border: 1px solid #E5E7EB;
+}
+.step-icon { font-size: 2.5rem; margin-bottom: 12px; }
+.driver-step-card h3 { font-size: 1.3rem; font-weight: 800; color: #111827; margin: 0 0 8px; }
+.driver-step-card p { color: #6B7280; font-size: 0.9rem; margin: 0 0 20px; }
+
+.step-header { margin-bottom: 24px; }
+
+/* ── Pre-Trip Checklist ── */
+.pretrip-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #F9FAFB;
+  border-radius: 12px;
+  border: 1px solid #E5E7EB;
+}
+.pretrip-check-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.875rem;
+  color: #374151;
+  padding: 6px 0;
+}
+.pretrip-check-item.done { color: #059669; }
+.pretrip-check-item.done .check-icon::before { content: '✅'; }
+.check-icon { font-size: 1rem; width: 24px; text-align: center; }
+
+/* ── Form Inputs (Driver style) ── */
+.form-label-driver {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+}
+.required { color: #EF4444; }
+.form-input-driver {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1.5px solid #E5E7EB;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-family: 'Outfit', sans-serif;
+  color: #111827;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+.form-input-driver:focus {
+  outline: none;
+  border-color: #2563EB;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+}
+.form-input-driver.error { border-color: #EF4444; }
+.form-hint-driver { font-size: 0.78rem; color: #6B7280; margin-top: 4px; }
+.form-hint-driver.error-msg { color: #EF4444; }
+.form-group { margin-bottom: 20px; }
+
+/* ── Photo Upload ── */
+.photo-upload-area {
+  border: 2px dashed #D1D5DB;
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+  transition: border-color 0.2s, background 0.2s;
+  cursor: pointer;
+  background: #FAFAFA;
+}
+.photo-upload-area:hover { border-color: #2563EB; background: #EFF6FF; }
+.photo-upload-area.has-photo { border-style: solid; border-color: #2563EB; }
+.photo-preview {
+  width: 100%;
+  max-width: 300px;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin: 0 auto 12px;
+  display: block;
+}
+.photo-placeholder-icon { font-size: 2.5rem; margin-bottom: 8px; }
+.photo-placeholder p { color: #9CA3AF; font-size: 0.85rem; margin: 0; }
+.photo-actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+
+.upload-progress { padding: 8px 0; }
+.progress-bar {
+  height: 6px;
+  background: #E5E7EB;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.progress-fill {
+  height: 100%;
+  background: #2563EB;
+  border-radius: 3px;
+  width: 0%;
+  transition: width 0.3s ease;
+  animation: progressAnim 1.5s ease infinite;
+}
+@keyframes progressAnim {
+  0% { width: 10%; } 50% { width: 80%; } 100% { width: 95%; }
+}
+
+/* ── Location Box ── */
+.location-status-box {
+  border: 1.5px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 16px;
+  background: #F9FAFB;
+}
+.location-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: #374151;
+}
+.location-icon { font-size: 1.2rem; }
+.location-coords {
+  font-size: 0.78rem;
+  color: #6B7280;
+  font-family: monospace;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: #E5E7EB;
+  border-radius: 6px;
+  display: inline-block;
+}
+.location-error { color: #EF4444; font-size: 0.8rem; margin-top: 6px; }
+.location-status-box.granted { border-color: #22C55E; background: #F0FDF4; }
+.location-status-box.denied { border-color: #EF4444; background: #FEF2F2; }
+
+/* ── Start Trip Button ── */
+.btn-start-trip {
+  background: linear-gradient(135deg, #16A34A 0%, #15803D 100%);
+  color: #fff;
+  border: none;
+  border-radius: 16px;
+  padding: 18px 40px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  font-family: 'Outfit', sans-serif;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: 0.02em;
+  box-shadow: 0 8px 24px rgba(22,163,74,0.3);
+  transition: all 0.2s;
+  width: 100%;
+  justify-content: center;
+}
+.btn-start-trip:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(22,163,74,0.4);
+}
+.btn-start-trip:disabled {
+  background: #9CA3AF;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.start-trip-hint {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #9CA3AF;
+  margin-top: 8px;
+}
+.start-trip-hint.ready { color: #16A34A; font-weight: 600; }
+
+/* ── Active Trip Banner ── */
+.active-trip-banner {
+  text-align: center;
+  padding: 24px;
+  margin-bottom: 24px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #FEF2F2 0%, #FECACA 100%);
+  border: 2px solid #F87171;
+  position: relative;
+}
+.active-pulse-ring {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 3px solid #EF4444;
+  margin: 0 auto 12px;
+  animation: activePulse 1.5s ease infinite;
+}
+@keyframes activePulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.6; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.active-trip-label {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #991B1B;
+  letter-spacing: 0.05em;
+}
+
+.active-trip-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+@media (min-width: 600px) {
+  .active-trip-stats { grid-template-columns: repeat(4, 1fr); }
+}
+.active-stat {
+  background: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+}
+.active-stat-icon { font-size: 1.4rem; margin-bottom: 6px; }
+.active-stat-val { font-size: 1.15rem; font-weight: 800; color: #111827; }
+.active-stat-label { font-size: 0.75rem; color: #6B7280; margin-top: 2px; }
+
+.active-location-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #F0F9FF;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  color: #1E40AF;
+  margin-bottom: 8px;
+}
+.loc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22C55E;
+  animation: pulseDot 2s ease infinite;
+}
+.loc-dot.inactive { background: #9CA3AF; animation: none; }
+
+/* ── Complete Trip Button ── */
+.btn-complete-trip {
+  background: linear-gradient(135deg, #1E40AF 0%, #2563EB 100%);
+  color: #fff;
+  border: none;
+  border-radius: 16px;
+  padding: 18px 40px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  font-family: 'Outfit', sans-serif;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: 0.02em;
+  box-shadow: 0 8px 24px rgba(37,99,235,0.3);
+  transition: all 0.2s;
+  width: 100%;
+  justify-content: center;
+}
+.btn-complete-trip:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(37,99,235,0.4);
+}
+.btn-complete-trip:disabled {
+  background: #9CA3AF;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ── Step Actions ── */
+.step-actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+
+/* ── Mileage Preview ── */
+.mileage-preview-card {
+  background: #EFF6FF;
+  border: 1.5px solid #BFDBFE;
+  border-radius: 16px;
+  padding: 20px;
+  margin: 16px 0;
+}
+.mileage-preview-card h4 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1E40AF;
+  margin: 0 0 16px;
+}
+.mileage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.mg-item { display: flex; flex-direction: column; gap: 2px; }
+.mg-label { font-size: 0.75rem; color: #6B7280; }
+.mg-val { font-size: 0.95rem; font-weight: 700; color: #1E3A8A; }
+.mg-val.highlight { color: #16A34A; font-size: 1.05rem; }
+
+.mileage-error {
+  color: #DC2626;
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  background: #FEF2F2;
+  border-radius: 8px;
+  margin-top: 8px;
+  border: 1px solid #FECACA;
+}
+
+/* ── Trip Completion Result ── */
+.completion-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.completion-icon { font-size: 4rem; margin-bottom: 12px; }
+.completion-header h2 { font-size: 1.75rem; font-weight: 800; color: #059669; margin: 0 0 8px; }
+.completion-header p { color: #6B7280; margin: 0; }
+
+.mileage-result-card {
+  background: #F9FAFB;
+  border: 1.5px solid #E5E7EB;
+  border-radius: 20px;
+  padding: 24px;
+}
+.mileage-result-card h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 20px;
+}
+.mileage-result-grid { display: flex; flex-direction: column; }
+.mr-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #E5E7EB;
+  font-size: 0.9rem;
+}
+.mr-row:last-child { border-bottom: none; }
+.mr-row.separator { padding-top: 16px; margin-top: 8px; border-top: 2px solid #D1D5DB; }
+.mr-row.highlight-row {
+  background: #ECFDF5;
+  margin: 8px -24px -24px;
+  padding: 16px 24px;
+  border-radius: 0 0 16px 16px;
+  border: none;
+}
+.mr-label { color: #6B7280; }
+.mr-val { font-weight: 600; color: #111827; }
+.mr-val.bold { font-weight: 800; }
+.mr-val.large { font-size: 1.3rem; color: #059669; }
+
+/* ── Trip Header Card ── */
+.driver-trip-header-card {
+  background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%);
+  border-radius: 20px;
+  padding: 24px;
+  margin-bottom: 24px;
+  color: #fff;
+  box-shadow: 0 8px 32px rgba(37,99,235,0.2);
+}
+.trip-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.trip-number-tag {
+  display: inline-block;
+  background: rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.trip-main-title { font-size: 1.3rem; font-weight: 800; margin: 0 0 8px; }
+.trip-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: rgba(255,255,255,0.8);
+}
+.trip-status-badge {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 50px;
+  padding: 6px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+}
+.trip-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+@media (min-width: 640px) {
+  .trip-info-grid { grid-template-columns: repeat(4, 1fr); }
+}
+.trip-info-item { display: flex; flex-direction: column; gap: 2px; }
+.ti-label { font-size: 0.72rem; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.05em; }
+.ti-val { font-size: 0.9rem; font-weight: 600; color: #fff; }
+
+/* ── Trip Select List ── */
+.trip-select-btn {
+  width: 100%;
+  text-align: left;
+  background: #F9FAFB;
+  border: 1.5px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+  margin-bottom: 10px;
+  font-family: 'Outfit', sans-serif;
+  transition: all 0.2s;
+}
+.trip-select-btn:hover {
+  border-color: #2563EB;
+  background: #EFF6FF;
+}
+.trip-select-title { font-size: 0.95rem; font-weight: 700; color: #111827; display: block; }
+.trip-select-sub { font-size: 0.8rem; color: #6B7280; display: block; margin-top: 2px; }
+
+/* ── History Table Enhancements ── */
+.history-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.filter-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.filter-tab {
+  padding: 6px 14px;
+  border-radius: 50px;
+  border: 1.5px solid #E5E7EB;
+  background: #F9FAFB;
+  font-size: 0.8rem;
+  font-family: 'Outfit', sans-serif;
+  cursor: pointer;
+  font-weight: 500;
+  color: #374151;
+  transition: all 0.2s;
+}
+.filter-tab.active {
+  background: #2563EB;
+  border-color: #2563EB;
+  color: #fff;
+  font-weight: 600;
+}
+.filter-tab:hover:not(.active) { border-color: #2563EB; color: #2563EB; }
+.custom-date-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── History Summary ── */
+.history-summary-row {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  margin-top: 12px;
+  background: #F0F9FF;
+  border-radius: 12px;
+  border: 1px solid #BFDBFE;
+  flex-wrap: wrap;
+}
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 100px;
+  text-align: center;
+}
+.summary-label { font-size: 0.75rem; color: #6B7280; }
+.summary-val { font-size: 1.1rem; font-weight: 800; color: #1E40AF; }
+
+/* ── Misc helpers ── */
+.text-muted { color: #9CA3AF !important; }
+.text-sm { font-size: 0.8rem; }
+.hidden { display: none !important; }
+.btn-lg { padding: 16px 32px; font-size: 1rem; }
+
+/* ── Responsive adjustments ── */
+@media (max-width: 640px) {
+  .driver-profile-banner { padding: 20px; }
+  .driver-profile-left { flex-direction: column; align-items: flex-start; }
+  .driver-trip-header-card { padding: 18px; }
+  .mileage-grid { grid-template-columns: 1fr; }
+  .step-actions { flex-direction: column; }
+}
+
+@media (max-width: 768px) {
+  .active-trip-stats { grid-template-columns: repeat(2, 1fr); }
+  .trip-info-grid { grid-template-columns: repeat(2, 1fr); }
+}

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Work Time — AAVIN Driver</title>
+  <meta name="description" content="AAVIN Driver — View work time summary for today, this week, and this month.">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
+  <link rel="stylesheet" href="/css/driver.css">
+  <link rel="stylesheet" href="../css/driver.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <aside class="admin-sidebar" id="driver-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>Driver Portal</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Dashboard</a>
+        <a href="trip.html" class="admin-nav-item"><span>🚛</span> Active Trip</a>
+        <a href="history.html" class="admin-nav-item"><span>📜</span> Trip History</a>
+        <a href="worktime.html" class="admin-nav-item active"><span>⏱️</span> Work Time</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto;margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>Work Time</h2>
+            <p>Your working hours summary</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar" id="header-avatar">DR</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-driver-name">Driver</div>
+              <div class="header-user-role">Driver Portal</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="wt-loading" class="driver-loading-state">
+          <div class="driver-spinner"></div>
+          <p>Loading work time...</p>
+        </div>
+
+        <div id="wt-content" class="hidden">
+          <!-- Work Time Summary Cards -->
+          <div class="kpi-grid-5" style="grid-template-columns:repeat(3,1fr);">
+            <div class="kpi-card-v2 blue">
+              <div class="kpi-icon-wrap">📅</div>
+              <div>
+                <div class="kpi-val" id="wt-today-val">—</div>
+                <div class="kpi-title">Today's Work Time</div>
+                <div class="kpi-sub" id="wt-today-trips">0 trips</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 cyan">
+              <div class="kpi-icon-wrap">📆</div>
+              <div>
+                <div class="kpi-val" id="wt-week-val">—</div>
+                <div class="kpi-title">This Week</div>
+                <div class="kpi-sub" id="wt-week-trips">0 trips</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 purple">
+              <div class="kpi-icon-wrap">🗓️</div>
+              <div>
+                <div class="kpi-val" id="wt-month-val">—</div>
+                <div class="kpi-title">This Month</div>
+                <div class="kpi-sub" id="wt-month-trips">0 trips</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Daily Breakdown Table -->
+          <div class="content-card" style="margin-top:24px;">
+            <div class="card-header">
+              <h3>📋 Daily Work Time Breakdown (This Week)</h3>
+            </div>
+            <div class="table-responsive">
+              <table class="gm-table-v2">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Trips Completed</th>
+                    <th>Work Time</th>
+                    <th>KM Travelled</th>
+                  </tr>
+                </thead>
+                <tbody id="wt-table-body">
+                  <tr><td colspan="4" class="text-center text-muted" style="padding:24px;">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="content-card" style="margin-top:16px;">
+            <p style="font-size:0.85rem;color:#6B7280;margin:0;">
+              <strong>Note:</strong> Work time is calculated from trip start time to completion time for each completed trip.
+              Cancelled trips are not counted. Trips must be marked completed for time to be recorded.
+            </p>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/driver-api.js"></script>
+  <script src="../js/driver-worktime.js"></script>
+</body>
+</html>

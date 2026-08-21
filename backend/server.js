@@ -118,6 +118,25 @@ app.post('/api/register', async (req, res) => {
 
     if (profileError) throw profileError;
 
+    // Automatically add to TO's drivers list if role is driver
+    if (role === 'driver') {
+      // Check if driver already exists to avoid duplicates
+      const { data: existingDriver } = await adminClient
+        .from('drivers')
+        .select('id')
+        .eq('name', name)
+        .maybeSingle();
+        
+      if (!existingDriver) {
+        await adminClient.from('drivers').insert({
+          name: name,
+          phone: '',
+          license_number: '',
+          is_active: false // Requires approval/activation by TO
+        });
+      }
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Registration submitted. Awaiting administrator approval.'
@@ -2608,50 +2627,121 @@ async function requireTransportOfficer(req, res, next) {
   next();
 }
 
+// Helper: Fetch unified list of drivers from profiles and drivers tables
+async function getUnifiedDrivers(adminClient) {
+  try {
+    const [dbDriversRes, profileDriversRes, driverTripsRes, workerTripsRes] = await Promise.all([
+      adminClient.from('drivers').select('*'),
+      adminClient.from('profiles').select('*').eq('role', 'driver'),
+      adminClient.from('driver_trips').select('*'),
+      adminClient.from('trips').select('*')
+    ]);
+
+    const dbDrivers = dbDriversRes.data || [];
+    const profileDrivers = profileDriversRes.data || [];
+    const driverTrips = driverTripsRes.data || [];
+    const workerTrips = workerTripsRes.data || [];
+
+    const map = new Map();
+
+    dbDrivers.forEach(d => {
+      const key = d.id || d.name.toLowerCase().trim();
+      map.set(key, {
+        id: d.id,
+        name: d.name,
+        license_number: d.license_number || '',
+        phone: d.phone || '',
+        is_active: d.is_active !== false,
+        status: d.is_active !== false ? 'approved' : 'pending',
+        source: 'drivers_table'
+      });
+    });
+
+    profileDrivers.forEach(p => {
+      let existingKey = p.id;
+      for (const [k, v] of map.entries()) {
+        if (v.id === p.id || (v.name && v.name.toLowerCase().trim() === p.name.toLowerCase().trim())) {
+          existingKey = k;
+          break;
+        }
+      }
+
+      const existing = map.get(existingKey) || {};
+      map.set(existingKey, {
+        id: p.id,
+        name: p.name || existing.name,
+        license_number: existing.license_number || '',
+        phone: existing.phone || p.phone || '',
+        email: p.email || '',
+        is_active: p.status === 'approved' || existing.is_active !== false,
+        status: p.status || 'approved',
+        profile_image_url: p.profile_image_url || null,
+        source: 'profiles_table'
+      });
+    });
+
+    const unifiedList = Array.from(map.values());
+
+    return unifiedList.map(driver => {
+      const dTrips = driverTrips.filter(t => t.assigned_driver_id === driver.id || (t.driver_name && t.driver_name.toLowerCase() === driver.name.toLowerCase()));
+      const wTrips = workerTrips.filter(t => t.driver_name && t.driver_name.toLowerCase() === driver.name.toLowerCase());
+      const totalTrips = dTrips.length + wTrips.length;
+
+      const allTrips = [
+        ...dTrips.map(t => ({ date: t.created_at || t.scheduled_start_time, vehicle: t.vehicle_number })),
+        ...wTrips.map(t => ({ date: t.created_at, vehicle: t.tanker_number }))
+      ].filter(t => t.date).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const latest = allTrips[0];
+
+      return {
+        ...driver,
+        total_trips: totalTrips,
+        assigned_vehicle: latest?.vehicle || null,
+        last_activity: latest?.date || null
+      };
+    });
+  } catch (err) {
+    console.error('getUnifiedDrivers error:', err);
+    return [];
+  }
+}
+
 // ─── GET /api/transport/dashboard ─────────────────────────────────────────────
 app.get('/api/transport/dashboard', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
 
   try {
-    // Get all drivers and vehicles
-    const [driversRes, vehiclesRes, tripsRes] = await Promise.all([
-      adminClient.from('drivers').select('*'),
+    const [drivers, vehiclesRes, workerTripsRes, driverTripsRes] = await Promise.all([
+      getUnifiedDrivers(adminClient),
       adminClient.from('tankers').select('*'),
-      adminClient.from('trips').select('*')
+      adminClient.from('trips').select('*'),
+      adminClient.from('driver_trips').select('*')
     ]);
 
-    const drivers = driversRes.data || [];
     const vehicles = vehiclesRes.data || [];
-    const trips = tripsRes.data || [];
+    const workerTrips = workerTripsRes.data || [];
+    const driverTrips = driverTripsRes.data || [];
+    const allTrips = [...workerTrips, ...driverTrips];
 
     const activeDrivers = drivers.filter(d => d.is_active).length;
-    const availableVehicles = vehicles.filter(v => v.is_active).length;
+    const availableVehicles = vehicles.filter(v => v.is_active !== false).length;
 
-    // Count vehicles currently on trip (active trips)
-    const activeTrips = trips.filter(t => t.status === 'active');
-    const vehiclesOnTrip = new Set(activeTrips.map(t => t.tanker_number)).size;
+    const activeTrips = allTrips.filter(t => ['active', 'in_progress', 'ready', 'assigned'].includes(t.status));
+    const vehiclesOnTrip = new Set(activeTrips.map(t => t.tanker_number || t.vehicle_number).filter(Boolean)).size;
 
-    // Completed trips (all time)
-    const completedTrips = trips.filter(t => t.status === 'completed').length;
+    const completedTrips = allTrips.filter(t => t.status === 'completed').length;
+    const todayDuties = driverTrips.length;
 
-    // Today's duties (placeholder - will be implemented when duties table exists)
-    const todayDuties = 0;
-
-    // Vehicle utilization data for chart
     const vehicleUtilization = [
       { label: 'Active', value: vehiclesOnTrip },
-      { label: 'Available', value: availableVehicles - vehiclesOnTrip },
-      { label: 'Inactive', value: vehicles.length - availableVehicles }
+      { label: 'Available', value: Math.max(0, availableVehicles - vehiclesOnTrip) },
+      { label: 'Inactive', value: Math.max(0, vehicles.length - availableVehicles) }
     ];
 
-    // Driver performance (Last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const recentTrips = trips.filter(t => new Date(t.created_at) >= sevenDaysAgo);
-
     const driverTripsMap = {};
-    recentTrips.forEach(trip => {
-      const driverName = trip.driver_name || 'Unknown';
+    driverTrips.forEach(t => {
+      const driverName = t.driver_name || 'Driver';
       driverTripsMap[driverName] = (driverTripsMap[driverName] || 0) + 1;
     });
 
@@ -2660,26 +2750,8 @@ app.get('/api/transport/dashboard', requireTransportOfficer, async (req, res) =>
       .sort((a, b) => b.trips - a.trips)
       .slice(0, 10);
 
-    // Recent duties (placeholder)
-    const recentDuties = [];
-
-    // Active drivers with stats
-    const driversWithStats = await Promise.all(
-      drivers.slice(0, 10).map(async (driver) => {
-        const driverTrips = trips.filter(t => t.driver_name === driver.name);
-        const lastTrip = driverTrips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-        
-        return {
-          ...driver,
-          total_trips: driverTrips.length,
-          assigned_vehicle: lastTrip?.tanker_number || null,
-          last_activity: lastTrip?.created_at || null
-        };
-      })
-    );
-
     const driverStats = {};
-    driversWithStats.forEach(d => {
+    drivers.forEach(d => {
       driverStats[d.id] = {
         total_trips: d.total_trips,
         assigned_vehicle: d.assigned_vehicle,
@@ -2697,8 +2769,8 @@ app.get('/api/transport/dashboard', requireTransportOfficer, async (req, res) =>
       completedTrips,
       vehicleUtilization,
       driverPerformance,
-      recentDuties,
-      activeDrivers: driversWithStats,
+      recentDuties: driverTrips.slice(0, 5),
+      activeDrivers: drivers,
       driverStats
     });
 
@@ -2713,22 +2785,8 @@ app.get('/api/transport/drivers', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
 
   try {
-    const { data: drivers } = await adminClient.from('drivers').select('*').order('name');
-    const { data: trips } = await adminClient.from('trips').select('*');
-
-    const driversWithStats = (drivers || []).map(driver => {
-      const driverTrips = (trips || []).filter(t => t.driver_name === driver.name);
-      const lastTrip = driverTrips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-
-      return {
-        ...driver,
-        total_trips: driverTrips.length,
-        assigned_vehicle: lastTrip?.tanker_number || null,
-        last_activity: lastTrip?.created_at || null
-      };
-    });
-
-    res.json({ drivers: driversWithStats });
+    const drivers = await getUnifiedDrivers(adminClient);
+    res.json({ drivers });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to fetch drivers' });
   }
@@ -3118,6 +3176,629 @@ app.get('/api/transport/driver-analysis', requireTransportOfficer, async (req, r
   } catch (err) {
     console.error('Driver analysis error:', err);
     res.status(500).json({ error: err.message || 'Failed to fetch driver analysis' });
+  }
+});
+
+
+// ─── DRIVER MIDDLEWARE ────────────────────────────────────────────────────────
+async function requireDriver(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server database not configured.' });
+
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+
+  const { data: profile } = await adminClient.from('profiles').select('*').eq('id', user.id).single();
+  if (!profile) return res.status(404).json({ error: 'Profile not found.' });
+  if (profile.role !== 'driver' && profile.role !== 'admin') {
+    return res.status(403).json({ error: 'Driver access required.' });
+  }
+  if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
+
+  req.user = user;
+  req.profile = profile;
+  req.adminClient = adminClient;
+  next();
+}
+
+// ─── Helper: Calculate Mileage ────────────────────────────────────────────────
+function calcMileage(outWeight, inWeight, outKm, inKm) {
+  const weightDiff = Number(outWeight) - Number(inWeight);
+  const kmTravelled = Number(inKm) - Number(outKm);
+  if (weightDiff === 0) {
+    return { weightDiff: 0, kmTravelled, dieselConsumption: 0, averageMileage: null };
+  }
+  const dieselConsumption = weightDiff / 0.832;
+  const averageMileage = dieselConsumption > 0 ? kmTravelled / dieselConsumption : null;
+  return {
+    weightDiff: Number(weightDiff.toFixed(4)),
+    kmTravelled: Number(kmTravelled.toFixed(4)),
+    dieselConsumption: Number(dieselConsumption.toFixed(4)),
+    averageMileage: averageMileage !== null ? Number(averageMileage.toFixed(4)) : null
+  };
+}
+
+// ─── GET /api/driver/dashboard ────────────────────────────────────────────────
+app.get('/api/driver/dashboard', requireDriver, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const today = new Date();
+    const startOfDay = new Date(today); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(today); endOfDay.setHours(23, 59, 59, 999);
+
+    // Fetch driver trips
+    const { data: trips } = await adminClient
+      .from('driver_trips')
+      .select('*')
+      .eq('assigned_driver_id', profile.id)
+      .order('created_at', { ascending: false });
+
+    const allTrips = trips || [];
+    const completedTrips = allTrips.filter(t => t.status === 'completed');
+    const todayTrips = allTrips.filter(t => {
+      const d = new Date(t.scheduled_start_time || t.created_at);
+      return d >= startOfDay && d <= endOfDay;
+    });
+    const activeTrip = allTrips.find(t => ['assigned','accepted','ready','in_progress','returning'].includes(t.status));
+
+    // Today's work time
+    const todayCompleted = completedTrips.filter(t => {
+      const d = new Date(t.completed_at || t.updated_at);
+      return t.started_at && t.completed_at && d >= startOfDay && d <= endOfDay;
+    });
+    const todayWorkMs = todayCompleted.reduce((sum, t) =>
+      sum + (new Date(t.completed_at) - new Date(t.started_at)), 0);
+
+    // Total KM
+    const totalKm = completedTrips.reduce((sum, t) => sum + (Number(t.km_travelled) || 0), 0);
+
+    // Assigned vehicle
+    const { data: vehicle } = await adminClient
+      .from('tankers')
+      .select('*')
+      .eq('assigned_driver_id', profile.id)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+
+    res.json({
+      driver: { id: profile.id, name: profile.name, email: profile.email, profile_image_url: profile.profile_image_url },
+      total_trips: allTrips.length,
+      today_trips: todayTrips.length,
+      completed_trips: completedTrips.length,
+      today_work_ms: todayWorkMs,
+      total_km: Number(totalKm.toFixed(2)),
+      active_trip: activeTrip || null,
+      vehicle: vehicle || null,
+      trips: allTrips.slice(0, 20)
+    });
+  } catch (err) {
+    console.error('Driver dashboard error:', err);
+    res.status(500).json({ error: err.message || 'Failed to load driver dashboard.' });
+  }
+});
+
+// ─── GET /api/driver/trips ────────────────────────────────────────────────────
+app.get('/api/driver/trips', requireDriver, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const { data: trips, error } = await adminClient
+      .from('driver_trips')
+      .select('*')
+      .eq('assigned_driver_id', profile.id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json({ trips: trips || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch trips.' });
+  }
+});
+
+// ─── GET /api/driver/trips/:id ────────────────────────────────────────────────
+app.get('/api/driver/trips/:id', requireDriver, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const { data: trip, error } = await adminClient
+      .from('driver_trips')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('assigned_driver_id', profile.id)
+      .single();
+
+    if (error || !trip) return res.status(404).json({ error: 'Trip not found or access denied.' });
+    res.json({ trip });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch trip.' });
+  }
+});
+
+// ─── POST /api/driver/trips/:id/accept ────────────────────────────────────────
+app.post('/api/driver/trips/:id/accept', requireDriver, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    // Fetch trip
+    const { data: trip } = await adminClient
+      .from('driver_trips').select('*').eq('id', req.params.id).single();
+
+    if (!trip) return res.status(404).json({ error: 'Trip not found.' });
+    if (trip.assigned_driver_id !== profile.id) return res.status(403).json({ error: 'Access denied.' });
+    if (trip.status !== 'assigned') return res.status(400).json({ error: `Cannot accept trip with status: ${trip.status}.` });
+
+    // Atomic update — only update if status is still 'assigned' (race condition protection)
+    const { data: updated, error } = await adminClient
+      .from('driver_trips')
+      .update({ status: 'accepted', accepted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .eq('status', 'assigned') // Ensures atomic check
+      .select()
+      .single();
+
+    if (error || !updated) {
+      return res.status(409).json({ error: 'Trip was already accepted or modified. Please refresh.' });
+    }
+
+    res.json({ trip: updated, message: 'Trip accepted successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to accept trip.' });
+  }
+});
+
+// ─── POST /api/driver/trips/:id/start ────────────────────────────────────────
+app.post('/api/driver/trips/:id/start', requireDriver, async (req, res) => {
+  const { adminClient, profile } = req;
+  const { out_km, out_weight, out_weight_photo, start_lat, start_lng } = req.body;
+
+  if (!out_km && out_km !== 0) return res.status(400).json({ error: 'out_km is required.' });
+  if (!out_weight) return res.status(400).json({ error: 'out_weight is required.' });
+  if (!out_weight_photo) return res.status(400).json({ error: 'out_weight_photo is required.' });
+  if (!start_lat || !start_lng) return res.status(400).json({ error: 'GPS location (start_lat, start_lng) is required.' });
+
+  try {
+    const { data: trip } = await adminClient
+      .from('driver_trips').select('*').eq('id', req.params.id).single();
+
+    if (!trip) return res.status(404).json({ error: 'Trip not found.' });
+    if (trip.assigned_driver_id !== profile.id) return res.status(403).json({ error: 'Access denied.' });
+    if (!['accepted', 'ready'].includes(trip.status)) {
+      return res.status(400).json({ error: `Cannot start trip with status: ${trip.status}. Trip must be accepted first.` });
+    }
+
+    // Prevent duplicate start
+    if (trip.started_at) {
+      return res.status(409).json({ error: 'Trip has already been started.' });
+    }
+
+    const { data: updated, error } = await adminClient
+      .from('driver_trips')
+      .update({
+        status: 'in_progress',
+        started_at: new Date().toISOString(),
+        out_km: Number(out_km),
+        out_weight: Number(out_weight),
+        out_weight_photo,
+        start_lat: Number(start_lat),
+        start_lng: Number(start_lng),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', req.params.id)
+      .in('status', ['accepted', 'ready']) // Atomic check
+      .select()
+      .single();
+
+    if (error || !updated) {
+      return res.status(409).json({ error: 'Trip status changed while starting. Please refresh.' });
+    }
+
+    res.json({ trip: updated, message: 'Trip started successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to start trip.' });
+  }
+});
+
+// ─── POST /api/driver/trips/:id/complete ─────────────────────────────────────
+app.post('/api/driver/trips/:id/complete', requireDriver, async (req, res) => {
+  const { adminClient, profile } = req;
+  const { in_km, in_weight, in_weight_photo, end_lat, end_lng, remarks } = req.body;
+
+  if (!in_km && in_km !== 0) return res.status(400).json({ error: 'in_km is required.' });
+  if (!in_weight && in_weight !== 0) return res.status(400).json({ error: 'in_weight is required.' });
+  if (!in_weight_photo) return res.status(400).json({ error: 'in_weight_photo is required.' });
+  if (!end_lat || !end_lng) return res.status(400).json({ error: 'GPS location (end_lat, end_lng) is required.' });
+
+  try {
+    const { data: trip } = await adminClient
+      .from('driver_trips').select('*').eq('id', req.params.id).single();
+
+    if (!trip) return res.status(404).json({ error: 'Trip not found.' });
+    if (trip.assigned_driver_id !== profile.id) return res.status(403).json({ error: 'Access denied.' });
+    if (!['in_progress', 'returning'].includes(trip.status)) {
+      return res.status(400).json({ error: `Cannot complete trip with status: ${trip.status}.` });
+    }
+    if (trip.completed_at) {
+      return res.status(409).json({ error: 'Trip has already been completed.' });
+    }
+
+    // Validations
+    const inKmNum = Number(in_km);
+    const inWeightNum = Number(in_weight);
+    const outKm = trip.out_km;
+    const outWeight = trip.out_weight;
+
+    if (outKm !== null && outKm !== undefined && inKmNum < outKm) {
+      return res.status(400).json({ error: `In KM (${inKmNum}) cannot be less than Out KM (${outKm}).` });
+    }
+    if (outWeight !== null && outWeight !== undefined && inWeightNum > outWeight) {
+      return res.status(400).json({ error: `In Weight (${inWeightNum}) cannot exceed Out Weight (${outWeight} kg).` });
+    }
+
+    // Calculate mileage
+    let mileageData = {};
+    if (outKm !== null && outWeight !== null && outKm !== undefined && outWeight !== undefined) {
+      const calc = calcMileage(outWeight, inWeightNum, outKm, inKmNum);
+      mileageData = {
+        km_travelled: calc.kmTravelled,
+        weight_difference: calc.weightDiff,
+        diesel_consumption: calc.dieselConsumption,
+        average_mileage: calc.averageMileage
+      };
+    }
+
+    const { data: updated, error } = await adminClient
+      .from('driver_trips')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        in_km: inKmNum,
+        in_weight: inWeightNum,
+        in_weight_photo,
+        end_lat: Number(end_lat),
+        end_lng: Number(end_lng),
+        remarks: remarks || null,
+        ...mileageData,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', req.params.id)
+      .in('status', ['in_progress', 'returning']) // Atomic check
+      .select()
+      .single();
+
+    if (error || !updated) {
+      return res.status(409).json({ error: 'Trip status changed while completing. Please refresh.' });
+    }
+
+    res.json({ trip: updated, message: 'Trip completed successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to complete trip.' });
+  }
+});
+
+// ─── PATCH /api/driver/trips/:id/location ────────────────────────────────────
+app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
+  const { adminClient, profile } = req;
+  const { lat, lng } = req.body;
+  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng are required.' });
+
+  try {
+    const { data: trip } = await adminClient
+      .from('driver_trips').select('assigned_driver_id, status').eq('id', req.params.id).single();
+
+    if (!trip || trip.assigned_driver_id !== profile.id) return res.status(403).json({ error: 'Access denied.' });
+    if (trip.status !== 'in_progress') return res.status(400).json({ error: 'Trip is not in progress.' });
+
+    // Store as end_lat/lng (current location)
+    const { data, error } = await adminClient
+      .from('driver_trips')
+      .update({ end_lat: Number(lat), end_lng: Number(lng), updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .select('id, end_lat, end_lng')
+      .single();
+
+    if (error) throw error;
+    res.json({ location: data, updated_at: new Date().toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to update location.' });
+  }
+});
+
+// ─── GET /api/driver/history ──────────────────────────────────────────────────
+app.get('/api/driver/history', requireDriver, async (req, res) => {
+  const { adminClient, profile } = req;
+  const { range, startDate, endDate } = req.query;
+
+  try {
+    let startIso, endIso;
+    const now = new Date();
+
+    if (range === 'today') {
+      const s = new Date(now); s.setHours(0,0,0,0);
+      const e = new Date(now); e.setHours(23,59,59,999);
+      startIso = s.toISOString(); endIso = e.toISOString();
+    } else if (range === 'yesterday') {
+      const s = new Date(now); s.setDate(s.getDate()-1); s.setHours(0,0,0,0);
+      const e = new Date(now); e.setDate(e.getDate()-1); e.setHours(23,59,59,999);
+      startIso = s.toISOString(); endIso = e.toISOString();
+    } else if (range === 'week') {
+      const s = new Date(now); s.setDate(now.getDate() - now.getDay()); s.setHours(0,0,0,0);
+      startIso = s.toISOString(); endIso = now.toISOString();
+    } else if (range === 'month') {
+      const s = new Date(now.getFullYear(), now.getMonth(), 1);
+      startIso = s.toISOString(); endIso = now.toISOString();
+    } else if (range === 'custom' && startDate && endDate) {
+      startIso = new Date(startDate + 'T00:00:00').toISOString();
+      const e = new Date(endDate + 'T23:59:59');
+      endIso = e.toISOString();
+    } else {
+      // Default: last 30 days
+      const s = new Date(now); s.setDate(s.getDate()-30);
+      startIso = s.toISOString(); endIso = now.toISOString();
+    }
+
+    const { data: trips, error } = await adminClient
+      .from('driver_trips')
+      .select('*')
+      .eq('assigned_driver_id', profile.id)
+      .gte('created_at', startIso)
+      .lte('created_at', endIso)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json({ trips: trips || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch trip history.' });
+  }
+});
+
+// ─── GET /api/driver/worktime ─────────────────────────────────────────────────
+app.get('/api/driver/worktime', requireDriver, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const now = new Date();
+
+    // Time ranges
+    const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
+    const weekStart = new Date(now); weekStart.setDate(now.getDate()-now.getDay()); weekStart.setHours(0,0,0,0);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const { data: trips } = await adminClient
+      .from('driver_trips')
+      .select('started_at, completed_at, km_travelled, status, scheduled_start_time, created_at')
+      .eq('assigned_driver_id', profile.id)
+      .eq('status', 'completed')
+      .not('started_at', 'is', null)
+      .not('completed_at', 'is', null)
+      .order('completed_at', { ascending: false });
+
+    const allTrips = trips || [];
+
+    function sumWorkMs(tripList) {
+      return tripList.reduce((sum, t) => {
+        const ms = new Date(t.completed_at) - new Date(t.started_at);
+        return sum + (ms > 0 ? ms : 0);
+      }, 0);
+    }
+
+    const todayTrips = allTrips.filter(t => new Date(t.completed_at) >= todayStart);
+    const weekTrips = allTrips.filter(t => new Date(t.completed_at) >= weekStart);
+    const monthTrips = allTrips.filter(t => new Date(t.completed_at) >= monthStart);
+
+    // Daily breakdown for current week (Mon–Sun)
+    const daily = {};
+    weekTrips.forEach(t => {
+      const dateKey = new Date(t.completed_at).toISOString().split('T')[0];
+      if (!daily[dateKey]) daily[dateKey] = { date: dateKey, trips_completed: 0, work_ms: 0, km_travelled: 0 };
+      const ms = new Date(t.completed_at) - new Date(t.started_at);
+      daily[dateKey].trips_completed++;
+      daily[dateKey].work_ms += ms > 0 ? ms : 0;
+      daily[dateKey].km_travelled += Number(t.km_travelled) || 0;
+    });
+
+    const dailyBreakdown = Object.keys(daily).sort().map(d => ({
+      date: d,
+      date_label: new Date(d).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }),
+      trips_completed: daily[d].trips_completed,
+      work_ms: daily[d].work_ms,
+      km_travelled: Number(daily[d].km_travelled.toFixed(2))
+    }));
+
+    res.json({
+      today_ms: sumWorkMs(todayTrips),
+      today_trips: todayTrips.length,
+      week_ms: sumWorkMs(weekTrips),
+      week_trips: weekTrips.length,
+      month_ms: sumWorkMs(monthTrips),
+      month_trips: monthTrips.length,
+      daily_breakdown: dailyBreakdown
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch work time.' });
+  }
+});
+
+// ─── GET /api/driver/vehicle ──────────────────────────────────────────────────
+app.get('/api/driver/vehicle', requireDriver, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const { data: vehicle } = await adminClient
+      .from('tankers')
+      .select('*')
+      .eq('assigned_driver_id', profile.id)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+
+    res.json({ vehicle: vehicle || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch vehicle.' });
+  }
+});
+
+// ─── POST /api/driver/upload ──────────────────────────────────────────────────
+app.post('/api/driver/upload', requireDriver, async (req, res) => {
+  const { adminClient } = req;
+  const { imageBase64, filename } = req.body;
+  if (!imageBase64) return res.status(400).json({ error: 'Image data is required.' });
+
+  try {
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    const ext = (filename && filename.split('.').pop()) || 'jpg';
+    const filePath = `driver-photos/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${ext}`;
+
+    const { error: uploadErr } = await adminClient.storage
+      .from('profile_images')
+      .upload(filePath, buffer, { contentType: `image/${ext === 'png' ? 'png' : 'jpeg'}`, upsert: true });
+
+    if (uploadErr) {
+      console.warn('Driver photo upload error, returning data URL:', uploadErr.message);
+      return res.json({ publicUrl: imageBase64 });
+    }
+
+    const { data: publicUrlData } = adminClient.storage.from('profile_images').getPublicUrl(filePath);
+    res.json({ publicUrl: publicUrlData.publicUrl });
+  } catch (err) {
+    console.error('Driver upload error:', err);
+    res.json({ publicUrl: imageBase64 }); // Fallback: return base64
+  }
+});
+
+// ─── TRANSPORT OFFICER: Assign Driver Trips ────────────────────────────────────
+// POST /api/transport/driver-trips — Create a driver trip assignment
+app.post('/api/transport/driver-trips', requireTransportOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  const {
+    assigned_driver_id, vehicle_id, vehicle_number,
+    bmc_id, bmc_ids, bmc_name, bmc_names, destination, route,
+    scheduled_start_time, scheduled_return_time, remarks
+  } = req.body;
+
+  if (!assigned_driver_id) return res.status(400).json({ error: 'assigned_driver_id is required.' });
+
+  try {
+    // Verify driver exists
+    const drivers = await getUnifiedDrivers(adminClient);
+    const driverProfile = drivers.find(d => d.id === assigned_driver_id || d.name === assigned_driver_id);
+    if (!driverProfile) {
+      return res.status(400).json({ error: 'Invalid driver selected.' });
+    }
+
+    let computedBmcName = bmc_name;
+    if (Array.isArray(bmc_names) && bmc_names.length > 0) {
+      computedBmcName = bmc_names.join(' ➔ ');
+    }
+
+    const { data: newTrip, error } = await adminClient
+      .from('driver_trips')
+      .insert({
+        assigned_driver_id: driverProfile.id,
+        assigned_by: profile.id,
+        vehicle_id: vehicle_id || null,
+        vehicle_number: vehicle_number || null,
+        bmc_id: bmc_id || (Array.isArray(bmc_ids) && bmc_ids[0]) || null,
+        bmc_name: computedBmcName || null,
+        destination: destination || computedBmcName || null,
+        route: route || computedBmcName || null,
+        scheduled_start_time: scheduled_start_time || null,
+        scheduled_return_time: scheduled_return_time || null,
+        remarks: remarks || null,
+        status: 'assigned'
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json({ trip: newTrip, message: 'Driver trip assigned successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to assign driver trip.' });
+  }
+});
+
+// GET /api/transport/driver-trips — List all driver trips (for Transport Officer/GM view)
+app.get('/api/transport/driver-trips', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  const { status, driver_id, date } = req.query;
+
+  try {
+    let query = adminClient.from('driver_trips').select('*').order('created_at', { ascending: false });
+
+    if (status) query = query.eq('status', status);
+    if (driver_id) query = query.eq('assigned_driver_id', driver_id);
+    if (date) {
+      const s = new Date(date); s.setHours(0,0,0,0);
+      const e = new Date(date); e.setHours(23,59,59,999);
+      query = query.gte('created_at', s.toISOString()).lte('created_at', e.toISOString());
+    }
+
+    const { data: trips, error } = await query.limit(200);
+    if (error) throw error;
+
+    // Enrich with driver names
+    const driverIds = [...new Set((trips || []).map(t => t.assigned_driver_id).filter(Boolean))];
+    let driverMap = {};
+    if (driverIds.length > 0) {
+      const { data: profiles } = await adminClient
+        .from('profiles').select('id, name').in('id', driverIds);
+      (profiles || []).forEach(p => { driverMap[p.id] = p.name; });
+    }
+
+    const enriched = (trips || []).map(t => ({
+      ...t,
+      driver_name: driverMap[t.assigned_driver_id] || '—'
+    }));
+
+    res.json({ trips: enriched });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch driver trips.' });
+  }
+});
+
+// PUT /api/transport/driver-trips/:id — Update/cancel a driver trip
+app.put('/api/transport/driver-trips/:id', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  const allowed = ['status', 'vehicle_id', 'vehicle_number', 'bmc_id', 'bmc_name', 'destination',
+    'route', 'scheduled_start_time', 'scheduled_return_time', 'remarks'];
+  const updates = { updated_at: new Date().toISOString() };
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key];
+  }
+
+  try {
+    const { data, error } = await adminClient
+      .from('driver_trips').update(updates).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ trip: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to update driver trip.' });
+  }
+});
+
+// GET /api/transport/drivers-list — Get driver-role users for assignment dropdown
+app.get('/api/transport/drivers-list', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const drivers = await getUnifiedDrivers(adminClient);
+    res.json({ drivers });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch drivers list.' });
+  }
+});
+
+// GET /api/transport/bmcs-list — Get list of active BMCs for assignment dropdown
+app.get('/api/transport/bmcs-list', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: bmcs, error } = await adminClient
+      .from('bmcs')
+      .select('id, name, location, is_active')
+      .eq('is_active', true)
+      .order('name');
+    if (error) throw error;
+    res.json({ bmcs: bmcs || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch BMCs list.' });
   }
 });
 

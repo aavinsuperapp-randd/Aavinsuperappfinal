@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Driver Dashboard — AAVIN</title>
+  <meta name="description" content="AAVIN Driver Dashboard — View assigned trips, vehicle info, and work time summary.">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
+  <link rel="stylesheet" href="/css/driver.css">
+  <link rel="stylesheet" href="../css/driver.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Driver Sidebar -->
+    <aside class="admin-sidebar" id="driver-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>Driver Portal</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item active" id="nav-dashboard"><span>🏠</span> Dashboard</a>
+        <a href="trip.html" class="admin-nav-item" id="nav-trip"><span>🚛</span> Active Trip</a>
+        <a href="history.html" class="admin-nav-item" id="nav-history"><span>📜</span> Trip History</a>
+        <a href="worktime.html" class="admin-nav-item" id="nav-worktime"><span>⏱️</span> Work Time</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto;margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <!-- Top Header -->
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>Driver Dashboard</h2>
+            <p id="header-date">Today's Overview</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar" id="header-avatar">DR</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-driver-name">Driver</div>
+              <div class="header-user-role" id="header-driver-status">Loading...</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content" id="main-driver-content">
+
+        <!-- Loading State -->
+        <div id="loading-state" class="driver-loading-state">
+          <div class="driver-spinner"></div>
+          <p>Loading your dashboard...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="error-state" class="driver-error-state hidden">
+          <div class="driver-error-icon">⚠️</div>
+          <h3>Unable to load dashboard</h3>
+          <p id="error-message">Please check your connection and try again.</p>
+          <button class="btn btn-primary" onclick="loadDashboard()">🔄 Retry</button>
+        </div>
+
+        <!-- Main Dashboard Content -->
+        <div id="dashboard-content" class="hidden">
+
+          <!-- ── Driver Info Card ──────────────────────────── -->
+          <div class="driver-profile-banner">
+            <div class="driver-profile-left">
+              <div class="driver-avatar-lg" id="driver-avatar-large">
+                <img id="driver-profile-img" src="" alt="" class="hidden">
+                <span id="driver-avatar-initials">DR</span>
+              </div>
+              <div class="driver-profile-info">
+                <h2 id="driver-full-name">Driver Name</h2>
+                <div class="driver-meta-row">
+                  <span class="driver-meta-item"><span>🪪</span> ID: <strong id="driver-id-display">—</strong></span>
+                  <span class="driver-meta-item"><span>🚛</span> Vehicle: <strong id="driver-vehicle-display">—</strong></span>
+                  <span class="driver-meta-item"><span>🔧</span> Type: <strong id="driver-vehicle-type">—</strong></span>
+                </div>
+              </div>
+            </div>
+            <div class="driver-profile-right">
+              <div class="driver-status-badge" id="driver-current-status-badge">
+                <span class="status-dot"></span>
+                <span id="driver-current-status-text">Available</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── KPI Summary Cards ──────────────────────────── -->
+          <div class="kpi-grid-5" style="margin-top:24px;">
+            <div class="kpi-card-v2 blue">
+              <div class="kpi-icon-wrap">🚚</div>
+              <div>
+                <div class="kpi-val" id="kpi-total-trips">—</div>
+                <div class="kpi-title">Total Trips</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 cyan">
+              <div class="kpi-icon-wrap">📅</div>
+              <div>
+                <div class="kpi-val" id="kpi-today-trips">—</div>
+                <div class="kpi-title">Today's Trips</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 green">
+              <div class="kpi-icon-wrap">✅</div>
+              <div>
+                <div class="kpi-val" id="kpi-completed-trips">—</div>
+                <div class="kpi-title">Completed</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 amber">
+              <div class="kpi-icon-wrap">⏱️</div>
+              <div>
+                <div class="kpi-val" id="kpi-work-time">—</div>
+                <div class="kpi-title">Today's Work Time</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 purple">
+              <div class="kpi-icon-wrap">📏</div>
+              <div>
+                <div class="kpi-val" id="kpi-total-km">—</div>
+                <div class="kpi-title">Total KM</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Active Trip Alert ──────────────────────────── -->
+          <div id="active-trip-alert" class="driver-active-trip-alert hidden" style="margin-top:24px;">
+            <div class="alert-icon">🔴</div>
+            <div class="alert-body">
+              <strong>Trip In Progress</strong>
+              <span id="active-trip-alert-text">You have an active trip. Tap to view details.</span>
+            </div>
+            <a href="trip.html" class="btn btn-primary btn-sm">View Trip →</a>
+          </div>
+
+          <!-- ── Two Column Layout ──────────────────────────── -->
+          <div class="two-col" style="margin-top:24px;gap:24px;">
+
+            <!-- Assigned Vehicle -->
+            <div class="content-card">
+              <div class="card-header">
+                <h3>🚛 Assigned Vehicle</h3>
+              </div>
+              <div id="vehicle-section">
+                <div id="vehicle-loading" class="driver-mini-loading">Loading vehicle info...</div>
+                <div id="vehicle-content" class="hidden">
+                  <div class="vehicle-detail-card">
+                    <div class="vehicle-img-wrap">
+                      <img id="vehicle-img" src="" alt="" class="vehicle-thumbnail hidden">
+                      <div id="vehicle-img-placeholder" class="vehicle-img-placeholder">🚛</div>
+                    </div>
+                    <div class="vehicle-details">
+                      <div class="vehicle-detail-row">
+                        <span class="vd-label">Reg. Number</span>
+                        <span class="vd-value" id="veh-number">—</span>
+                      </div>
+                      <div class="vehicle-detail-row">
+                        <span class="vd-label">Type</span>
+                        <span class="vd-value" id="veh-type">—</span>
+                      </div>
+                      <div class="vehicle-detail-row">
+                        <span class="vd-label">Model</span>
+                        <span class="vd-value" id="veh-model">—</span>
+                      </div>
+                      <div class="vehicle-detail-row">
+                        <span class="vd-label">Status</span>
+                        <span id="veh-status-badge" class="badge">—</span>
+                      </div>
+                      <div class="vehicle-detail-row">
+                        <span class="vd-label">Current KM</span>
+                        <span class="vd-value" id="veh-km">—</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div id="vehicle-empty" class="driver-empty-state hidden">
+                  <p>No vehicle assigned to you. Please contact your Transport Officer.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Work Time Summary -->
+            <div class="content-card">
+              <div class="card-header">
+                <h3>⏱️ Work Time Summary</h3>
+              </div>
+              <div class="worktime-summary-list">
+                <div class="wt-item">
+                  <div class="wt-period">Today</div>
+                  <div class="wt-val" id="wt-today">—</div>
+                </div>
+                <div class="wt-item">
+                  <div class="wt-period">This Week</div>
+                  <div class="wt-val" id="wt-week">—</div>
+                </div>
+                <div class="wt-item">
+                  <div class="wt-period">This Month</div>
+                  <div class="wt-val" id="wt-month">—</div>
+                </div>
+              </div>
+              <div style="margin-top:16px;">
+                <a href="worktime.html" class="btn btn-outline btn-sm">View Full Report →</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Assigned Trips Section ──────────────────────── -->
+          <div class="content-card" style="margin-top:24px;">
+            <div class="card-header">
+              <h3>📋 Assigned Trips</h3>
+              <div class="card-header-actions">
+                <button class="btn btn-outline btn-sm" onclick="loadDashboard()">🔄 Refresh</button>
+              </div>
+            </div>
+
+            <div id="trips-loading" class="driver-mini-loading">Loading trips...</div>
+            <div id="trips-content" class="hidden">
+              <div id="trips-empty" class="driver-empty-state hidden">
+                <div style="font-size:2.5rem;">🚛</div>
+                <p>No trips assigned for today.</p>
+                <p class="text-muted text-sm">Your Transport Officer will assign trips here.</p>
+              </div>
+              <div id="trips-list"></div>
+            </div>
+          </div>
+
+        </div><!-- /dashboard-content -->
+      </main>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/driver-api.js"></script>
+  <script src="../js/driver-dashboard.js"></script>
+</body>
+</html>

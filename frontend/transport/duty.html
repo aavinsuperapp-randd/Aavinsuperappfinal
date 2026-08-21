@@ -75,10 +75,11 @@
 
           <!-- Duties Table -->
           <div class="table-card">
-            <div class="table-card-header">
-              <h4>📋 Duty Roster</h4>
-              <div class="table-filter-controls">
+            <div class="table-card-header" style="display: flex; justify-content: space-between; align-items: center; padding: 20px 24px;">
+              <h4 style="margin: 0; font-size: 1.1rem; font-weight: 700;">📋 Duty Roster</h4>
+              <div class="table-filter-controls" style="display: flex; gap: 12px;">
                 <input type="text" id="duty-search-input" class="table-search-input" placeholder="🔍 Search driver, vehicle, route...">
+                <button id="btn-create-trip" class="btn btn-primary">➕ Assign Driver Trip</button>
               </div>
             </div>
             <div class="table-responsive">
@@ -90,34 +91,87 @@
                     <th>Driver</th>
                     <th>Vehicle</th>
                     <th>Route / Task</th>
-                    <th>Worker Assigned</th>
                     <th>Status</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="duties-table-body">
-                  <tr><td colspan="8" class="text-center text-muted" style="padding:24px;">Loading duties...</td></tr>
+                  <tr><td colspan="7" class="text-center text-muted" style="padding:24px;">Loading duties...</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
-
-          <!-- Info Message -->
-          <div class="content-card" style="margin-top: 24px; background: #EEF2FF; border: 1px solid #C7D2FE;">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <div style="font-size: 1.5rem;">ℹ️</div>
-              <div>
-                <div style="font-weight: 600; color: #1E40AF; margin-bottom: 4px;">Duty Assignment</div>
-                <div style="font-size: 0.85rem; color: #3730A3;">
-                  Duties are assigned by the P&I (Planning & Inspection) Head. This page displays duties for your review. 
-                  Future updates will enable P&I functionality for duty creation and assignment.
-                </div>
-              </div>
-            </div>
-          </div>
-
         </div>
       </main>
+    </div>
+  </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Create Trip Modal -->
+  <div id="create-trip-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 style="margin:0; font-weight:800; color:#0F172A;">➕ Assign Driver Trip</h3>
+        <button id="create-trip-modal-close" class="btn btn-ghost">✕</button>
+      </div>
+      <form id="create-trip-form">
+        <div class="two-col">
+          <div class="form-group">
+            <label class="form-label">Driver</label>
+            <select id="ct-driver" class="form-control" required>
+              <option value="">Select Driver...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Vehicle</label>
+            <select id="ct-vehicle" class="form-control" required>
+              <option value="">Select Vehicle...</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="two-col">
+          <div class="form-group">
+            <label class="form-label">Select BMCs to Include in Trip</label>
+            <div id="ct-bmcs-container" style="max-height: 140px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 8px; padding: 8px 12px; background: #FFF;">
+              <span class="text-muted text-sm">Loading BMCs...</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Final Destination / Stop</label>
+            <input type="text" id="ct-destination" class="form-control" placeholder="E.g., Chennai Main Dairy Plant">
+          </div>
+        </div>
+
+        <div class="form-group mb-2">
+          <label class="form-label">Route</label>
+          <input type="text" id="ct-route" class="form-control" placeholder="E.g., Highway A1">
+        </div>
+
+        <div class="two-col">
+          <div class="form-group">
+            <label class="form-label">Scheduled Start</label>
+            <input type="datetime-local" id="ct-start-time" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Scheduled Return</label>
+            <input type="datetime-local" id="ct-return-time" class="form-control">
+          </div>
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="form-label">Remarks</label>
+          <textarea id="ct-remarks" class="form-control" rows="2" placeholder="Any instructions for the driver..."></textarea>
+        </div>
+
+        <div class="d-flex justify-content-between">
+          <button type="button" id="create-trip-cancel" class="btn btn-outline">Cancel</button>
+          <button type="submit" id="create-trip-submit" class="btn btn-primary">Assign Trip</button>
+        </div>
+      </form>
     </div>
   </div>
 

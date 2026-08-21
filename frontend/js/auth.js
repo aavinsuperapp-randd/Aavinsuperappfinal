@@ -89,9 +89,28 @@ async function checkAuth(requiredRole) {
         showStatusScreen('rejected');
         return null;
       }
-    } else if (requiredRole === 'transport_officer' || requiredRole === 'driver') {
-      if (profile.role !== 'transport_officer' && profile.role !== 'driver') {
-        showToast("Access Denied: Transport Officer or Driver role required.", "error");
+    } else if (requiredRole === 'transport_officer') {
+      if (profile.role !== 'transport_officer' && profile.role !== 'admin') {
+        // Drivers trying to access transport officer pages → redirect to driver dashboard
+        if (profile.role === 'driver') {
+          window.location.href = getPath('driver/dashboard.html');
+          return null;
+        }
+        showToast("Access Denied: Transport Officer role required.", "error");
+        window.location.href = getPath('login.html');
+        return null;
+      }
+      
+      if (profile.status === 'pending') {
+        showStatusScreen('pending');
+        return null;
+      } else if (profile.status === 'rejected') {
+        showStatusScreen('rejected');
+        return null;
+      }
+    } else if (requiredRole === 'driver') {
+      if (profile.role !== 'driver' && profile.role !== 'admin') {
+        showToast("Access Denied: Driver role required.", "error");
         window.location.href = getPath('login.html');
         return null;
       }

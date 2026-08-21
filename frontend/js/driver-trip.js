@@ -1,0 +1,699 @@
+// driver-trip.js — Driver Trip Management (Accept, Pre-Trip, Start, Complete, Mileage)
+
+let currentProfile = null;
+let currentTrip = null;
+let tripId = null;
+let outPhotoUrl = null;
+let inPhotoUrl = null;
+let startLocation = null;
+let returnLocation = null;
+let elapsedTimer = null;
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const profile = await checkAuth('driver');
+  if (!profile) return;
+
+  currentProfile = profile;
+  initializeSidebar();
+  updateHeaderUI(profile);
+  document.getElementById('logout-btn').addEventListener('click', handleLogout);
+
+  // Get tripId from URL params (optional)
+  const params = new URLSearchParams(window.location.search);
+  tripId = params.get('id');
+
+  await loadTripPage();
+});
+
+function initializeSidebar() {
+  const sidebar = document.getElementById('driver-sidebar');
+  const toggleBtn = document.getElementById('sidebar-toggle-btn');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (!sidebar || !toggleBtn || !overlay) return;
+
+  toggleBtn.addEventListener('click', () => {
+    sidebar.classList.toggle('open');
+    overlay.classList.toggle('show');
+  });
+  overlay.addEventListener('click', () => {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('show');
+  });
+}
+
+function updateHeaderUI(profile) {
+  const name = profile.name || 'Driver';
+  const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+  document.getElementById('header-driver-name').textContent = name;
+  document.getElementById('header-avatar').textContent = initials;
+}
+
+// ─── LOAD TRIP PAGE ──────────────────────────────────────────
+async function loadTripPage() {
+  showEl('loading-state');
+  hideEl('no-trips-state');
+  hideEl('trip-select-state');
+  hideEl('trip-main-content');
+
+  try {
+    const data = await apiGetDriverTrips();
+    const trips = (data.trips || []).filter(t => !['completed', 'cancelled'].includes(t.status) ||
+      t.status === (tripId ? null : 'completed'));
+
+    const allActiveTrips = (data.trips || []).filter(t => !['completed', 'cancelled'].includes(t.status));
+
+    if (tripId) {
+      // Load specific trip
+      const tripData = await apiGetDriverTrip(tripId);
+      currentTrip = tripData.trip;
+      if (!currentTrip) {
+        showEl('no-trips-state');
+        hideEl('loading-state');
+        return;
+      }
+    } else if (allActiveTrips.length === 0) {
+      // No active trips
+      hideEl('loading-state');
+      showEl('no-trips-state');
+      return;
+    } else if (allActiveTrips.length === 1) {
+      currentTrip = allActiveTrips[0];
+      tripId = currentTrip.id;
+    } else {
+      // Multiple trips - show selection
+      hideEl('loading-state');
+      showEl('trip-select-state');
+      renderTripSelectList(allActiveTrips);
+      return;
+    }
+
+    hideEl('loading-state');
+    renderTripInterface(currentTrip);
+
+  } catch (err) {
+    console.error('Load trip error:', err);
+    hideEl('loading-state');
+    showToast(err.message || 'Failed to load trip data.', 'error');
+    showEl('no-trips-state');
+  }
+}
+
+function renderTripSelectList(trips) {
+  const list = document.getElementById('trip-select-list');
+  list.innerHTML = trips.map(trip => `
+    <button class="trip-select-btn" onclick="selectTrip('${trip.id}')">
+      <span class="trip-select-title">${trip.trip_number || 'Trip'}</span>
+      <span class="trip-select-sub">${trip.bmc_name || '—'} → ${trip.destination || '—'} | 
+        <span class="badge ${getStatusBadgeClass(trip.status)} badge-sm">${getStatusLabel(trip.status)}</span>
+      </span>
+    </button>
+  `).join('');
+}
+
+async function selectTrip(id) {
+  tripId = id;
+  try {
+    const data = await apiGetDriverTrip(id);
+    currentTrip = data.trip;
+    hideEl('trip-select-state');
+    renderTripInterface(currentTrip);
+  } catch (err) {
+    showToast(err.message || 'Failed to load trip.', 'error');
+  }
+}
+
+// ─── RENDER TRIP INTERFACE ───────────────────────────────────
+function renderTripInterface(trip) {
+  showEl('trip-main-content');
+  updateTripHeader(trip);
+
+  // Hide all steps
+  ['step-accept', 'step-pretrip', 'step-active', 'step-complete-form', 'step-completed'].forEach(id => hideEl(id));
+
+  switch (trip.status) {
+    case 'assigned':
+      showEl('step-accept');
+      setupAcceptBtn();
+      break;
+    case 'accepted':
+    case 'ready':
+      showEl('step-pretrip');
+      setupPreTripForm();
+      break;
+    case 'in_progress':
+      showEl('step-active');
+      renderActiveTripState(trip);
+      startElapsedTimer(trip.started_at);
+      setupCompleteBtn();
+      break;
+    case 'returning':
+      showEl('step-active');
+      renderActiveTripState(trip);
+      startElapsedTimer(trip.started_at);
+      setupCompleteBtn();
+      break;
+    case 'completed':
+      showEl('step-completed');
+      renderCompletionResult(trip);
+      break;
+    case 'cancelled':
+      document.getElementById('page-title').textContent = 'Trip Cancelled';
+      showToast('This trip has been cancelled.', 'info');
+      break;
+    default:
+      showEl('step-pretrip');
+      setupPreTripForm();
+  }
+}
+
+function updateTripHeader(trip) {
+  setTextContent('trip-number-tag', trip.trip_number || 'Trip');
+  setTextContent('trip-main-title', trip.bmc_name ? `${trip.bmc_name} Collection` : 'Milk Collection Trip');
+  setTextContent('trip-bmc-display', trip.bmc_name || '—');
+  setTextContent('trip-destination-display', trip.destination || '—');
+  setTextContent('trip-vehicle', trip.vehicle_number || '—');
+  setTextContent('trip-sched-start', formatDateTime(trip.scheduled_start_time));
+  setTextContent('trip-sched-return', formatDateTime(trip.scheduled_return_time));
+  setTextContent('trip-route', trip.route || '—');
+
+  const statusBadge = document.getElementById('trip-status-badge');
+  statusBadge.className = `trip-status-badge`;
+  setTextContent('trip-status-text', getStatusLabel(trip.status));
+
+  const dot = statusBadge.querySelector('.status-dot');
+  if (dot) {
+    const dotMap = { 'assigned': 'orange', 'accepted': 'orange', 'in_progress': 'red', 'returning': 'blue', 'completed': '' };
+    dot.className = `status-dot ${dotMap[trip.status] || ''}`;
+  }
+}
+
+// ─── STEP 1: ACCEPT ─────────────────────────────────────────
+function setupAcceptBtn() {
+  const btn = document.getElementById('btn-accept-trip');
+  btn.onclick = async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Accepting...';
+    try {
+      await apiAcceptTrip(tripId);
+      showToast('Trip accepted! Please complete pre-trip check.', 'success');
+      const data = await apiGetDriverTrip(tripId);
+      currentTrip = data.trip;
+      renderTripInterface(currentTrip);
+    } catch (err) {
+      showToast(err.message || 'Failed to accept trip.', 'error');
+      btn.disabled = false;
+      btn.textContent = '✅ Accept Trip';
+    }
+  };
+}
+
+// ─── STEP 2: PRE-TRIP FORM ───────────────────────────────────
+function setupPreTripForm() {
+  // Live validation on input
+  document.getElementById('input-out-km').addEventListener('input', validatePreTripForm);
+  document.getElementById('input-out-weight').addEventListener('input', validatePreTripForm);
+
+  // Photo upload
+  document.getElementById('out-photo-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    await handlePhotoUpload('out', file);
+  });
+
+  // Get Location
+  document.getElementById('btn-get-location').addEventListener('click', getStartLocation);
+
+  // Start Trip Button
+  document.getElementById('btn-start-trip').addEventListener('click', handleStartTrip);
+
+  validatePreTripForm();
+}
+
+function validatePreTripForm() {
+  const outKm = document.getElementById('input-out-km').value;
+  const outWeight = document.getElementById('input-out-weight').value;
+  const hasLocation = startLocation !== null;
+  const hasPhoto = outPhotoUrl !== null;
+
+  const checks = {
+    'check-out-km': !!outKm && Number(outKm) >= 0,
+    'check-out-weight': !!outWeight && Number(outWeight) > 0,
+    'check-out-photo': hasPhoto,
+    'check-location': hasLocation
+  };
+
+  for (const [id, done] of Object.entries(checks)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (done) {
+      el.classList.add('done');
+      el.querySelector('.check-icon').textContent = '✅';
+    } else {
+      el.classList.remove('done');
+      el.querySelector('.check-icon').textContent = '⭕';
+    }
+  }
+
+  const allDone = Object.values(checks).every(Boolean);
+  const startBtn = document.getElementById('btn-start-trip');
+  const hint = document.getElementById('start-trip-hint');
+
+  startBtn.disabled = !allDone;
+  if (allDone) {
+    hint.textContent = 'All checks complete. You can start the trip!';
+    hint.className = 'start-trip-hint ready';
+  } else {
+    hint.textContent = 'Complete all required fields above to enable.';
+    hint.className = 'start-trip-hint';
+  }
+}
+
+async function handlePhotoUpload(type, file) {
+  // Validate file
+  if (!file.type.startsWith('image/')) {
+    showToast('Please select a valid image file.', 'error');
+    return;
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    showToast('Image must be smaller than 10MB.', 'error');
+    return;
+  }
+
+  const progressEl = document.getElementById(`${type}-photo-progress`);
+  const previewEl = document.getElementById(`${type}-photo-preview`);
+  const placeholderEl = document.getElementById(`${type}-photo-placeholder`);
+  const removeBtn = document.getElementById(`${type}-photo-remove`);
+  const uploadAreaEl = document.getElementById(`${type}-photo-upload-area`);
+
+  progressEl.classList.remove('hidden');
+
+  try {
+    // Show local preview immediately
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      previewEl.src = e.target.result;
+      previewEl.classList.remove('hidden');
+      placeholderEl.classList.add('hidden');
+    };
+    reader.readAsDataURL(file);
+
+    // Upload to server
+    const base64 = await fileToBase64(file);
+    const result = await apiUploadDriverPhoto(base64, file.name);
+    const url = result.publicUrl;
+
+    if (type === 'out') {
+      outPhotoUrl = url;
+    } else {
+      inPhotoUrl = url;
+    }
+
+    progressEl.classList.add('hidden');
+    uploadAreaEl.classList.add('has-photo');
+    removeBtn.style.display = 'inline-flex';
+    showToast('Photo uploaded successfully.', 'success');
+    validatePreTripForm();
+
+  } catch (err) {
+    progressEl.classList.add('hidden');
+    console.error('Photo upload error:', err);
+    showToast(err.message || 'Photo upload failed. Please try again.', 'error');
+  }
+}
+
+function removePhoto(type) {
+  if (type === 'out') {
+    outPhotoUrl = null;
+    document.getElementById('out-photo-preview').src = '';
+    document.getElementById('out-photo-preview').classList.add('hidden');
+    document.getElementById('out-photo-placeholder').classList.remove('hidden');
+    document.getElementById('out-photo-upload-area').classList.remove('has-photo');
+    document.getElementById('out-photo-remove').style.display = 'none';
+    document.getElementById('out-photo-input').value = '';
+  } else {
+    inPhotoUrl = null;
+    document.getElementById('in-photo-preview').src = '';
+    document.getElementById('in-photo-preview').classList.add('hidden');
+    document.getElementById('in-photo-placeholder').classList.remove('hidden');
+    document.getElementById('in-photo-upload-area').classList.remove('has-photo');
+    document.getElementById('in-photo-remove').style.display = 'none';
+    document.getElementById('in-photo-input').value = '';
+  }
+  validatePreTripForm();
+}
+
+async function getStartLocation() {
+  const btn = document.getElementById('btn-get-location');
+  const statusBox = document.getElementById('location-status-box');
+  const statusText = document.getElementById('location-status-text');
+  const coordsEl = document.getElementById('location-coords');
+  const errorEl = document.getElementById('location-error-msg');
+
+  btn.disabled = true;
+  btn.textContent = '📡 Getting location...';
+  statusText.textContent = 'Requesting location...';
+  statusBox.className = 'location-status-box';
+  errorEl.classList.add('hidden');
+
+  try {
+    const loc = await getCurrentLocation();
+    startLocation = loc;
+
+    statusBox.classList.add('granted');
+    statusText.textContent = '✅ Location permission granted';
+    document.getElementById('location-status-icon').textContent = '✅';
+    document.getElementById('loc-lat').textContent = loc.lat.toFixed(6);
+    document.getElementById('loc-lng').textContent = loc.lng.toFixed(6);
+    coordsEl.classList.remove('hidden');
+    btn.textContent = '📡 Update Location';
+    btn.disabled = false;
+    showToast('Location captured successfully.', 'success');
+    validatePreTripForm();
+
+  } catch (err) {
+    statusBox.classList.add('denied');
+    statusText.textContent = '❌ ' + err.message;
+    document.getElementById('location-status-icon').textContent = '❌';
+    errorEl.textContent = err.message;
+    errorEl.classList.remove('hidden');
+    btn.textContent = '📡 Enable Location';
+    btn.disabled = false;
+    showToast(err.message, 'error');
+  }
+}
+
+async function handleStartTrip() {
+  const btn = document.getElementById('btn-start-trip');
+  if (btn.disabled) return;
+
+  const outKm = parseFloat(document.getElementById('input-out-km').value);
+  const outWeight = parseFloat(document.getElementById('input-out-weight').value);
+
+  // Validate
+  if (!outKm || outKm < 0) { showToast('Please enter a valid Out KM reading.', 'error'); return; }
+  if (!outWeight || outWeight <= 0) { showToast('Please enter a valid Out Weight.', 'error'); return; }
+  if (!outPhotoUrl) { showToast('Please upload the Out Weight photo.', 'error'); return; }
+  if (!startLocation) { showToast('Please enable location access.', 'error'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span>⏳</span> Starting Trip...';
+
+  try {
+    const payload = {
+      out_km: outKm,
+      out_weight: outWeight,
+      out_weight_photo: outPhotoUrl,
+      start_lat: startLocation.lat,
+      start_lng: startLocation.lng
+    };
+
+    await apiStartTrip(tripId, payload);
+    showToast('Trip started successfully! Drive safe! 🚛', 'success');
+
+    // Reload
+    const data = await apiGetDriverTrip(tripId);
+    currentTrip = data.trip;
+    renderTripInterface(currentTrip);
+
+  } catch (err) {
+    console.error('Start trip error:', err);
+    showToast(err.message || 'Failed to start trip.', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<span>🚀</span> START TRIP';
+  }
+}
+
+// ─── STEP 3: ACTIVE TRIP ─────────────────────────────────────
+function renderActiveTripState(trip) {
+  document.getElementById('active-start-time').textContent = formatTime(trip.started_at);
+  document.getElementById('active-out-km').textContent = trip.out_km ? `${trip.out_km} km` : '—';
+  document.getElementById('active-out-weight').textContent = trip.out_weight ? `${trip.out_weight.toLocaleString('en-IN')} kg` : '—';
+
+  // Location status
+  const locDot = document.getElementById('active-loc-dot');
+  const locText = document.getElementById('active-location-text');
+  if (trip.start_lat) {
+    locDot.className = 'loc-dot';
+    locText.textContent = `GPS: ${Number(trip.start_lat).toFixed(4)}, ${Number(trip.start_lng).toFixed(4)}`;
+  } else {
+    locDot.className = 'loc-dot inactive';
+    locText.textContent = 'Location: Not available';
+  }
+}
+
+function startElapsedTimer(startedAt) {
+  if (elapsedTimer) clearInterval(elapsedTimer);
+  if (!startedAt) {
+    document.getElementById('active-elapsed').textContent = '—';
+    return;
+  }
+
+  const startMs = new Date(startedAt).getTime();
+  const updateElapsed = () => {
+    const elapsed = Date.now() - startMs;
+    document.getElementById('active-elapsed').textContent = elapsed > 0 ? formatDuration(elapsed) : '—';
+  };
+
+  updateElapsed();
+  elapsedTimer = setInterval(updateElapsed, 60000);
+}
+
+function setupCompleteBtn() {
+  document.getElementById('btn-show-complete').addEventListener('click', () => {
+    hideEl('step-active');
+    showEl('step-complete-form');
+    setupCompleteTripForm();
+    if (elapsedTimer) clearInterval(elapsedTimer);
+  });
+}
+
+// ─── STEP 4: COMPLETE FORM ───────────────────────────────────
+function setupCompleteTripForm() {
+  // Back button
+  document.getElementById('btn-cancel-complete').addEventListener('click', () => {
+    hideEl('step-complete-form');
+    showEl('step-active');
+    startElapsedTimer(currentTrip?.started_at);
+  });
+
+  // In KM/Weight live mileage preview
+  document.getElementById('input-in-km').addEventListener('input', updateMileagePreview);
+  document.getElementById('input-in-weight').addEventListener('input', updateMileagePreview);
+
+  // In weight photo
+  document.getElementById('in-photo-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    await handlePhotoUpload('in', file);
+  });
+
+  // Return location
+  document.getElementById('btn-get-return-location').addEventListener('click', getReturnLocation);
+
+  // Complete trip
+  document.getElementById('btn-complete-trip').addEventListener('click', handleCompleteTrip);
+
+  // Pre-fill out_km for reference
+  if (currentTrip?.out_km) {
+    document.getElementById('input-in-km').placeholder = `Must be ≥ ${currentTrip.out_km} (Out: ${currentTrip.out_km})`;
+  }
+  if (currentTrip?.out_weight) {
+    document.getElementById('input-in-weight').placeholder = `Must be ≤ ${currentTrip.out_weight} (Out: ${currentTrip.out_weight} kg)`;
+  }
+}
+
+function updateMileagePreview() {
+  const inKm = parseFloat(document.getElementById('input-in-km').value);
+  const inWeight = parseFloat(document.getElementById('input-in-weight').value);
+  const outKm = currentTrip?.out_km;
+  const outWeight = currentTrip?.out_weight;
+
+  const previewEl = document.getElementById('mileage-preview');
+  const errorEl = document.getElementById('mileage-error');
+  const kmValidation = document.getElementById('km-validation-msg');
+  const weightValidation = document.getElementById('weight-validation-msg');
+
+  // Reset validation messages
+  kmValidation.textContent = '';
+  kmValidation.className = 'form-hint-driver';
+  weightValidation.textContent = '';
+  weightValidation.className = 'form-hint-driver';
+
+  if (!inKm || !inWeight || !outKm || !outWeight) {
+    previewEl.classList.add('hidden');
+    return;
+  }
+
+  // KM validation
+  if (inKm < outKm) {
+    kmValidation.textContent = `⚠️ In KM (${inKm}) cannot be less than Out KM (${outKm}).`;
+    kmValidation.className = 'form-hint-driver error-msg';
+    previewEl.classList.add('hidden');
+    return;
+  }
+
+  // Weight validation
+  if (inWeight > outWeight) {
+    weightValidation.textContent = `⚠️ In Weight (${inWeight}) cannot exceed Out Weight (${outWeight} kg).`;
+    weightValidation.className = 'form-hint-driver error-msg';
+    previewEl.classList.add('hidden');
+    return;
+  }
+
+  const calc = calculateMileage(outWeight, inWeight, outKm, inKm);
+
+  previewEl.classList.remove('hidden');
+  errorEl.classList.add('hidden');
+
+  if (calc.error) {
+    errorEl.textContent = calc.error;
+    errorEl.classList.remove('hidden');
+    document.getElementById('prev-weight-diff').textContent = calc.weightDiff ?? '—';
+    document.getElementById('prev-diesel').textContent = '—';
+    document.getElementById('prev-km').textContent = `${calc.kmTravelled ?? '—'} km`;
+    document.getElementById('prev-mileage').textContent = '—';
+    return;
+  }
+
+  document.getElementById('prev-weight-diff').textContent = `${formatNumber(calc.weightDiff, 2)} kg`;
+  document.getElementById('prev-diesel').textContent = formatNumber(calc.dieselConsumption, 2);
+  document.getElementById('prev-km').textContent = `${formatNumber(calc.kmTravelled, 2)} km`;
+  document.getElementById('prev-mileage').textContent = calc.averageMileage !== null ? `${formatNumber(calc.averageMileage, 3)} km/unit` : '—';
+}
+
+async function getReturnLocation() {
+  const btn = document.getElementById('btn-get-return-location');
+  const statusBox = document.getElementById('return-location-status-box');
+  const statusText = document.getElementById('return-location-text');
+  const coordsEl = document.getElementById('return-location-coords');
+
+  btn.disabled = true;
+  btn.textContent = '📡 Getting location...';
+  statusText.textContent = 'Requesting location...';
+
+  try {
+    const loc = await getCurrentLocation();
+    returnLocation = loc;
+
+    statusBox.classList.add('granted');
+    statusText.textContent = '✅ Return location captured';
+    document.getElementById('return-location-icon').textContent = '✅';
+    document.getElementById('ret-lat').textContent = loc.lat.toFixed(6);
+    document.getElementById('ret-lng').textContent = loc.lng.toFixed(6);
+    coordsEl.classList.remove('hidden');
+    btn.textContent = '📡 Update Location';
+    btn.disabled = false;
+    showToast('Return location captured.', 'success');
+
+  } catch (err) {
+    statusBox.classList.add('denied');
+    statusText.textContent = '❌ ' + err.message;
+    document.getElementById('return-location-icon').textContent = '❌';
+    btn.textContent = '📡 Capture Return Location';
+    btn.disabled = false;
+    showToast(err.message, 'error');
+  }
+}
+
+async function handleCompleteTrip() {
+  const btn = document.getElementById('btn-complete-trip');
+  if (btn.disabled) return;
+
+  const inKm = parseFloat(document.getElementById('input-in-km').value);
+  const inWeight = parseFloat(document.getElementById('input-in-weight').value);
+  const remarks = document.getElementById('input-remarks').value.trim();
+
+  const outKm = currentTrip?.out_km;
+  const outWeight = currentTrip?.out_weight;
+
+  // Validate
+  if (!inKm || inKm < 0) { showToast('Please enter a valid In KM reading.', 'error'); return; }
+  if (!inWeight || inWeight < 0) { showToast('Please enter a valid In Weight.', 'error'); return; }
+  if (outKm !== null && outKm !== undefined && inKm < outKm) {
+    showToast(`In KM (${inKm}) cannot be less than Out KM (${outKm}).`, 'error'); return;
+  }
+  if (outWeight !== null && outWeight !== undefined && inWeight > outWeight) {
+    showToast(`In Weight (${inWeight}) cannot exceed Out Weight (${outWeight} kg).`, 'error'); return;
+  }
+  if (!inPhotoUrl) { showToast('Please upload the In Weight photo.', 'error'); return; }
+  if (!returnLocation) { showToast('Please capture your return location.', 'error'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span>⏳</span> Completing Trip...';
+
+  try {
+    const payload = {
+      in_km: inKm,
+      in_weight: inWeight,
+      in_weight_photo: inPhotoUrl,
+      end_lat: returnLocation.lat,
+      end_lng: returnLocation.lng,
+      remarks
+    };
+
+    const result = await apiCompleteTrip(tripId, payload);
+    showToast('Trip completed successfully! 🎉', 'success');
+
+    currentTrip = result.trip;
+    hideEl('step-complete-form');
+    showEl('step-completed');
+    renderCompletionResult(currentTrip);
+
+  } catch (err) {
+    console.error('Complete trip error:', err);
+    showToast(err.message || 'Failed to complete trip.', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<span>✅</span> COMPLETE TRIP';
+  }
+}
+
+// ─── STEP 5: COMPLETION RESULT ────────────────────────────────
+function renderCompletionResult(trip) {
+  setTextContent('res-out-weight', trip.out_weight ? `${formatNumber(trip.out_weight, 2)} kg` : '—');
+  setTextContent('res-in-weight', trip.in_weight ? `${formatNumber(trip.in_weight, 2)} kg` : '—');
+  setTextContent('res-weight-diff', trip.weight_difference ? `${formatNumber(trip.weight_difference, 2)} kg` : '—');
+  setTextContent('res-diesel', trip.diesel_consumption ? formatNumber(trip.diesel_consumption, 2) : '—');
+  setTextContent('res-out-km', trip.out_km ? formatNumber(trip.out_km, 1) : '—');
+  setTextContent('res-in-km', trip.in_km ? formatNumber(trip.in_km, 1) : '—');
+  setTextContent('res-km-travelled', trip.km_travelled ? `${formatNumber(trip.km_travelled, 1)} km` : '—');
+
+  if (trip.average_mileage !== null && trip.average_mileage !== undefined) {
+    setTextContent('res-mileage', `${formatNumber(trip.average_mileage, 3)} km/unit`);
+  } else {
+    setTextContent('res-mileage', 'N/A');
+  }
+
+  // Duration
+  if (trip.started_at && trip.completed_at) {
+    const durationMs = new Date(trip.completed_at) - new Date(trip.started_at);
+    setTextContent('res-duration', formatDuration(durationMs));
+  } else {
+    setTextContent('res-duration', '—');
+  }
+}
+
+// ─── HELPERS ─────────────────────────────────────────────────
+function showEl(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.remove('hidden');
+}
+
+function hideEl(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.add('hidden');
+}
+
+function setTextContent(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}

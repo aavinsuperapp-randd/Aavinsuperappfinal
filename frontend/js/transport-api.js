@@ -127,7 +127,7 @@ async function apiGetVehiclePerformance(vehicleId) {
 }
 
 /**
- * Get Duties
+ * Get Duties (Worker Trips)
  */
 async function apiGetDuties(filters = {}) {
   const params = new URLSearchParams();
@@ -138,6 +138,43 @@ async function apiGetDuties(filters = {}) {
   const url = `/api/transport/duties${params.toString() ? '?' + params.toString() : ''}`;
   return transportFetch(url);
 }
+
+/**
+ * Get Driver Trips
+ */
+async function apiGetDriverTrips(filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.date) params.append('date', filters.date);
+  if (filters.status) params.append('status', filters.status);
+  
+  const url = `/api/transport/driver-trips${params.toString() ? '?' + params.toString() : ''}`;
+  return transportFetch(url);
+}
+
+/**
+ * Create Driver Trip
+ */
+async function apiCreateDriverTrip(payload) {
+  return transportFetch('/api/transport/driver-trips', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+/**
+ * Get Drivers List for Assignment
+ */
+async function apiGetDriversList() {
+  return transportFetch('/api/transport/drivers-list');
+}
+
+/**
+ * Get BMCs List for Assignment
+ */
+async function apiGetBmcsList() {
+  return transportFetch('/api/transport/bmcs-list');
+}
+
 
 /**
  * Get Driver Analysis

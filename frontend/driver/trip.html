@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trip Details — AAVIN Driver</title>
+  <meta name="description" content="AAVIN Driver — Start Trip, Complete Trip, Pre-Trip Check, Mileage Calculation">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
+  <link rel="stylesheet" href="/css/driver.css">
+  <link rel="stylesheet" href="../css/driver.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Driver Sidebar -->
+    <aside class="admin-sidebar" id="driver-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>Driver Portal</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Dashboard</a>
+        <a href="trip.html" class="admin-nav-item active"><span>🚛</span> Active Trip</a>
+        <a href="history.html" class="admin-nav-item"><span>📜</span> Trip History</a>
+        <a href="worktime.html" class="admin-nav-item"><span>⏱️</span> Work Time</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto;margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2 id="page-title">Active Trip</h2>
+            <p id="header-date">Trip Management</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar" id="header-avatar">DR</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-driver-name">Driver</div>
+              <div class="header-user-role">Driver Portal</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <!-- Loading -->
+        <div id="loading-state" class="driver-loading-state">
+          <div class="driver-spinner"></div>
+          <p>Loading trip information...</p>
+        </div>
+
+        <!-- No Trips State -->
+        <div id="no-trips-state" class="hidden">
+          <div class="content-card" style="text-align:center;padding:60px 40px;">
+            <div style="font-size:3.5rem;margin-bottom:16px;">🚛</div>
+            <h3 style="color:#111827;margin:0 0 8px;">No Active Trip</h3>
+            <p style="color:#6B7280;margin-bottom:24px;">You have no active trips right now. Check your assigned trips on the dashboard.</p>
+            <a href="dashboard.html" class="btn btn-primary">← Back to Dashboard</a>
+          </div>
+        </div>
+
+        <!-- Trip List (multiple assigned trips) -->
+        <div id="trip-select-state" class="hidden">
+          <div class="content-card" style="margin-bottom:24px;">
+            <div class="card-header">
+              <h3>📋 Select a Trip</h3>
+            </div>
+            <p style="color:#6B7280;font-size:0.9rem;margin:0 0 16px;">You have multiple assigned trips. Select one to manage:</p>
+            <div id="trip-select-list"></div>
+          </div>
+        </div>
+
+        <!-- ────────────────────────────────────────────────── -->
+        <!-- MAIN TRIP INTERFACE                                -->
+        <!-- ────────────────────────────────────────────────── -->
+        <div id="trip-main-content" class="hidden">
+
+          <!-- Trip Header Card -->
+          <div class="driver-trip-header-card" id="trip-header-card">
+            <div class="trip-header-row">
+              <div>
+                <div class="trip-number-tag" id="trip-number-tag">DTRIP-...</div>
+                <h2 class="trip-main-title" id="trip-main-title">Loading...</h2>
+                <div class="trip-meta-row">
+                  <span id="trip-bmc-display">—</span>
+                  <span>→</span>
+                  <span id="trip-destination-display">—</span>
+                </div>
+              </div>
+              <div class="trip-status-container">
+                <div class="trip-status-badge" id="trip-status-badge">
+                  <span class="status-dot"></span>
+                  <span id="trip-status-text">—</span>
+                </div>
+              </div>
+            </div>
+            <div class="trip-info-grid">
+              <div class="trip-info-item">
+                <span class="ti-label">🚛 Vehicle</span>
+                <span class="ti-val" id="trip-vehicle">—</span>
+              </div>
+              <div class="trip-info-item">
+                <span class="ti-label">📅 Scheduled Start</span>
+                <span class="ti-val" id="trip-sched-start">—</span>
+              </div>
+              <div class="trip-info-item">
+                <span class="ti-label">🔙 Scheduled Return</span>
+                <span class="ti-val" id="trip-sched-return">—</span>
+              </div>
+              <div class="trip-info-item">
+                <span class="ti-label">🗺️ Route</span>
+                <span class="ti-val" id="trip-route">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── STEP 1: Accept Trip (status = assigned) ── -->
+          <div id="step-accept" class="driver-step-card hidden">
+            <div class="step-icon">📋</div>
+            <h3>New Trip Assigned</h3>
+            <p>You have been assigned a new trip. Accept it to confirm you are ready for this duty.</p>
+            <div class="step-actions">
+              <button id="btn-accept-trip" class="btn btn-primary btn-lg driver-action-btn">
+                <span>✅</span> Accept Trip
+              </button>
+            </div>
+          </div>
+
+          <!-- ── STEP 2: Pre-Trip Check (status = accepted/ready) ── -->
+          <div id="step-pretrip" class="driver-step-card hidden">
+            <div class="step-header">
+              <div class="step-icon">📝</div>
+              <h3>Pre-Trip Check</h3>
+              <p>Complete all required information before starting the trip.</p>
+            </div>
+
+            <!-- Progress Checklist -->
+            <div class="pretrip-checklist">
+              <div class="pretrip-check-item" id="check-out-km">
+                <span class="check-icon">⭕</span>
+                <span>Out KM Reading</span>
+              </div>
+              <div class="pretrip-check-item" id="check-out-weight">
+                <span class="check-icon">⭕</span>
+                <span>Out Weight</span>
+              </div>
+              <div class="pretrip-check-item" id="check-out-photo">
+                <span class="check-icon">⭕</span>
+                <span>Out Weight Photo</span>
+              </div>
+              <div class="pretrip-check-item" id="check-location">
+                <span class="check-icon">⭕</span>
+                <span>Location Permission</span>
+              </div>
+            </div>
+
+            <!-- Out KM -->
+            <div class="form-group" style="margin-top:24px;">
+              <label class="form-label-driver" for="input-out-km">Out KM <span class="required">*</span></label>
+              <input type="number" id="input-out-km" class="form-input-driver" placeholder="Enter vehicle starting KM reading" min="0" step="0.1">
+              <div class="form-hint-driver">Enter the odometer reading before departure.</div>
+            </div>
+
+            <!-- Out Weight -->
+            <div class="form-group">
+              <label class="form-label-driver" for="input-out-weight">Out Weight (Kg) <span class="required">*</span></label>
+              <input type="number" id="input-out-weight" class="form-input-driver" placeholder="Enter milk weight before loading (Kg)" min="0" step="0.01">
+            </div>
+
+            <!-- Out Weight Photo -->
+            <div class="form-group">
+              <label class="form-label-driver">Out Weight Photo <span class="required">*</span></label>
+              <div class="photo-upload-area" id="out-photo-upload-area">
+                <img id="out-photo-preview" src="" alt="Out Weight Photo" class="photo-preview hidden">
+                <div id="out-photo-placeholder" class="photo-placeholder">
+                  <div class="photo-placeholder-icon">📷</div>
+                  <p>Take a photo or upload from gallery</p>
+                </div>
+                <input type="file" id="out-photo-input" accept="image/*" capture="environment" style="display:none;">
+                <div class="photo-actions">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('out-photo-input').click()">
+                    📷 Camera / Gallery
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="out-photo-remove" onclick="removePhoto('out')" style="display:none;">✕ Remove</button>
+                </div>
+              </div>
+              <div id="out-photo-progress" class="upload-progress hidden">
+                <div class="progress-bar"><div class="progress-fill" id="out-progress-fill"></div></div>
+                <span>Uploading...</span>
+              </div>
+            </div>
+
+            <!-- Location -->
+            <div class="form-group">
+              <label class="form-label-driver">Location Permission <span class="required">*</span></label>
+              <div class="location-status-box" id="location-status-box">
+                <div class="location-status-row">
+                  <span class="location-icon" id="location-status-icon">📍</span>
+                  <span id="location-status-text">Location not yet checked</span>
+                </div>
+                <div id="location-coords" class="location-coords hidden">
+                  Lat: <span id="loc-lat">—</span>, Lng: <span id="loc-lng">—</span>
+                </div>
+                <div id="location-error-msg" class="location-error hidden"></div>
+                <button type="button" id="btn-get-location" class="btn btn-outline btn-sm" style="margin-top:12px;">
+                  📡 Enable Location
+                </button>
+              </div>
+            </div>
+
+            <!-- Start Trip Button -->
+            <div class="step-actions" style="margin-top:32px;">
+              <button id="btn-start-trip" class="btn btn-start-trip" disabled>
+                <span>🚀</span> START TRIP
+              </button>
+              <p class="start-trip-hint" id="start-trip-hint">Complete all required fields above to enable.</p>
+            </div>
+          </div>
+
+          <!-- ── STEP 3: Active Trip (status = in_progress) ── -->
+          <div id="step-active" class="driver-step-card hidden">
+            <div class="active-trip-banner">
+              <div class="active-pulse-ring"></div>
+              <div class="active-trip-label">🔴 TRIP IN PROGRESS</div>
+            </div>
+
+            <div class="active-trip-stats">
+              <div class="active-stat">
+                <div class="active-stat-icon">⏱️</div>
+                <div class="active-stat-val" id="active-elapsed">—</div>
+                <div class="active-stat-label">Elapsed</div>
+              </div>
+              <div class="active-stat">
+                <div class="active-stat-icon">🕐</div>
+                <div class="active-stat-val" id="active-start-time">—</div>
+                <div class="active-stat-label">Started At</div>
+              </div>
+              <div class="active-stat">
+                <div class="active-stat-icon">📏</div>
+                <div class="active-stat-val" id="active-out-km">—</div>
+                <div class="active-stat-label">Out KM</div>
+              </div>
+              <div class="active-stat">
+                <div class="active-stat-icon">⚖️</div>
+                <div class="active-stat-val" id="active-out-weight">—</div>
+                <div class="active-stat-label">Out Weight</div>
+              </div>
+            </div>
+
+            <!-- Location Status -->
+            <div class="active-location-row">
+              <span class="loc-dot" id="active-loc-dot"></span>
+              <span id="active-location-text">Location: —</span>
+              <span id="active-location-time" class="text-muted text-sm"></span>
+            </div>
+
+            <div class="step-actions" style="margin-top:32px;">
+              <button id="btn-show-complete" class="btn btn-complete-trip">
+                <span>🏁</span> STOP / COMPLETE TRIP
+              </button>
+            </div>
+          </div>
+
+          <!-- ── STEP 4: Complete Trip Form ── -->
+          <div id="step-complete-form" class="driver-step-card hidden">
+            <div class="step-icon">🏁</div>
+            <h3>Complete Trip</h3>
+            <p>Enter the return information to complete this trip and calculate mileage.</p>
+
+            <!-- In KM -->
+            <div class="form-group">
+              <label class="form-label-driver" for="input-in-km">In KM <span class="required">*</span></label>
+              <input type="number" id="input-in-km" class="form-input-driver" placeholder="Enter vehicle return KM reading" min="0" step="0.1">
+              <div class="form-hint-driver" id="km-validation-msg"></div>
+            </div>
+
+            <!-- In Weight -->
+            <div class="form-group">
+              <label class="form-label-driver" for="input-in-weight">In Weight (Kg) <span class="required">*</span></label>
+              <input type="number" id="input-in-weight" class="form-input-driver" placeholder="Enter milk weight after unloading (Kg)" min="0" step="0.01">
+              <div class="form-hint-driver" id="weight-validation-msg"></div>
+            </div>
+
+            <!-- Live Mileage Preview -->
+            <div id="mileage-preview" class="mileage-preview-card hidden">
+              <h4>📊 Mileage Preview</h4>
+              <div class="mileage-grid">
+                <div class="mg-item"><span class="mg-label">Weight Difference</span><span class="mg-val" id="prev-weight-diff">—</span></div>
+                <div class="mg-item"><span class="mg-label">Diesel Consumption</span><span class="mg-val" id="prev-diesel">—</span></div>
+                <div class="mg-item"><span class="mg-label">KM Travelled</span><span class="mg-val" id="prev-km">—</span></div>
+                <div class="mg-item"><span class="mg-label">Average Mileage</span><span class="mg-val highlight" id="prev-mileage">—</span></div>
+              </div>
+              <div id="mileage-error" class="mileage-error hidden"></div>
+            </div>
+
+            <!-- In Weight Photo -->
+            <div class="form-group">
+              <label class="form-label-driver">In Weight Photo <span class="required">*</span></label>
+              <div class="photo-upload-area" id="in-photo-upload-area">
+                <img id="in-photo-preview" src="" alt="In Weight Photo" class="photo-preview hidden">
+                <div id="in-photo-placeholder" class="photo-placeholder">
+                  <div class="photo-placeholder-icon">📷</div>
+                  <p>Take a photo or upload from gallery</p>
+                </div>
+                <input type="file" id="in-photo-input" accept="image/*" capture="environment" style="display:none;">
+                <div class="photo-actions">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('in-photo-input').click()">
+                    📷 Camera / Gallery
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="in-photo-remove" onclick="removePhoto('in')" style="display:none;">✕ Remove</button>
+                </div>
+              </div>
+              <div id="in-photo-progress" class="upload-progress hidden">
+                <div class="progress-bar"><div class="progress-fill" id="in-progress-fill"></div></div>
+                <span>Uploading...</span>
+              </div>
+            </div>
+
+            <!-- Return Location -->
+            <div class="form-group">
+              <label class="form-label-driver">Return Location <span class="required">*</span></label>
+              <div class="location-status-box" id="return-location-status-box">
+                <div class="location-status-row">
+                  <span class="location-icon" id="return-location-icon">📍</span>
+                  <span id="return-location-text">Location not captured</span>
+                </div>
+                <div id="return-location-coords" class="location-coords hidden">
+                  Lat: <span id="ret-lat">—</span>, Lng: <span id="ret-lng">—</span>
+                </div>
+                <button type="button" id="btn-get-return-location" class="btn btn-outline btn-sm" style="margin-top:12px;">
+                  📡 Capture Return Location
+                </button>
+              </div>
+            </div>
+
+            <!-- Remarks -->
+            <div class="form-group">
+              <label class="form-label-driver" for="input-remarks">Remarks (Optional)</label>
+              <textarea id="input-remarks" class="form-input-driver" rows="3" placeholder="Any notes about this trip..."></textarea>
+            </div>
+
+            <div class="step-actions" style="margin-top:32px;gap:12px;">
+              <button id="btn-cancel-complete" class="btn btn-outline">← Back</button>
+              <button id="btn-complete-trip" class="btn btn-complete-trip">
+                <span>✅</span> COMPLETE TRIP
+              </button>
+            </div>
+          </div>
+
+          <!-- ── STEP 5: Trip Completed Result ── -->
+          <div id="step-completed" class="driver-step-card hidden">
+            <div class="completion-header">
+              <div class="completion-icon">✅</div>
+              <h2>Trip Completed!</h2>
+              <p>Great work! Here is your trip mileage summary.</p>
+            </div>
+
+            <div class="mileage-result-card">
+              <h3>📊 Trip Mileage Report</h3>
+              <div class="mileage-result-grid">
+                <div class="mr-row">
+                  <span class="mr-label">Out Weight</span>
+                  <span class="mr-val" id="res-out-weight">—</span>
+                </div>
+                <div class="mr-row">
+                  <span class="mr-label">In Weight</span>
+                  <span class="mr-val" id="res-in-weight">—</span>
+                </div>
+                <div class="mr-row separator">
+                  <span class="mr-label">Weight Difference</span>
+                  <span class="mr-val bold" id="res-weight-diff">—</span>
+                </div>
+                <div class="mr-row">
+                  <span class="mr-label">Diesel Consumption</span>
+                  <span class="mr-val" id="res-diesel">—</span>
+                </div>
+                <div class="mr-row separator">
+                  <span class="mr-label">Out KM</span>
+                  <span class="mr-val" id="res-out-km">—</span>
+                </div>
+                <div class="mr-row">
+                  <span class="mr-label">In KM</span>
+                  <span class="mr-val" id="res-in-km">—</span>
+                </div>
+                <div class="mr-row separator">
+                  <span class="mr-label">KM Travelled</span>
+                  <span class="mr-val bold" id="res-km-travelled">—</span>
+                </div>
+                <div class="mr-row highlight-row">
+                  <span class="mr-label">⭐ Average Mileage</span>
+                  <span class="mr-val bold large" id="res-mileage">—</span>
+                </div>
+                <div class="mr-row">
+                  <span class="mr-label">Trip Duration</span>
+                  <span class="mr-val" id="res-duration">—</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="step-actions" style="margin-top:32px;gap:12px;">
+              <a href="dashboard.html" class="btn btn-primary">← Back to Dashboard</a>
+              <a href="history.html" class="btn btn-outline">📜 View History</a>
+            </div>
+          </div>
+
+        </div><!-- /trip-main-content -->
+      </main>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/driver-api.js"></script>
+  <script src="../js/driver-trip.js"></script>
+</body>
+</html>
