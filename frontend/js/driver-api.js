@@ -44,7 +44,11 @@ async function apiGetDriverTrips() {
 }
 
 async function apiGetDriverTrip(tripId) {
-  return driverFetch(`/api/driver/trips/${tripId}`);
+  try {
+    return await driverFetch(`/api/driver/trips/${tripId}`);
+  } catch (err) {
+    return await driverFetch(`/api/transport/driver-trips/${tripId}`);
+  }
 }
 
 async function apiAcceptTrip(tripId) {

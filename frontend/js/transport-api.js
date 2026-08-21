@@ -41,10 +41,10 @@ async function apiGetTransportDashboard() {
 }
 
 /**
- * Get All Drivers
+ * Get All Drivers (uses unified drivers list from profiles)
  */
 async function apiGetDrivers() {
-  return transportFetch('/api/transport/drivers');
+  return transportFetch('/api/transport/drivers-list');
 }
 
 /**
@@ -152,12 +152,28 @@ async function apiGetDriverTrips(filters = {}) {
 }
 
 /**
+ * Get Single Driver Trip / Driver's Trips by ID
+ */
+async function apiGetDriverTrip(id) {
+  return transportFetch(`/api/transport/driver-trips/${id}`);
+}
+
+/**
  * Create Driver Trip
  */
 async function apiCreateDriverTrip(payload) {
   return transportFetch('/api/transport/driver-trips', {
     method: 'POST',
     body: JSON.stringify(payload)
+  });
+}
+
+/**
+ * Delete Driver Trip (Duty)
+ */
+async function apiDeleteDriverTrip(tripId) {
+  return transportFetch(`/api/transport/driver-trips/${tripId}`, {
+    method: 'DELETE'
   });
 }
 

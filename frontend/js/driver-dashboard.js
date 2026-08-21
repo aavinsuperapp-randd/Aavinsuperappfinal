@@ -236,49 +236,58 @@ function renderTripCard(trip) {
   const statusBadge = `<span class="badge ${getStatusBadgeClass(trip.status)}">${getStatusLabel(trip.status)}</span>`;
   const isActive = ['assigned', 'accepted', 'ready', 'in_progress', 'returning'].includes(trip.status);
 
-  const acceptBtn = trip.status === 'assigned'
-    ? `<button class="btn btn-primary btn-sm" onclick="acceptTrip('${trip.id}')">✅ Accept Trip</button>`
-    : '';
+  // Split BMC string if formatted e.g. "1. Thirumangalam — Front | 2. Kalligudi — Mid"
+  let bmcVisitsHtml = '';
+  if (trip.bmc_name) {
+    const visits = trip.bmc_name.split(' | ');
+    bmcVisitsHtml = `
+      <div style="margin: 10px 0; padding: 10px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: #475569; margin-bottom: 6px;">📍 BMC Visits Sequence</div>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          ${visits.map(v => `<div style="font-size: 0.85rem; font-weight: 600; color: #0F172A;">${v}</div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
 
-  const viewBtn = isActive
-    ? `<a href="trip.html?id=${trip.id}" class="btn btn-outline btn-sm">View →</a>`
+  const actionBtn = (trip.status === 'assigned' || trip.status === 'accepted' || trip.status === 'ready')
+    ? `<a href="trip.html?id=${trip.id}" class="btn btn-primary btn-sm" style="font-weight:700; padding: 8px 16px;">🚀 START TRIP</a>`
+    : isActive
+    ? `<a href="trip.html?id=${trip.id}" class="btn btn-outline btn-sm">View Active Trip →</a>`
     : `<a href="history.html" class="btn btn-ghost btn-sm">Details</a>`;
 
   return `
     <div class="driver-trip-card ${isActive ? 'active-trip' : ''}">
       <div class="trip-card-header">
         <div>
-          <div class="trip-card-title">
-            ${trip.trip_number || 'Trip'}
-          </div>
-          <div class="trip-card-subtitle">${trip.bmc_name || '—'} → ${trip.destination || '—'}</div>
+          <div class="trip-card-title">${trip.trip_number || 'Trip'}</div>
+          <div class="trip-card-subtitle">🗺️ Route: <strong>${trip.route || trip.bmc_name || 'Milk Collection Route'}</strong></div>
         </div>
         ${statusBadge}
       </div>
-      <div class="trip-card-meta">
-        <div class="trip-card-meta-item">🚛 ${trip.vehicle_number || '—'}</div>
-        <div class="trip-card-meta-item">📅 ${formatDate(trip.scheduled_start_time || trip.created_at)}</div>
-        ${trip.scheduled_start_time ? `<div class="trip-card-meta-item">🕐 ${formatTime(trip.scheduled_start_time)}</div>` : ''}
-        ${trip.route ? `<div class="trip-card-meta-item">🗺️ ${trip.route}</div>` : ''}
+      <div class="trip-card-meta" style="margin-top: 8px;">
+        <div class="trip-card-meta-item">🚛 Vehicle: <strong>${trip.vehicle_number || '—'}</strong></div>
+        <div class="trip-card-meta-item">🕐 Trip Start: <strong>${formatTime(trip.scheduled_start_time || trip.created_at)}</strong></div>
+        ${trip.remarks ? `<div class="trip-card-meta-item" style="grid-column: 1 / -1;">💬 Remarks: ${trip.remarks.split('__BMC_DATA__=')[0].trim()}</div>` : ''}
       </div>
-      <div class="trip-card-actions">
-        ${acceptBtn}
-        ${viewBtn}
+
+      ${bmcVisitsHtml}
+
+      <div class="trip-card-actions" style="margin-top: 12px;">
+        ${actionBtn}
       </div>
     </div>
   `;
 }
 
-async function acceptTrip(tripId) {
-  if (!confirm('Accept this trip? This will confirm you are ready for this duty.')) return;
+function formatTime(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? dateStr : d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
 
-  try {
-    showToast('Accepting trip...', 'info');
-    await apiAcceptTrip(tripId);
-    showToast('Trip accepted successfully!', 'success');
-    await loadDashboard();
-  } catch (err) {
-    console.error('Accept trip error:', err);
-    showToast(err.message || 'Failed to accept trip.', 'error');
-  }
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }

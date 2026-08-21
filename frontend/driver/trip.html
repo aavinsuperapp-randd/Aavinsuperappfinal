@@ -90,10 +90,8 @@
               <div>
                 <div class="trip-number-tag" id="trip-number-tag">DTRIP-...</div>
                 <h2 class="trip-main-title" id="trip-main-title">Loading...</h2>
-                <div class="trip-meta-row">
-                  <span id="trip-bmc-display">—</span>
-                  <span>→</span>
-                  <span id="trip-destination-display">—</span>
+                <div class="trip-meta-row" style="margin-top:6px;">
+                  <span>🗺️ Route: <strong id="trip-route-display">—</strong></span>
                 </div>
               </div>
               <div class="trip-status-container">
@@ -103,7 +101,7 @@
                 </div>
               </div>
             </div>
-            <div class="trip-info-grid">
+            <div class="trip-info-grid" style="margin-top:16px;">
               <div class="trip-info-item">
                 <span class="ti-label">🚛 Vehicle</span>
                 <span class="ti-val" id="trip-vehicle">—</span>
@@ -112,35 +110,29 @@
                 <span class="ti-label">📅 Scheduled Start</span>
                 <span class="ti-val" id="trip-sched-start">—</span>
               </div>
-              <div class="trip-info-item">
-                <span class="ti-label">🔙 Scheduled Return</span>
-                <span class="ti-val" id="trip-sched-return">—</span>
+              <div class="trip-info-item" style="grid-column: span 2;">
+                <span class="ti-label">💬 Remarks</span>
+                <span class="ti-val" id="trip-remarks">—</span>
               </div>
-              <div class="trip-info-item">
-                <span class="ti-label">🗺️ Route</span>
-                <span class="ti-val" id="trip-route">—</span>
+            </div>
+
+            <!-- Assigned BMC Sequence Card -->
+            <div id="trip-bmc-sequence-card" style="margin-top:16px; padding:12px 16px; background:#F8FAFC; border:1px solid #CBD5E1; border-radius:10px;">
+              <div style="font-size:0.85rem; font-weight:700; color:#334155; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                <span>🏢 Assigned BMC Visit Sequence</span>
+              </div>
+              <div id="trip-bmc-sequence-list" style="display:flex; flex-direction:column; gap:6px;">
+                <!-- Populated dynamically -->
               </div>
             </div>
           </div>
 
-          <!-- ── STEP 1: Accept Trip (status = assigned) ── -->
-          <div id="step-accept" class="driver-step-card hidden">
-            <div class="step-icon">📋</div>
-            <h3>New Trip Assigned</h3>
-            <p>You have been assigned a new trip. Accept it to confirm you are ready for this duty.</p>
-            <div class="step-actions">
-              <button id="btn-accept-trip" class="btn btn-primary btn-lg driver-action-btn">
-                <span>✅</span> Accept Trip
-              </button>
-            </div>
-          </div>
-
-          <!-- ── STEP 2: Pre-Trip Check (status = accepted/ready) ── -->
+          <!-- ── STEP 2: Pre-Trip / Start Trip Flow ── -->
           <div id="step-pretrip" class="driver-step-card hidden">
             <div class="step-header">
-              <div class="step-icon">📝</div>
-              <h3>Pre-Trip Check</h3>
-              <p>Complete all required information before starting the trip.</p>
+              <div class="step-icon">🚀</div>
+              <h3>Start Trip Verification</h3>
+              <p>Enter the required Out KM reading, KM photo proof, and Out Tanker Weight to start your trip.</p>
             </div>
 
             <!-- Progress Checklist -->
@@ -149,17 +141,17 @@
                 <span class="check-icon">⭕</span>
                 <span>Out KM Reading</span>
               </div>
-              <div class="pretrip-check-item" id="check-out-weight">
-                <span class="check-icon">⭕</span>
-                <span>Out Weight</span>
-              </div>
               <div class="pretrip-check-item" id="check-out-photo">
                 <span class="check-icon">⭕</span>
-                <span>Out Weight Photo</span>
+                <span>Out KM Photo Proof</span>
               </div>
-              <div class="pretrip-check-item" id="check-location">
+              <div class="pretrip-check-item" id="check-out-weight">
                 <span class="check-icon">⭕</span>
-                <span>Location Permission</span>
+                <span>Out Tanker Weight</span>
+              </div>
+              <div class="pretrip-check-item" id="check-out-location">
+                <span class="check-icon">⭕</span>
+                <span>Current GPS Location</span>
               </div>
             </div>
 
@@ -167,28 +159,28 @@
             <div class="form-group" style="margin-top:24px;">
               <label class="form-label-driver" for="input-out-km">Out KM <span class="required">*</span></label>
               <input type="number" id="input-out-km" class="form-input-driver" placeholder="Enter vehicle starting KM reading" min="0" step="0.1">
-              <div class="form-hint-driver">Enter the odometer reading before departure.</div>
+              <div class="form-hint-driver">Enter the vehicle odometer reading before departure.</div>
             </div>
 
-            <!-- Out Weight -->
+            <!-- Out KM Photo Proof -->
             <div class="form-group">
-              <label class="form-label-driver" for="input-out-weight">Out Weight (Kg) <span class="required">*</span></label>
-              <input type="number" id="input-out-weight" class="form-input-driver" placeholder="Enter milk weight before loading (Kg)" min="0" step="0.01">
-            </div>
-
-            <!-- Out Weight Photo -->
-            <div class="form-group">
-              <label class="form-label-driver">Out Weight Photo <span class="required">*</span></label>
+              <label class="form-label-driver">Out KM Photo Proof <span class="required">*</span></label>
               <div class="photo-upload-area" id="out-photo-upload-area">
-                <img id="out-photo-preview" src="" alt="Out Weight Photo" class="photo-preview hidden">
+                <img id="out-photo-preview" src="" alt="Out KM Photo" class="photo-preview hidden">
                 <div id="out-photo-placeholder" class="photo-placeholder">
                   <div class="photo-placeholder-icon">📷</div>
-                  <p>Take a photo or upload from gallery</p>
+                  <p>Take a photo or choose from gallery</p>
                 </div>
-                <input type="file" id="out-photo-input" accept="image/*" capture="environment" style="display:none;">
-                <div class="photo-actions">
-                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('out-photo-input').click()">
-                    📷 Camera / Gallery
+                <!-- Camera: opens device camera directly -->
+                <input type="file" id="out-photo-input-camera" accept="image/*" capture="environment" style="display:none;">
+                <!-- Gallery: opens file picker, accepts all image formats -->
+                <input type="file" id="out-photo-input-gallery" accept="image/*" style="display:none;">
+                <div class="photo-actions" style="gap:8px;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('out-photo-input-camera').click()">
+                    📸 Open Camera
+                  </button>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('out-photo-input-gallery').click()">
+                    🖼️ From Gallery
                   </button>
                   <button type="button" class="btn btn-ghost btn-sm" id="out-photo-remove" onclick="removePhoto('out')" style="display:none;">✕ Remove</button>
                 </div>
@@ -199,28 +191,34 @@
               </div>
             </div>
 
-            <!-- Location -->
+            <!-- Out Weight -->
             <div class="form-group">
-              <label class="form-label-driver">Location Permission <span class="required">*</span></label>
-              <div class="location-status-box" id="location-status-box">
+              <label class="form-label-driver" for="input-out-weight">Out Tanker Weight (Kg) <span class="required">*</span></label>
+              <input type="number" id="input-out-weight" class="form-input-driver" placeholder="Enter tanker tare/empty weight (Kg)" min="0" step="0.01">
+            </div>
+
+            <!-- Start Location -->
+            <div class="form-group">
+              <label class="form-label-driver">Current GPS Location <span class="required">*</span></label>
+              <div class="location-status-box" id="start-location-status-box">
                 <div class="location-status-row">
-                  <span class="location-icon" id="location-status-icon">📍</span>
-                  <span id="location-status-text">Location not yet checked</span>
+                  <span class="location-icon" id="start-location-icon">📍</span>
+                  <span id="start-location-text">Location not captured</span>
                 </div>
-                <div id="location-coords" class="location-coords hidden">
-                  Lat: <span id="loc-lat">—</span>, Lng: <span id="loc-lng">—</span>
+                <div id="start-location-coords" class="location-coords hidden">
+                  Lat: <span id="start-lat">—</span>, Lng: <span id="start-lng">—</span>
                 </div>
-                <div id="location-error-msg" class="location-error hidden"></div>
-                <button type="button" id="btn-get-location" class="btn btn-outline btn-sm" style="margin-top:12px;">
-                  📡 Enable Location
+                <button type="button" id="btn-get-start-location" class="btn btn-outline btn-sm" style="margin-top:12px;">
+                  📡 Capture Current Location
                 </button>
               </div>
+              <div id="start-location-error-msg" class="form-hint-driver error-msg hidden"></div>
             </div>
 
             <!-- Start Trip Button -->
             <div class="step-actions" style="margin-top:32px;">
               <button id="btn-start-trip" class="btn btn-start-trip" disabled>
-                <span>🚀</span> START TRIP
+                <span>🚀</span> CONFIRM START TRIP
               </button>
               <p class="start-trip-hint" id="start-trip-hint">Complete all required fields above to enable.</p>
             </div>

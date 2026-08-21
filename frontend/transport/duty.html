@@ -21,7 +21,6 @@
       </div>
       <nav class="admin-nav">
         <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Dashboard</a>
-        <a href="drivers.html" class="admin-nav-item"><span>👨‍✈️</span> Drivers</a>
         <a href="vehicles.html" class="admin-nav-item"><span>🚛</span> Vehicles</a>
         <a href="duty.html" class="admin-nav-item active"><span>📋</span> Duty</a>
         <a href="driver-analysis.html" class="admin-nav-item"><span>📈</span> Driver Analysis</a>
@@ -112,66 +111,128 @@
 
   <!-- Create Trip Modal -->
   <div id="create-trip-modal" class="modal-overlay hidden">
-    <div class="modal-content">
+    <div class="modal-content modal-lg">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h3 style="margin:0; font-weight:800; color:#0F172A;">➕ Assign Driver Trip</h3>
+        <h3 style="margin:0; font-weight:800; color:#0F172A;">➕ Assign Driver Duty</h3>
         <button id="create-trip-modal-close" class="btn btn-ghost">✕</button>
       </div>
       <form id="create-trip-form">
-        <div class="two-col">
-          <div class="form-group">
-            <label class="form-label">Driver</label>
-            <select id="ct-driver" class="form-control" required>
-              <option value="">Select Driver...</option>
-            </select>
+
+        <!-- STEP 1: BMC Selection Section -->
+        <div class="form-group mb-4" style="background:#F8FAFC; border:1px solid #CBD5E1; border-radius:12px; padding:16px;">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h4 style="margin:0; font-weight:700; color:#0F172A; font-size:0.98rem;">
+              Step 1: Select BMC List & Assign Compartments <span style="color:#EF4444;">*</span>
+            </h4>
+            <span class="badge badge-neutral" id="ct-selected-count">0 BMCs selected</span>
           </div>
-          <div class="form-group">
-            <label class="form-label">Vehicle</label>
-            <select id="ct-vehicle" class="form-control" required>
-              <option value="">Select Vehicle...</option>
-            </select>
+
+          <div style="margin-bottom: 10px;">
+            <input type="text" id="ct-bmc-search" class="form-control form-control-sm" placeholder="🔍 Search BMC by name or location...">
           </div>
-        </div>
-        
-        <div class="two-col">
-          <div class="form-group">
-            <label class="form-label">Select BMCs to Include in Trip</label>
-            <div id="ct-bmcs-container" style="max-height: 140px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 8px; padding: 8px 12px; background: #FFF;">
-              <span class="text-muted text-sm">Loading BMCs...</span>
+
+          <div id="ct-bmcs-container" style="max-height: 150px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 8px; padding: 8px; background: #FFF; display: flex; flex-direction: column; gap: 6px;">
+            <span class="text-muted text-sm">Loading available BMCs...</span>
+          </div>
+
+          <!-- Selected BMCs with Order & Compartments -->
+          <div style="margin-top: 14px;">
+            <label class="form-label" style="font-size:0.85rem; font-weight:700; color:#1E293B; margin-bottom:6px; display:block;">
+              📋 Selected Visit Sequence:
+            </label>
+            <div id="ct-selected-bmcs-list" style="min-height: 60px; border: 1px dashed #94A3B8; border-radius: 8px; padding: 10px; background: #FFF; display: flex; flex-direction: column; gap: 8px;">
+              <span class="text-muted text-sm" style="font-style: italic;">No BMCs selected yet. Search and click (+) Add above.</span>
             </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Final Destination / Stop</label>
-            <input type="text" id="ct-destination" class="form-control" placeholder="E.g., Chennai Main Dairy Plant">
+
+          <!-- BUTTON 1: Save & Confirm BMC Details -->
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid #E2E8F0;">
+            <div id="bmc-save-status-hint" style="font-size: 0.85rem; font-weight: 700; color: #DC2626;">
+              ⚠️ Select BMCs above and click "Save & Confirm BMC Details".
+            </div>
+            <button type="button" id="btn-save-bmcs" class="btn btn-secondary btn-sm" style="background:#2563EB; color:#FFF; font-weight:700; padding:8px 18px;">
+              💾 Save & Confirm BMC Details
+            </button>
           </div>
         </div>
 
-        <div class="form-group mb-2">
-          <label class="form-label">Route</label>
-          <input type="text" id="ct-route" class="form-control" placeholder="E.g., Highway A1">
-        </div>
+        <!-- STEP 2: Duty Assignment Info (Driver, Vehicle, Route, etc.) -->
+        <div id="duty-assignment-step2" style="opacity: 0.5; pointer-events: none; transition: all 0.3s ease;">
+          <h4 style="margin:0 0 12px 0; font-weight:700; color:#0F172A; font-size:0.98rem;">
+            Step 2: Assign Driver, Vehicle & Schedule
+          </h4>
 
-        <div class="two-col">
-          <div class="form-group">
-            <label class="form-label">Scheduled Start</label>
-            <input type="datetime-local" id="ct-start-time" class="form-control" required>
+          <div class="two-col mb-3">
+            <div class="form-group">
+              <label class="form-label" style="font-weight:700;">Select Driver <span style="color:#EF4444;">*</span></label>
+              <select id="ct-driver" class="form-control" required disabled>
+                <option value="">Select Driver...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" style="font-weight:700;">Select Vehicle <span style="color:#EF4444;">*</span></label>
+              <select id="ct-vehicle" class="form-control" required disabled>
+                <option value="">Select Vehicle...</option>
+              </select>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Scheduled Return</label>
-            <input type="datetime-local" id="ct-return-time" class="form-control">
+
+          <div class="two-col mb-3">
+            <div class="form-group">
+              <label class="form-label" style="font-weight:700;">Route Name <span style="color:#EF4444;">*</span></label>
+              <input type="text" id="ct-route" class="form-control" placeholder="E.g., Madurai Route / Highway A1" required disabled>
+            </div>
+            <div class="form-group">
+              <label class="form-label" style="font-weight:700;">Duty Type <span style="color:#EF4444;">*</span></label>
+              <select id="ct-duty-type" class="form-control" required disabled>
+                <option value="Morning Duty" selected>🌅 Morning Duty</option>
+                <option value="Night Duty">🌙 Night Duty</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group mb-3">
+            <label class="form-label" style="font-weight:700;">Trip Start Time <span style="color:#EF4444;">*</span></label>
+            <input type="datetime-local" id="ct-start-time" class="form-control" required disabled>
+          </div>
+
+          <div class="form-group mb-4">
+            <label class="form-label" style="font-weight:700;">Remarks</label>
+            <textarea id="ct-remarks" class="form-control" rows="2" placeholder="Any instructions for the driver..." disabled></textarea>
           </div>
         </div>
 
-        <div class="form-group mb-3">
-          <label class="form-label">Remarks</label>
-          <textarea id="ct-remarks" class="form-control" rows="2" placeholder="Any instructions for the driver..."></textarea>
-        </div>
-
-        <div class="d-flex justify-content-between">
+        <!-- BUTTON 2: Final Assign Driver Duty Button -->
+        <div class="d-flex justify-content-between align-items-center" style="padding-top:16px; border-top:1px solid #E2E8F0;">
           <button type="button" id="create-trip-cancel" class="btn btn-outline">Cancel</button>
-          <button type="submit" id="create-trip-submit" class="btn btn-primary">Assign Trip</button>
+          <button type="submit" id="create-trip-submit" class="btn btn-primary" disabled style="padding:10px 24px; font-weight:700; opacity:0.5;">
+            🚀 Assign Driver Duty
+          </button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Compartment Selection Sub-Modal -->
+  <div id="compartment-modal" class="modal-overlay hidden" style="z-index: 10050;">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+      <h3 style="margin-top: 0; font-weight: 800; color: #0F172A;" id="comp-modal-bmc-name">Select Tanker Compartment</h3>
+      <p style="color: #64748B; font-size: 0.9rem; margin-bottom: 20px;">Choose which compartment this BMC's milk will be loaded into:</p>
+      
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button type="button" class="btn btn-outline btn-compartment" data-comp="Front" style="padding: 12px; font-weight: 700;">
+          🔴 Front Compartment
+        </button>
+        <button type="button" class="btn btn-outline btn-compartment" data-comp="Mid" style="padding: 12px; font-weight: 700;">
+          🟡 Mid Compartment
+        </button>
+        <button type="button" class="btn btn-outline btn-compartment" data-comp="Back" style="padding: 12px; font-weight: 700;">
+          🔵 Back Compartment
+        </button>
+      </div>
+      <div style="margin-top: 16px;">
+        <button type="button" id="comp-modal-cancel" class="btn btn-ghost btn-sm">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -198,19 +259,27 @@
           <div class="val" id="duty-time">—</div>
         </div>
         <div class="detail-item-box">
-          <div class="lbl">Driver</div>
-          <div class="val" id="duty-driver">—</div>
+          <div class="lbl">Duty Type</div>
+          <div class="val" id="duty-type">—</div>
         </div>
         <div class="detail-item-box">
-          <div class="lbl">Vehicle</div>
-          <div class="val" id="duty-vehicle">—</div>
+          <div class="lbl">Driver</div>
+          <div class="val" id="duty-driver">—</div>
         </div>
       </div>
 
       <div style="margin-top: 20px;">
         <h4 style="font-weight: 700; color: #0F172A; margin-bottom: 8px;">Route / Task Details</h4>
         <div style="background: #F9FAFB; padding: 16px; border-radius: 10px; border: 1px solid #E5E7EB;">
-          <div id="duty-route-details">—</div>
+          <div id="duty-route-details" style="font-weight:600; color:#0F172A;">—</div>
+        </div>
+      </div>
+
+      <!-- Assigned BMCs Display Section -->
+      <div style="margin-top: 20px;">
+        <h4 style="font-weight: 700; color: #0F172A; margin-bottom: 8px;">🏢 Assigned BMCs</h4>
+        <div id="duty-bmcs-list-container" style="background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+          <!-- Populated dynamically -->
         </div>
       </div>
 
@@ -218,8 +287,8 @@
         <h4 style="font-weight: 700; color: #0F172A; margin-bottom: 8px;">Additional Information</h4>
         <div class="trip-detail-grid">
           <div class="detail-item-box">
-            <div class="lbl">Worker Assigned</div>
-            <div class="val" id="duty-worker">—</div>
+            <div class="lbl">Vehicle</div>
+            <div class="val" id="duty-vehicle">—</div>
           </div>
           <div class="detail-item-box">
             <div class="lbl">Status</div>
@@ -236,8 +305,46 @@
         </div>
       </div>
 
-      <div style="text-align:right; margin-top: 20px;">
-        <button id="duty-modal-dismiss-btn" class="btn btn-outline btn-sm">Close</button>
+      <div class="d-flex justify-content-between align-items-center" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #E2E8F0;">
+        <button id="duty-delete-btn" type="button" class="btn btn-outline-danger btn-sm" style="color:#DC2626; border-color:#FCA5A5; font-weight:700;">
+          🗑️ Delete Duty
+        </button>
+        <button id="duty-modal-dismiss-btn" type="button" class="btn btn-outline btn-sm">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Duty Confirmation Modal (Exact Match Warning) -->
+  <div id="delete-duty-modal" class="modal-overlay hidden" style="z-index: 10060;">
+    <div class="modal-content" style="max-width: 500px;">
+      <div style="text-align: center; margin-bottom: 16px;">
+        <div style="font-size: 2.5rem; margin-bottom: 6px;">⚠️</div>
+        <h3 style="margin: 0; font-weight: 800; color: #991B1B;">Delete Duty Confirmation</h3>
+        <p style="color: #64748B; font-size: 0.88rem; margin-top: 6px;">
+          This action will permanently delete this duty from the system.
+        </p>
+      </div>
+
+      <div style="background: #FEF2F2; border: 1px solid #FCA5A5; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: #991B1B; margin-bottom: 4px;">Target Route / Task Details:</div>
+        <div id="delete-target-route" style="font-weight: 700; color: #0F172A; font-size: 0.92rem; word-break: break-word; background:#FFF; padding:8px; border-radius:6px; border:1px solid #FCA5A5;"></div>
+      </div>
+
+      <div class="form-group mb-3">
+        <label class="form-label" style="font-weight: 700; font-size: 0.85rem;">
+          To confirm, type the exact Route / Task Details above:
+        </label>
+        <input type="text" id="delete-duty-confirm-input" class="form-control" placeholder="Type exact text here..." autocomplete="off">
+        <div id="delete-duty-match-hint" style="font-size: 0.78rem; margin-top: 6px; font-weight:700; color: #DC2626;">
+          ❌ Text does not match
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-between" style="margin-top: 20px;">
+        <button type="button" id="btn-cancel-delete-duty" class="btn btn-outline btn-sm">Cancel</button>
+        <button type="button" id="btn-confirm-delete-duty" class="btn btn-danger btn-sm" disabled style="background:#DC2626; border-color:#DC2626; opacity:0.5;">
+          Permanent Delete Duty
+        </button>
       </div>
     </div>
   </div>

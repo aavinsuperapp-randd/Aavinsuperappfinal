@@ -109,7 +109,6 @@ async function loadDuties() {
     showToast(err.message || 'Failed to load driver trips', 'error');
   }
 }
-
 function renderDutiesTable(duties) {
   const tbody = document.getElementById('duties-table-body');
   if (!tbody) return;
@@ -121,13 +120,16 @@ function renderDutiesTable(duties) {
 
   tbody.innerHTML = duties.map(duty => {
     const sDate = duty.scheduled_start_time ? new Date(duty.scheduled_start_time) : new Date(duty.created_at);
+    const isNight = duty.duty_type === 'Night Duty';
+    const dutyBadge = `<span class="badge ${isNight ? 'badge-warning' : 'badge-info'}" style="font-size:0.75rem;">${isNight ? '🌙 Night' : '🌅 Morning'}</span>`;
+
     return `
     <tr>
       <td>${formatDate(sDate)}</td>
       <td>${formatTime(sDate)}</td>
       <td><strong>${duty.driver_name || '—'}</strong></td>
       <td>${duty.vehicle_number || '—'}</td>
-      <td>${duty.route || duty.destination || duty.bmc_name || '—'}</td>
+      <td>${dutyBadge} <span style="margin-left:4px; font-weight:600; color:#0F172A;">${duty.route || duty.destination || duty.bmc_name || '—'}</span></td>
       <td><span class="badge badge-${getStatusBadge(duty.status)}">${formatStatus(duty.status)}</span></td>
       <td>
         <button class="btn btn-ghost btn-sm" onclick="viewDutyDetails('${duty.id}')">View</button>
@@ -140,74 +142,250 @@ let driversList = [];
 let vehiclesList = [];
 let bmcsList = [];
 
+let selectedBmcs = [];
+let currentBmcToAssign = null;
+let isBmcSelectionSaved = false;
+
 async function setupCreateTripModal() {
   const btnCreate = document.getElementById('btn-create-trip');
   const modal = document.getElementById('create-trip-modal');
   const btnClose = document.getElementById('create-trip-modal-close');
   const btnCancel = document.getElementById('create-trip-cancel');
   const form = document.getElementById('create-trip-form');
+  const searchInput = document.getElementById('ct-bmc-search');
+  const btnSaveBmcs = document.getElementById('btn-save-bmcs');
 
   if (!btnCreate || !modal) return;
 
   btnCreate.addEventListener('click', async () => {
+    selectedBmcs = [];
+    isBmcSelectionSaved = false;
+    renderSelectedBmcs();
+    lockStep2();
     openModal('create-trip-modal');
     await fetchCreateTripOptions();
   });
 
   btnClose.addEventListener('click', () => closeModal('create-trip-modal'));
   btnCancel.addEventListener('click', () => closeModal('create-trip-modal'));
-  
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) closeModal('create-trip-modal');
+
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      renderAvailableBmcs(searchInput.value.trim());
+    });
+  }
+
+  // Button 1: Save & Confirm BMC Details
+  if (btnSaveBmcs) {
+    btnSaveBmcs.addEventListener('click', () => {
+      if (selectedBmcs.length === 0) {
+        showToast('Cannot save empty BMC list. Please add at least one BMC with compartment assignment.', 'error');
+        lockStep2();
+        return;
+      }
+      isBmcSelectionSaved = true;
+      unlockStep2();
+      showToast(`✅ ${selectedBmcs.length} BMC details saved & confirmed! Step 2 is now unlocked.`, 'success');
+    });
+  }
+
+  // Setup compartment sub-modal
+  const compCancel = document.getElementById('comp-modal-cancel');
+  const compBtns = document.querySelectorAll('.btn-compartment');
+
+  if (compCancel) {
+    compCancel.addEventListener('click', () => closeModal('compartment-modal'));
+  }
+
+  compBtns.forEach(btn => {
+    btn.onclick = () => {
+      const comp = btn.getAttribute('data-comp');
+      if (currentBmcToAssign && comp) {
+        selectedBmcs.push({
+          bmc_id: currentBmcToAssign.id,
+          bmc_name: currentBmcToAssign.name,
+          compartment: comp
+        });
+        closeModal('compartment-modal');
+        currentBmcToAssign = null;
+        isBmcSelectionSaved = false;
+        lockStep2('⚠️ BMC list modified. Click "Save & Confirm BMC Details" to apply changes.');
+        renderSelectedBmcs();
+        renderAvailableBmcs(document.getElementById('ct-bmc-search')?.value.trim() || '');
+      }
+    };
   });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!isBmcSelectionSaved || selectedBmcs.length === 0) {
+      showToast('Please click "Save & Confirm BMC Details" (Step 1) before assigning duty.', 'error');
+      return;
+    }
+
     const btnSubmit = document.getElementById('create-trip-submit');
+    const driverSelect = document.getElementById('ct-driver');
+    const vehicleSelect = document.getElementById('ct-vehicle');
+    const routeInput = document.getElementById('ct-route');
+    const dutyTypeSelect = document.getElementById('ct-duty-type');
+    const startTimeInput = document.getElementById('ct-start-time');
+
+    if (!driverSelect.value) { showToast('Please select a driver.', 'error'); return; }
+    if (!vehicleSelect.value) { showToast('Please select a vehicle.', 'error'); return; }
+    if (!routeInput.value.trim()) { showToast('Please enter a Route Name.', 'error'); return; }
+    if (!startTimeInput.value) { showToast('Please select a Trip Start Time.', 'error'); return; }
+
     btnSubmit.disabled = true;
     btnSubmit.textContent = 'Assigning...';
 
-    const driverSelect = document.getElementById('ct-driver');
-    const vehicleSelect = document.getElementById('ct-vehicle');
-
     const vehicleId = vehicleSelect.value;
     const vehicleObj = vehiclesList.find(v => v.id === vehicleId);
-
-    const checkedBmcEls = Array.from(document.querySelectorAll('.ct-bmc-checkbox:checked'));
-    const bmcIds = checkedBmcEls.map(el => el.value);
-    const bmcNames = checkedBmcEls.map(el => el.getAttribute('data-name'));
-    const formattedBmcRoute = bmcNames.length > 0 ? bmcNames.join(' ➔ ') : '';
-    const customDest = document.getElementById('ct-destination').value.trim();
 
     const payload = {
       assigned_driver_id: driverSelect.value,
       vehicle_id: vehicleId || null,
       vehicle_number: vehicleObj ? vehicleObj.board_number : null,
-      bmc_id: bmcIds[0] || null,
-      bmc_ids: bmcIds,
-      bmc_name: formattedBmcRoute || null,
-      bmc_names: bmcNames,
-      destination: customDest || formattedBmcRoute || null,
-      route: document.getElementById('ct-route').value || formattedBmcRoute || null,
-      scheduled_start_time: document.getElementById('ct-start-time').value || null,
-      scheduled_return_time: document.getElementById('ct-return-time').value || null,
-      remarks: document.getElementById('ct-remarks').value
+      selected_bmcs: selectedBmcs,
+      route: routeInput.value.trim(),
+      duty_type: dutyTypeSelect ? dutyTypeSelect.value : 'Morning Duty',
+      scheduled_start_time: startTimeInput.value,
+      remarks: document.getElementById('ct-remarks').value.trim()
     };
 
     try {
       await apiCreateDriverTrip(payload);
-      showToast('Driver trip with multiple BMCs assigned successfully', 'success');
+      showToast('Driver trip assigned successfully!', 'success');
       closeModal('create-trip-modal');
       form.reset();
+      selectedBmcs = [];
+      isBmcSelectionSaved = false;
+      lockStep2();
+      renderSelectedBmcs();
       loadDuties();
     } catch (err) {
       showToast(err.message || 'Failed to assign trip', 'error');
     } finally {
       btnSubmit.disabled = false;
-      btnSubmit.textContent = 'Assign Trip';
+      btnSubmit.textContent = '🚀 Assign Driver Duty';
     }
   });
 }
+
+function lockStep2(msg = '⚠️ Select BMCs above and click "Save & Confirm BMC Details".') {
+  isBmcSelectionSaved = false;
+  const hint = document.getElementById('bmc-save-status-hint');
+  const step2 = document.getElementById('duty-assignment-step2');
+  const submitBtn = document.getElementById('create-trip-submit');
+
+  if (hint) {
+    hint.textContent = msg;
+    hint.style.color = '#DC2626';
+  }
+  if (step2) {
+    step2.style.opacity = '0.5';
+    step2.style.pointerEvents = 'none';
+    step2.querySelectorAll('input, select, textarea').forEach(el => el.disabled = true);
+  }
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.style.opacity = '0.5';
+  }
+}
+
+function unlockStep2() {
+  const hint = document.getElementById('bmc-save-status-hint');
+  const step2 = document.getElementById('duty-assignment-step2');
+  const submitBtn = document.getElementById('create-trip-submit');
+
+  if (hint) {
+    hint.textContent = `✅ BMC Selection Saved (${selectedBmcs.length} BMC${selectedBmcs.length === 1 ? '' : 's'} Confirmed)`;
+    hint.style.color = '#16A34A';
+  }
+  if (step2) {
+    step2.style.opacity = '1';
+    step2.style.pointerEvents = 'auto';
+    step2.querySelectorAll('input, select, textarea').forEach(el => el.disabled = false);
+  }
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
+  }
+}
+
+function renderAvailableBmcs(query = '') {
+  const bmcContainer = document.getElementById('ct-bmcs-container');
+  if (!bmcContainer) return;
+
+  const filtered = bmcsList.filter(b =>
+    !query || (b.name || '').toLowerCase().includes(query.toLowerCase()) || (b.location || '').toLowerCase().includes(query.toLowerCase())
+  );
+
+  if (filtered.length === 0) {
+    bmcContainer.innerHTML = '<span class="text-muted text-sm" style="padding:8px;">No matching BMCs found</span>';
+    return;
+  }
+
+  bmcContainer.innerHTML = filtered.map(b => {
+    const isSelected = selectedBmcs.some(item => item.bmc_id === b.id);
+    const selectedItem = selectedBmcs.find(item => item.bmc_id === b.id);
+
+    return `
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border: 1px solid #E2E8F0; border-radius: 6px; background: ${isSelected ? '#F0FDF4' : '#FFFFFF'};">
+        <div>
+          <strong style="font-size: 0.9rem; color: #0F172A;">🏢 ${b.name}</strong>
+          ${b.location ? `<span style="font-size: 0.8rem; color: #64748B; margin-left: 6px;">(${b.location})</span>` : ''}
+        </div>
+        ${isSelected
+          ? `<span class="badge badge-success" style="font-size: 0.75rem;">✓ Added (${selectedItem.compartment})</span>`
+          : `<button type="button" class="btn btn-outline btn-sm" onclick="promptCompartment('${b.id}')" style="padding: 4px 10px; font-weight: 600;">➕ Add</button>`
+        }
+      </div>
+    `;
+  }).join('');
+}
+
+window.promptCompartment = function(bmcId) {
+  const bmc = bmcsList.find(b => b.id === bmcId);
+  if (!bmc) return;
+  currentBmcToAssign = bmc;
+  document.getElementById('comp-modal-bmc-name').textContent = `Assign ${bmc.name} to Compartment`;
+  openModal('compartment-modal');
+};
+
+function renderSelectedBmcs() {
+  const container = document.getElementById('ct-selected-bmcs-list');
+  const countEl = document.getElementById('ct-selected-count');
+  if (countEl) countEl.textContent = `${selectedBmcs.length} BMC${selectedBmcs.length === 1 ? '' : 's'} selected`;
+
+  if (!container) return;
+
+  if (selectedBmcs.length === 0) {
+    container.innerHTML = '<span class="text-muted text-sm" style="font-style: italic;">No BMCs selected yet. Search and click (+) Add above.</span>';
+    return;
+  }
+
+  container.innerHTML = selectedBmcs.map((item, idx) => {
+    const compBadgeClass = item.compartment === 'Front' ? 'badge-danger' : item.compartment === 'Mid' ? 'badge-warning' : 'badge-info';
+    return `
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 6px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-weight: 800; color: #2563EB; width: 20px;">${idx + 1}.</span>
+          <span style="font-weight: 600; color: #0F172A;">BMC - ${item.bmc_name}</span>
+          <span class="badge ${compBadgeClass}" style="font-size: 0.75rem;">${item.compartment}</span>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm text-danger" onclick="removeSelectedBmc(${idx})" style="padding: 2px 6px; font-size: 0.9rem;" title="Remove BMC">✕</button>
+      </div>
+    `;
+  }).join('');
+}
+
+window.removeSelectedBmc = function(index) {
+  selectedBmcs.splice(index, 1);
+  isBmcSelectionSaved = false;
+  lockStep2('⚠️ BMC list modified. Click "Save & Confirm BMC Details" to apply changes.');
+  renderSelectedBmcs();
+  renderAvailableBmcs(document.getElementById('ct-bmc-search')?.value.trim() || '');
+};
 
 async function fetchCreateTripOptions() {
   try {
@@ -222,26 +400,15 @@ async function fetchCreateTripOptions() {
     bmcsList = bRes.bmcs || [];
 
     const driverSel = document.getElementById('ct-driver');
-    driverSel.innerHTML = '<option value="">Select Driver...</option>' + 
+    driverSel.innerHTML = '<option value="">Select Driver...</option>' +
       driversList.map(d => `<option value="${d.id}">${d.name} (${d.phone || d.email || 'Driver'})</option>`).join('');
 
     const vehicleSel = document.getElementById('ct-vehicle');
-    vehicleSel.innerHTML = '<option value="">Select Vehicle...</option>' + 
+    vehicleSel.innerHTML = '<option value="">Select Vehicle...</option>' +
       vehiclesList.map(v => `<option value="${v.id}">${v.board_number} (${v.vehicle_type || 'Tanker'})</option>`).join('');
 
-    const bmcContainer = document.getElementById('ct-bmcs-container');
-    if (bmcContainer) {
-      if (bmcsList.length === 0) {
-        bmcContainer.innerHTML = '<span class="text-muted text-sm">No BMCs available</span>';
-      } else {
-        bmcContainer.innerHTML = bmcsList.map(b => `
-          <label style="display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #F1F5F9; cursor: pointer;">
-            <input type="checkbox" class="ct-bmc-checkbox" value="${b.id}" data-name="${b.name}" style="width: 16px; height: 16px; accent-color: #2563EB;">
-            <span style="font-size: 0.88rem; font-weight: 500; color: #1E293B;">🏢 ${b.name} ${b.location ? `<span style="font-size: 0.78rem; color: #64748B;">(${b.location})</span>` : ''}</span>
-          </label>
-        `).join('');
-      }
-    }
+    renderAvailableBmcs();
+    renderSelectedBmcs();
 
   } catch (err) {
     console.error('Failed to fetch options', err);
@@ -260,12 +427,15 @@ function filterDuties() {
   renderDutiesTable(filtered);
 }
 
+let currentDutyForDeletion = null;
+
 function viewDutyDetails(dutyId) {
   const duty = allDuties.find(d => d.id === dutyId);
   if (!duty) {
     showToast('Duty not found', 'error');
     return;
   }
+  currentDutyForDeletion = duty;
 
   const sDate = duty.scheduled_start_time ? new Date(duty.scheduled_start_time) : new Date(duty.created_at);
 
@@ -274,12 +444,87 @@ function viewDutyDetails(dutyId) {
   
   document.getElementById('duty-date').textContent = formatDate(sDate);
   document.getElementById('duty-time').textContent = formatTime(sDate);
+
+  const dutyTypeEl = document.getElementById('duty-type');
+  if (dutyTypeEl) {
+    const isNight = duty.duty_type === 'Night Duty';
+    dutyTypeEl.innerHTML = `<span class="badge ${isNight ? 'badge-warning' : 'badge-info'}">${isNight ? '🌙 Night Duty' : '🌅 Morning Duty'}</span>`;
+  }
+
   document.getElementById('duty-driver').textContent = duty.driver_name || '—';
   document.getElementById('duty-vehicle').textContent = duty.vehicle_number || '—';
-  document.getElementById('duty-route-details').textContent = duty.route || duty.destination || duty.bmc_name || 'No route details specified';
-  document.getElementById('duty-worker').textContent = duty.bmc_name || duty.destination || 'Not assigned';
+  
+  const routeText = duty.route || duty.destination || duty.bmc_name || 'No route details specified';
+  document.getElementById('duty-route-details').textContent = routeText;
+
+  // Render Assigned BMCs List using 4-Tier Robust Decoder
+  const bmcsContainer = document.getElementById('duty-bmcs-list-container');
+  if (bmcsContainer) {
+    let bmcsArray = [];
+
+    // Tier 1: Direct selected_bmcs array
+    if (Array.isArray(duty.selected_bmcs) && duty.selected_bmcs.length > 0) {
+      bmcsArray = duty.selected_bmcs;
+    }
+    // Tier 2: Check embedded __BMC_DATA__ JSON in remarks or destination
+    else if (duty.remarks && duty.remarks.includes('__BMC_DATA__=')) {
+      try {
+        const jsonStr = duty.remarks.split('__BMC_DATA__=')[1];
+        bmcsArray = JSON.parse(jsonStr);
+      } catch (e) {}
+    }
+    else if (duty.destination && duty.destination.startsWith('[{"')) {
+      try { bmcsArray = JSON.parse(duty.destination); } catch (e) {}
+    }
+
+    // Tier 3: Parse formatted string (e.g., "1. Thirumangalam — Front | 2. Kalligudi — Mid")
+    if (bmcsArray.length === 0 && (duty.bmc_name || duty.destination || duty.route)) {
+      const rawText = duty.bmc_name || duty.destination || duty.route || '';
+      if (rawText.includes(' — ') || rawText.includes(' | ') || rawText.includes(' ➔ ')) {
+        const parts = rawText.split(/\s*(?:\||➔)\s*/);
+        bmcsArray = parts.map(p => {
+          const clean = p.replace(/^\d+\.\s*/, '').trim();
+          const [name, comp] = clean.split(/\s*—\s*/);
+          return {
+            bmc_name: (name || clean).replace(/^BMC\s*[-–]?\s*/i, ''),
+            compartment: comp || 'Front'
+          };
+        });
+      } else if (rawText && !rawText.toLowerCase().includes('no route')) {
+        bmcsArray = [{ bmc_name: rawText.replace(/^BMC\s*[-–]?\s*/i, ''), compartment: 'Front' }];
+      }
+    }
+
+    if (bmcsArray.length === 0) {
+      bmcsContainer.innerHTML = `
+        <div style="padding: 12px; background: #FEF2F2; border: 1px solid #FCA5A5; border-radius: 8px; color: #991B1B; font-weight: 600; font-size: 0.88rem;">
+          ⚠️ No specific BMC details recorded for this duty.
+        </div>
+      `;
+    } else {
+      bmcsContainer.innerHTML = bmcsArray.map((b, idx) => {
+        const rawName = b.bmc_name || b.name || 'BMC';
+        const name = rawName.replace(/^BMC\s*[-–]?\s*/i, '');
+        const comp = b.compartment || 'Front';
+        const compBadge = comp === 'Front' ? 'badge-danger' : comp === 'Mid' ? 'badge-warning' : 'badge-info';
+        return `
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-weight: 800; color: #2563EB; font-size: 0.95rem; width: 24px;">${idx + 1}.</span>
+              <span style="font-weight: 700; color: #0F172A; font-size: 0.92rem;">🏢 BMC ${name}</span>
+            </div>
+            <span class="badge ${compBadge}" style="font-size: 0.78rem; font-weight: 700;">${comp} Compartment</span>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
   document.getElementById('duty-status').innerHTML = `<span class="badge badge-${getStatusBadge(duty.status)}">${formatStatus(duty.status)}</span>`;
-  document.getElementById('duty-remarks').textContent = duty.remarks || 'No remarks';
+
+  // Clean user remarks (strip internal __BMC_DATA__ string)
+  const cleanRemarks = (duty.remarks || '').split('\n__BMC_DATA__=')[0].trim();
+  document.getElementById('duty-remarks').textContent = cleanRemarks || 'No remarks';
 
   openModal('duty-detail-modal');
 }
@@ -288,6 +533,7 @@ function setupDutyModal() {
   const modal = document.getElementById('duty-detail-modal');
   const closeBtn = document.getElementById('duty-modal-close');
   const dismissBtn = document.getElementById('duty-modal-dismiss-btn');
+  const deleteBtn = document.getElementById('duty-delete-btn');
 
   closeBtn.addEventListener('click', () => closeModal('duty-detail-modal'));
   dismissBtn.addEventListener('click', () => closeModal('duty-detail-modal'));
@@ -295,6 +541,88 @@ function setupDutyModal() {
   modal.addEventListener('click', (e) => {
     if (e.target === modal) closeModal('duty-detail-modal');
   });
+
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      if (!currentDutyForDeletion) return;
+      openDeleteDutyModal(currentDutyForDeletion);
+    };
+  }
+
+  setupDeleteDutyConfirmModal();
+}
+
+function openDeleteDutyModal(duty) {
+  const targetRouteEl = document.getElementById('delete-target-route');
+  const inputEl = document.getElementById('delete-duty-confirm-input');
+  const hintEl = document.getElementById('delete-duty-match-hint');
+  const confirmBtn = document.getElementById('btn-confirm-delete-duty');
+
+  const targetText = duty.route || duty.destination || duty.bmc_name || `Duty #${duty.trip_number || duty.id.slice(0, 8)}`;
+  targetRouteEl.textContent = targetText;
+  inputEl.value = '';
+
+  confirmBtn.disabled = true;
+  confirmBtn.style.opacity = '0.5';
+  hintEl.textContent = '❌ Text does not match';
+  hintEl.style.color = '#DC2626';
+
+  openModal('delete-duty-modal');
+
+  inputEl.oninput = () => {
+    const isExact = inputEl.value.trim() === targetText.trim();
+    if (isExact) {
+      confirmBtn.disabled = false;
+      confirmBtn.style.opacity = '1';
+      hintEl.textContent = '✓ Exact match! Click below to permanently delete this duty.';
+      hintEl.style.color = '#16A34A';
+    } else {
+      confirmBtn.disabled = true;
+      confirmBtn.style.opacity = '0.5';
+      hintEl.textContent = '❌ Text does not match exact Route/Task details';
+      hintEl.style.color = '#DC2626';
+    }
+  };
+}
+
+function setupDeleteDutyConfirmModal() {
+  const cancelBtn = document.getElementById('btn-cancel-delete-duty');
+  const confirmBtn = document.getElementById('btn-confirm-delete-duty');
+
+  if (cancelBtn) {
+    cancelBtn.onclick = () => closeModal('delete-duty-modal');
+  }
+
+  if (confirmBtn) {
+    confirmBtn.onclick = async () => {
+      if (!currentDutyForDeletion) return;
+
+      const inputEl = document.getElementById('delete-duty-confirm-input');
+      const targetText = document.getElementById('delete-target-route').textContent;
+
+      if (inputEl.value.trim() !== targetText.trim()) {
+        showToast('Confirmation text does not match. Duty was NOT deleted.', 'error');
+        return;
+      }
+
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Deleting...';
+
+      try {
+        await apiDeleteDriverTrip(currentDutyForDeletion.id);
+        showToast('Duty deleted successfully.', 'success');
+        closeModal('delete-duty-modal');
+        closeModal('duty-detail-modal');
+        currentDutyForDeletion = null;
+        loadDuties();
+      } catch (err) {
+        showToast(err.message || 'Failed to delete duty', 'error');
+      } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Permanent Delete Duty';
+      }
+    };
+  }
 }
 
 function getStatusBadge(status) {

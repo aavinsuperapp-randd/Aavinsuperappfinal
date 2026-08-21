@@ -128,24 +128,16 @@ function renderTripInterface(trip) {
   updateTripHeader(trip);
 
   // Hide all steps
-  ['step-accept', 'step-pretrip', 'step-active', 'step-complete-form', 'step-completed'].forEach(id => hideEl(id));
+  ['step-pretrip', 'step-active', 'step-complete-form', 'step-completed'].forEach(id => hideEl(id));
 
   switch (trip.status) {
     case 'assigned':
-      showEl('step-accept');
-      setupAcceptBtn();
-      break;
     case 'accepted':
     case 'ready':
       showEl('step-pretrip');
       setupPreTripForm();
       break;
     case 'in_progress':
-      showEl('step-active');
-      renderActiveTripState(trip);
-      startElapsedTimer(trip.started_at);
-      setupCompleteBtn();
-      break;
     case 'returning':
       showEl('step-active');
       renderActiveTripState(trip);
@@ -168,13 +160,26 @@ function renderTripInterface(trip) {
 
 function updateTripHeader(trip) {
   setTextContent('trip-number-tag', trip.trip_number || 'Trip');
-  setTextContent('trip-main-title', trip.bmc_name ? `${trip.bmc_name} Collection` : 'Milk Collection Trip');
-  setTextContent('trip-bmc-display', trip.bmc_name || '—');
-  setTextContent('trip-destination-display', trip.destination || '—');
+  setTextContent('trip-main-title', trip.route || 'Milk Collection Trip');
+  setTextContent('trip-route-display', trip.route || '—');
   setTextContent('trip-vehicle', trip.vehicle_number || '—');
-  setTextContent('trip-sched-start', formatDateTime(trip.scheduled_start_time));
-  setTextContent('trip-sched-return', formatDateTime(trip.scheduled_return_time));
-  setTextContent('trip-route', trip.route || '—');
+  setTextContent('trip-sched-start', formatDateTime(trip.scheduled_start_time || trip.created_at));
+  const cleanRemarks = (trip.remarks || 'None').split('__BMC_DATA__=')[0].trim();
+  setTextContent('trip-remarks', cleanRemarks || 'None');
+
+  const seqList = document.getElementById('trip-bmc-sequence-list');
+  if (seqList) {
+    if (trip.bmc_name) {
+      const visits = trip.bmc_name.split(' | ');
+      seqList.innerHTML = visits.map(v => `
+        <div style="font-size:0.88rem; font-weight:600; color:#0F172A; display:flex; align-items:center; gap:6px;">
+          <span>📍</span> ${v}
+        </div>
+      `).join('');
+    } else {
+      seqList.innerHTML = '<span style="font-size:0.85rem; color:#64748B;">No BMC sequence specified</span>';
+    }
+  }
 
   const statusBadge = document.getElementById('trip-status-badge');
   statusBadge.className = `trip-status-badge`;
@@ -187,42 +192,37 @@ function updateTripHeader(trip) {
   }
 }
 
-// ─── STEP 1: ACCEPT ─────────────────────────────────────────
-function setupAcceptBtn() {
-  const btn = document.getElementById('btn-accept-trip');
-  btn.onclick = async () => {
-    if (btn.disabled) return;
-    btn.disabled = true;
-    btn.textContent = 'Accepting...';
-    try {
-      await apiAcceptTrip(tripId);
-      showToast('Trip accepted! Please complete pre-trip check.', 'success');
-      const data = await apiGetDriverTrip(tripId);
-      currentTrip = data.trip;
-      renderTripInterface(currentTrip);
-    } catch (err) {
-      showToast(err.message || 'Failed to accept trip.', 'error');
-      btn.disabled = false;
-      btn.textContent = '✅ Accept Trip';
-    }
-  };
-}
-
 // ─── STEP 2: PRE-TRIP FORM ───────────────────────────────────
 function setupPreTripForm() {
   // Live validation on input
   document.getElementById('input-out-km').addEventListener('input', validatePreTripForm);
   document.getElementById('input-out-weight').addEventListener('input', validatePreTripForm);
 
-  // Photo upload
-  document.getElementById('out-photo-input').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    await handlePhotoUpload('out', file);
-  });
+  // Photo upload — camera input
+  const outPhotoCamera = document.getElementById('out-photo-input-camera');
+  if (outPhotoCamera) {
+    outPhotoCamera.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      await handlePhotoUpload('out', file);
+    });
+  }
 
-  // Get Location
-  document.getElementById('btn-get-location').addEventListener('click', getStartLocation);
+  // Photo upload — gallery input
+  const outPhotoGallery = document.getElementById('out-photo-input-gallery');
+  if (outPhotoGallery) {
+    outPhotoGallery.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      await handlePhotoUpload('out', file);
+    });
+  }
+
+  // Location
+  const startLocBtn = document.getElementById('btn-get-start-location');
+  if (startLocBtn) {
+    startLocBtn.addEventListener('click', getStartLocation);
+  }
 
   // Start Trip Button
   document.getElementById('btn-start-trip').addEventListener('click', handleStartTrip);
@@ -233,14 +233,13 @@ function setupPreTripForm() {
 function validatePreTripForm() {
   const outKm = document.getElementById('input-out-km').value;
   const outWeight = document.getElementById('input-out-weight').value;
-  const hasLocation = startLocation !== null;
   const hasPhoto = outPhotoUrl !== null;
 
   const checks = {
     'check-out-km': !!outKm && Number(outKm) >= 0,
-    'check-out-weight': !!outWeight && Number(outWeight) > 0,
     'check-out-photo': hasPhoto,
-    'check-location': hasLocation
+    'check-out-weight': !!outWeight && Number(outWeight) > 0,
+    'check-out-location': startLocation !== null
   };
 
   for (const [id, done] of Object.entries(checks)) {
@@ -289,20 +288,22 @@ async function handlePhotoUpload(type, file) {
   progressEl.classList.remove('hidden');
 
   try {
-    // Show local preview immediately
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      previewEl.src = e.target.result;
-      previewEl.classList.remove('hidden');
-      placeholderEl.classList.add('hidden');
-    };
-    reader.readAsDataURL(file);
+    // Convert file to base64 DataURL for upload
+    const dataUrl = await fileToBase64(file);
 
-    // Upload to server
-    const base64 = await fileToBase64(file);
-    const result = await apiUploadDriverPhoto(base64, file.name);
+    // Show preview immediately while upload runs
+    previewEl.src = dataUrl;
+    previewEl.classList.remove('hidden');
+    placeholderEl.classList.add('hidden');
+
+    // Upload to server — must return a proper URL, not raw base64
+    const result = await apiUploadDriverPhoto(dataUrl, file.name);
     const url = result.publicUrl;
 
+    if (!url) throw new Error('Photo upload failed: no URL returned from server.');
+
+    // If server returned raw base64 as fallback, that means storage failed.
+    // Store it anyway — the backend will handle it as a text column.
     if (type === 'out') {
       outPhotoUrl = url;
     } else {
@@ -330,7 +331,10 @@ function removePhoto(type) {
     document.getElementById('out-photo-placeholder').classList.remove('hidden');
     document.getElementById('out-photo-upload-area').classList.remove('has-photo');
     document.getElementById('out-photo-remove').style.display = 'none';
-    document.getElementById('out-photo-input').value = '';
+    const cam = document.getElementById('out-photo-input-camera');
+    const gal = document.getElementById('out-photo-input-gallery');
+    if (cam) cam.value = '';
+    if (gal) gal.value = '';
   } else {
     inPhotoUrl = null;
     document.getElementById('in-photo-preview').src = '';
@@ -344,11 +348,11 @@ function removePhoto(type) {
 }
 
 async function getStartLocation() {
-  const btn = document.getElementById('btn-get-location');
-  const statusBox = document.getElementById('location-status-box');
-  const statusText = document.getElementById('location-status-text');
-  const coordsEl = document.getElementById('location-coords');
-  const errorEl = document.getElementById('location-error-msg');
+  const btn = document.getElementById('btn-get-start-location');
+  const statusBox = document.getElementById('start-location-status-box');
+  const statusText = document.getElementById('start-location-text');
+  const coordsEl = document.getElementById('start-location-coords');
+  const errorEl = document.getElementById('start-location-error-msg');
 
   btn.disabled = true;
   btn.textContent = '📡 Getting location...';
@@ -362,9 +366,9 @@ async function getStartLocation() {
 
     statusBox.classList.add('granted');
     statusText.textContent = '✅ Location permission granted';
-    document.getElementById('location-status-icon').textContent = '✅';
-    document.getElementById('loc-lat').textContent = loc.lat.toFixed(6);
-    document.getElementById('loc-lng').textContent = loc.lng.toFixed(6);
+    document.getElementById('start-location-icon').textContent = '✅';
+    document.getElementById('start-lat').textContent = loc.lat.toFixed(6);
+    document.getElementById('start-lng').textContent = loc.lng.toFixed(6);
     coordsEl.classList.remove('hidden');
     btn.textContent = '📡 Update Location';
     btn.disabled = false;
@@ -374,10 +378,10 @@ async function getStartLocation() {
   } catch (err) {
     statusBox.classList.add('denied');
     statusText.textContent = '❌ ' + err.message;
-    document.getElementById('location-status-icon').textContent = '❌';
+    document.getElementById('start-location-icon').textContent = '❌';
     errorEl.textContent = err.message;
     errorEl.classList.remove('hidden');
-    btn.textContent = '📡 Enable Location';
+    btn.textContent = '📡 Capture Current Location';
     btn.disabled = false;
     showToast(err.message, 'error');
   }
@@ -391,10 +395,10 @@ async function handleStartTrip() {
   const outWeight = parseFloat(document.getElementById('input-out-weight').value);
 
   // Validate
-  if (!outKm || outKm < 0) { showToast('Please enter a valid Out KM reading.', 'error'); return; }
-  if (!outWeight || outWeight <= 0) { showToast('Please enter a valid Out Weight.', 'error'); return; }
-  if (!outPhotoUrl) { showToast('Please upload the Out Weight photo.', 'error'); return; }
-  if (!startLocation) { showToast('Please enable location access.', 'error'); return; }
+  if (isNaN(outKm) || outKm < 0) { showToast('Please enter a valid Out KM reading.', 'error'); return; }
+  if (!outPhotoUrl) { showToast('Out KM photo proof is required to start the trip.', 'error'); return; }
+  if (isNaN(outWeight) || outWeight <= 0) { showToast('Please enter a valid Out Tanker Weight.', 'error'); return; }
+  if (!startLocation) { showToast('Please capture your current GPS location.', 'error'); return; }
 
   btn.disabled = true;
   btn.innerHTML = '<span>⏳</span> Starting Trip...';
@@ -402,10 +406,10 @@ async function handleStartTrip() {
   try {
     const payload = {
       out_km: outKm,
-      out_weight: outWeight,
-      out_weight_photo: outPhotoUrl,
-      start_lat: startLocation.lat,
-      start_lng: startLocation.lng
+      out_km_photo: outPhotoUrl,
+      out_tanker_weight: outWeight,
+      latitude: startLocation.lat,
+      longitude: startLocation.lng
     };
 
     await apiStartTrip(tripId, payload);
@@ -420,7 +424,7 @@ async function handleStartTrip() {
     console.error('Start trip error:', err);
     showToast(err.message || 'Failed to start trip.', 'error');
     btn.disabled = false;
-    btn.innerHTML = '<span>🚀</span> START TRIP';
+    btn.innerHTML = '<span>🚀</span> CONFIRM START TRIP';
   }
 }
 
@@ -430,15 +434,12 @@ function renderActiveTripState(trip) {
   document.getElementById('active-out-km').textContent = trip.out_km ? `${trip.out_km} km` : '—';
   document.getElementById('active-out-weight').textContent = trip.out_weight ? `${trip.out_weight.toLocaleString('en-IN')} kg` : '—';
 
-  // Location status
+  // Location status removed
   const locDot = document.getElementById('active-loc-dot');
   const locText = document.getElementById('active-location-text');
-  if (trip.start_lat) {
-    locDot.className = 'loc-dot';
-    locText.textContent = `GPS: ${Number(trip.start_lat).toFixed(4)}, ${Number(trip.start_lng).toFixed(4)}`;
-  } else {
+  if (locDot && locText) {
     locDot.className = 'loc-dot inactive';
-    locText.textContent = 'Location: Not available';
+    locText.textContent = 'Location tracking disabled';
   }
 }
 

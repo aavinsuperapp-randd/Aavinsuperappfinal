@@ -9,8 +9,8 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Serve static frontend files
 const frontendPath = path.join(__dirname, '../frontend');
@@ -276,15 +276,32 @@ app.put('/api/admin/drivers/:id/toggle', requireAdminRole, async (req, res) => {
 });
 
 app.delete('/api/admin/drivers/all', requireAdminRole, async (req, res) => {
-  const { error } = await req.adminClient.from('drivers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true, message: 'All drivers removed successfully.' });
+  const { adminClient } = req;
+  try {
+    await adminClient.from('trips').update({ driver_id: null }).not('driver_id', 'is', null);
+    await adminClient.from('driver_trips').update({ assigned_driver_id: null }).not('assigned_driver_id', 'is', null);
+    const { error } = await adminClient.from('drivers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true, message: 'All drivers removed successfully. Historical trip records preserved.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to delete drivers.' });
+  }
 });
 
 app.delete('/api/admin/drivers/:id', requireAdminRole, async (req, res) => {
-  const { error } = await req.adminClient.from('drivers').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true, message: 'Driver deleted successfully.' });
+  const { adminClient } = req;
+  const driverId = req.params.id;
+  try {
+    // Unlink driver from historical trips to prevent foreign key error while keeping trip records intact
+    await adminClient.from('trips').update({ driver_id: null }).eq('driver_id', driverId);
+    await adminClient.from('driver_trips').update({ assigned_driver_id: null }).eq('assigned_driver_id', driverId);
+
+    const { error } = await adminClient.from('drivers').delete().eq('id', driverId);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true, message: 'Driver deleted successfully. Historical trip records preserved.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to delete driver.' });
+  }
 });
 
 // ─── ADMIN TANKERS/VEHICLES ENDPOINTS ──────────────────────────────────────
@@ -2835,11 +2852,16 @@ app.put('/api/transport/drivers/:id', requireTransportOfficer, async (req, res) 
 
 app.delete('/api/transport/drivers/:id', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
+  const driverId = req.params.id;
 
   try {
-    const { error } = await adminClient.from('drivers').delete().eq('id', req.params.id);
+    // Unlink driver from historical trips to prevent foreign key error while keeping trip records intact
+    await adminClient.from('trips').update({ driver_id: null }).eq('driver_id', driverId);
+    await adminClient.from('driver_trips').update({ assigned_driver_id: null }).eq('assigned_driver_id', driverId);
+
+    const { error } = await adminClient.from('drivers').delete().eq('id', driverId);
     if (error) throw error;
-    res.json({ success: true, message: 'Driver deleted successfully' });
+    res.json({ success: true, message: 'Driver deleted successfully. Historical trip records preserved.' });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to delete driver' });
   }
@@ -3064,36 +3086,93 @@ app.get('/api/transport/driver-analysis', requireTransportOfficer, async (req, r
   }
 
   try {
-    const { data: driver } = await adminClient.from('drivers').select('*').eq('id', driverId).single();
-    if (!driver) return res.status(404).json({ error: 'Driver not found' });
+    // Step 1: Resolve driver — first check profiles (registered users), then legacy drivers table
+    let driverName = null;
+    let driverEmail = null;
+
+    const { data: profileDriver } = await adminClient
+      .from('profiles')
+      .select('id, name, email')
+      .eq('id', driverId)
+      .maybeSingle();
+
+    if (profileDriver) {
+      driverName = profileDriver.name;
+      driverEmail = profileDriver.email;
+    } else {
+      // Fallback: legacy drivers table
+      const { data: legacyDriver } = await adminClient
+        .from('drivers')
+        .select('id, name')
+        .eq('id', driverId)
+        .maybeSingle();
+      if (!legacyDriver) {
+        return res.status(404).json({ error: 'Driver not found. Ensure the driver has registered via Gmail.' });
+      }
+      driverName = legacyDriver.name;
+    }
 
     const startIso = new Date(startDate).toISOString();
     const endD = new Date(endDate);
     endD.setHours(23, 59, 59, 999);
     const endIso = endD.toISOString();
 
-    // Get all trips for this driver in date range
-    const { data: allTrips } = await adminClient
+    // Step 2: Fetch driver_trips (profile-based trip assignments) first
+    const { data: driverTripsData } = await adminClient
+      .from('driver_trips')
+      .select('*')
+      .eq('assigned_driver_id', driverId)
+      .gte('created_at', startIso)
+      .lte('created_at', endIso);
+
+    // Step 3: Fetch legacy trips matched by driver_name as fallback
+    const { data: legacyTripsData } = await adminClient
       .from('trips')
       .select('*')
       .gte('created_at', startIso)
       .lte('created_at', endIso);
 
-    const trips = (allTrips || []).filter(t => t.driver_name === driver.name);
+    const legacyTrips = (legacyTripsData || []).filter(t =>
+      t.driver_name && driverName && t.driver_name.toLowerCase().trim() === driverName.toLowerCase().trim()
+    );
 
-    // Get visits for these trips
-    const tripIds = trips.map(t => t.id);
+    // Use driver_trips as primary (profile-based), merge legacy if needed
+    const primaryTrips = (driverTripsData || []).map(t => ({
+      ...t,
+      trip_name: t.route || t.destination || 'Trip',
+      out_time: t.started_at,
+      in_time: t.completed_at,
+      tanker_number: t.vehicle_number,
+      source: 'driver_trips'
+    }));
+
+    const allTrips = primaryTrips.length > 0 ? primaryTrips : legacyTrips.map(t => ({ ...t, source: 'trips' }));
+
+    // Step 4: Get BMC visits for driver_trip IDs
+    const driverTripIds = primaryTrips.map(t => t.id);
+    const legacyTripIds = legacyTrips.map(t => t.id);
     let visits = [];
-    if (tripIds.length > 0) {
-      const { data: visitsData } = await adminClient
+    if (driverTripIds.length > 0) {
+      const { data: v1 } = await adminClient
+        .from('driver_trip_bmc_visits')
+        .select('*')
+        .in('driver_trip_id', driverTripIds);
+      // Fallback to trip_bmc_visits with driver_trip_id
+      const { data: v2 } = await adminClient
         .from('trip_bmc_visits')
         .select('*')
-        .in('trip_id', tripIds);
-      visits = visitsData || [];
+        .in('trip_id', [...driverTripIds, ...legacyTripIds]);
+      visits = [...(v1 || []), ...(v2 || [])];
+    } else if (legacyTripIds.length > 0) {
+      const { data: v } = await adminClient
+        .from('trip_bmc_visits')
+        .select('*')
+        .in('trip_id', legacyTripIds);
+      visits = v || [];
     }
 
-    // Calculate metrics
-    const completedTrips = trips.filter(t => t.status === 'completed');
+    // Step 5: Calculate metrics
+    const completedTrips = allTrips.filter(t => t.status === 'completed');
     const totalVisits = visits.length;
 
     const durationsMs = completedTrips
@@ -3106,13 +3185,12 @@ app.get('/api/transport/driver-analysis', requireTransportOfficer, async (req, r
       : 0;
 
     const totalHoursMs = durationsMs.reduce((sum, d) => sum + d, 0);
-
     const daysDiff = Math.max(1, Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)));
-    const tripsPerDay = trips.length / daysDiff;
-    const visitsPerTrip = trips.length > 0 ? totalVisits / trips.length : 0;
+    const tripsPerDay = allTrips.length / daysDiff;
+    const visitsPerTrip = allTrips.length > 0 ? totalVisits / allTrips.length : 0;
 
     const metrics = {
-      total_trips: trips.length,
+      total_trips: allTrips.length,
       completed_trips: completedTrips.length,
       total_visits: totalVisits,
       avg_duration_ms: Math.round(avgDurationMs),
@@ -3121,22 +3199,20 @@ app.get('/api/transport/driver-analysis', requireTransportOfficer, async (req, r
       visits_per_trip: visitsPerTrip
     };
 
-    // Chart data - group by date
+    // Step 6: Chart data — group by date
     const dateMap = {};
-    trips.forEach(trip => {
+    allTrips.forEach(trip => {
       const date = new Date(trip.created_at).toISOString().split('T')[0];
-      if (!dateMap[date]) {
-        dateMap[date] = { trips: 0, visits: 0, duration: 0, dutyHours: 0 };
-      }
+      if (!dateMap[date]) dateMap[date] = { trips: 0, visits: 0, duration: 0, dutyHours: 0 };
       dateMap[date].trips += 1;
-      
-      const tripVisits = visits.filter(v => v.trip_id === trip.id).length;
+
+      const tripVisits = visits.filter(v => v.trip_id === trip.id || v.driver_trip_id === trip.id).length;
       dateMap[date].visits += tripVisits;
 
       if (trip.out_time && trip.in_time) {
         const durationMs = new Date(trip.in_time) - new Date(trip.out_time);
         if (durationMs > 0) {
-          dateMap[date].duration += durationMs / (1000 * 60 * 60); // hours
+          dateMap[date].duration += durationMs / (1000 * 60 * 60);
           dateMap[date].dutyHours += durationMs / (1000 * 60 * 60);
         }
       }
@@ -3151,23 +3227,23 @@ app.get('/api/transport/driver-analysis', requireTransportOfficer, async (req, r
       duty_hours_by_date: dates.map(d => dateMap[d].dutyHours.toFixed(1))
     };
 
-    // Enrich trips with visit count and duration
-    const enrichedTrips = trips.map(trip => {
-      const tripVisits = visits.filter(v => v.trip_id === trip.id);
+    // Step 7: Enrich trips for history table
+    const enrichedTrips = allTrips.map(trip => {
+      const tripVisits = visits.filter(v => v.trip_id === trip.id || v.driver_trip_id === trip.id);
       let durationMs = null;
       if (trip.out_time && trip.in_time) {
         durationMs = new Date(trip.in_time) - new Date(trip.out_time);
       }
-
       return {
         ...trip,
         visits_count: tripVisits.length,
         duration_ms: durationMs,
-        vehicle_number: trip.tanker_number
+        vehicle_number: trip.vehicle_number || trip.tanker_number || '—'
       };
     });
 
     res.json({
+      driver: { id: driverId, name: driverName, email: driverEmail },
       metrics,
       chartData,
       trips: enrichedTrips
@@ -3178,6 +3254,8 @@ app.get('/api/transport/driver-analysis', requireTransportOfficer, async (req, r
     res.status(500).json({ error: err.message || 'Failed to fetch driver analysis' });
   }
 });
+
+
 
 
 // ─── DRIVER MIDDLEWARE ────────────────────────────────────────────────────────
@@ -3350,12 +3428,12 @@ app.post('/api/driver/trips/:id/accept', requireDriver, async (req, res) => {
 // ─── POST /api/driver/trips/:id/start ────────────────────────────────────────
 app.post('/api/driver/trips/:id/start', requireDriver, async (req, res) => {
   const { adminClient, profile } = req;
-  const { out_km, out_weight, out_weight_photo, start_lat, start_lng } = req.body;
+  const { out_km, out_km_photo, out_tanker_weight, latitude, longitude } = req.body;
 
-  if (!out_km && out_km !== 0) return res.status(400).json({ error: 'out_km is required.' });
-  if (!out_weight) return res.status(400).json({ error: 'out_weight is required.' });
-  if (!out_weight_photo) return res.status(400).json({ error: 'out_weight_photo is required.' });
-  if (!start_lat || !start_lng) return res.status(400).json({ error: 'GPS location (start_lat, start_lng) is required.' });
+  if (out_km === undefined || out_km === null || out_km === '') return res.status(400).json({ error: 'out_km is required.' });
+  if (!out_km_photo) return res.status(400).json({ error: 'out_km_photo (Out KM photo proof) is required.' });
+  if (out_tanker_weight === undefined || out_tanker_weight === null || out_tanker_weight === '') return res.status(400).json({ error: 'out_tanker_weight is required.' });
+  if (latitude === undefined || longitude === undefined || latitude === null || longitude === null) return res.status(400).json({ error: 'Current GPS location (latitude, longitude) is required.' });
 
   try {
     const { data: trip } = await adminClient
@@ -3363,14 +3441,20 @@ app.post('/api/driver/trips/:id/start', requireDriver, async (req, res) => {
 
     if (!trip) return res.status(404).json({ error: 'Trip not found.' });
     if (trip.assigned_driver_id !== profile.id) return res.status(403).json({ error: 'Access denied.' });
-    if (!['accepted', 'ready'].includes(trip.status)) {
-      return res.status(400).json({ error: `Cannot start trip with status: ${trip.status}. Trip must be accepted first.` });
+    if (!['assigned', 'accepted', 'ready'].includes(trip.status)) {
+      return res.status(400).json({ error: `Cannot start trip with status: ${trip.status}.` });
     }
 
     // Prevent duplicate start
-    if (trip.started_at) {
+    if (trip.started_at || trip.status === 'in_progress') {
       return res.status(409).json({ error: 'Trip has already been started.' });
     }
+
+    // If photo is a raw base64 DataURL (storage fallback), truncate to avoid
+    // Supabase PostgREST rejecting the oversized update payload.
+    const safePhotoValue = (out_km_photo && out_km_photo.startsWith('data:'))
+      ? out_km_photo.substring(0, 500) + '...[base64_truncated]'
+      : out_km_photo;
 
     const { data: updated, error } = await adminClient
       .from('driver_trips')
@@ -3378,14 +3462,14 @@ app.post('/api/driver/trips/:id/start', requireDriver, async (req, res) => {
         status: 'in_progress',
         started_at: new Date().toISOString(),
         out_km: Number(out_km),
-        out_weight: Number(out_weight),
-        out_weight_photo,
-        start_lat: Number(start_lat),
-        start_lng: Number(start_lng),
+        out_weight: Number(out_tanker_weight),
+        out_weight_photo: safePhotoValue,
+        start_lat: Number(latitude),
+        start_lng: Number(longitude),
         updated_at: new Date().toISOString()
       })
       .eq('id', req.params.id)
-      .in('status', ['accepted', 'ready']) // Atomic check
+      .in('status', ['assigned', 'accepted', 'ready']) // Atomic check
       .select()
       .single();
 
@@ -3666,13 +3750,12 @@ app.post('/api/driver/upload', requireDriver, async (req, res) => {
 });
 
 // ─── TRANSPORT OFFICER: Assign Driver Trips ────────────────────────────────────
-// POST /api/transport/driver-trips — Create a driver trip assignment
 app.post('/api/transport/driver-trips', requireTransportOfficer, async (req, res) => {
   const { adminClient, profile } = req;
   const {
     assigned_driver_id, vehicle_id, vehicle_number,
-    bmc_id, bmc_ids, bmc_name, bmc_names, destination, route,
-    scheduled_start_time, scheduled_return_time, remarks
+    bmc_id, bmc_ids, bmc_name, bmc_names, selected_bmcs, route,
+    duty_type, scheduled_start_time, remarks
   } = req.body;
 
   if (!assigned_driver_id) return res.status(400).json({ error: 'assigned_driver_id is required.' });
@@ -3686,28 +3769,54 @@ app.post('/api/transport/driver-trips', requireTransportOfficer, async (req, res
     }
 
     let computedBmcName = bmc_name;
-    if (Array.isArray(bmc_names) && bmc_names.length > 0) {
+    if (Array.isArray(selected_bmcs) && selected_bmcs.length > 0) {
+      computedBmcName = selected_bmcs.map((b, idx) => `${idx + 1}. ${b.bmc_name || 'BMC'} — ${b.compartment || 'Front'}`).join(' | ');
+    } else if (Array.isArray(bmc_names) && bmc_names.length > 0) {
       computedBmcName = bmc_names.join(' ➔ ');
     }
 
-    const { data: newTrip, error } = await adminClient
+    // Embed BMC data backup into remarks to guarantee zero data loss
+    let bmcJsonBackup = '';
+    if (Array.isArray(selected_bmcs) && selected_bmcs.length > 0) {
+      bmcJsonBackup = `\n__BMC_DATA__=${JSON.stringify(selected_bmcs)}`;
+    }
+    const finalRemarks = (remarks || '') + bmcJsonBackup;
+
+    const payload = {
+      assigned_driver_id: driverProfile.id,
+      assigned_by: profile.id,
+      vehicle_id: vehicle_id || null,
+      vehicle_number: vehicle_number || null,
+      bmc_id: bmc_id || (Array.isArray(selected_bmcs) && selected_bmcs[0]?.bmc_id) || (Array.isArray(bmc_ids) && bmc_ids[0]) || null,
+      bmc_name: computedBmcName || null,
+      destination: computedBmcName || null,
+      route: route || null,
+      duty_type: duty_type || 'Morning Duty',
+      selected_bmcs: Array.isArray(selected_bmcs) ? selected_bmcs : [],
+      scheduled_start_time: scheduled_start_time || new Date().toISOString(),
+      remarks: finalRemarks || null,
+      status: 'assigned'
+    };
+
+    let { data: newTrip, error } = await adminClient
       .from('driver_trips')
-      .insert({
-        assigned_driver_id: driverProfile.id,
-        assigned_by: profile.id,
-        vehicle_id: vehicle_id || null,
-        vehicle_number: vehicle_number || null,
-        bmc_id: bmc_id || (Array.isArray(bmc_ids) && bmc_ids[0]) || null,
-        bmc_name: computedBmcName || null,
-        destination: destination || computedBmcName || null,
-        route: route || computedBmcName || null,
-        scheduled_start_time: scheduled_start_time || null,
-        scheduled_return_time: scheduled_return_time || null,
-        remarks: remarks || null,
-        status: 'assigned'
-      })
+      .insert(payload)
       .select()
       .single();
+
+    // Fallback if schema does not yet have duty_type or selected_bmcs column
+    if (error && (error.message?.includes('duty_type') || error.message?.includes('selected_bmcs'))) {
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.duty_type;
+      delete fallbackPayload.selected_bmcs;
+      const retry = await adminClient
+        .from('driver_trips')
+        .insert(fallbackPayload)
+        .select()
+        .single();
+      newTrip = retry.data;
+      error = retry.error;
+    }
 
     if (error) throw error;
     res.status(201).json({ trip: newTrip, message: 'Driver trip assigned successfully.' });
@@ -3755,11 +3864,67 @@ app.get('/api/transport/driver-trips', requireTransportOfficer, async (req, res)
   }
 });
 
+// GET /api/transport/driver-trips/:id — Get driver trip by ID or all trips for a specific driver ID
+app.get('/api/transport/driver-trips/:id', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  const { id } = req.params;
+
+  try {
+    // 1. First check if id matches a single driver_trips record ID
+    const { data: singleTrip } = await adminClient
+      .from('driver_trips')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (singleTrip) {
+      let driverName = '—';
+      if (singleTrip.assigned_driver_id) {
+        const { data: p } = await adminClient
+          .from('profiles')
+          .select('name')
+          .eq('id', singleTrip.assigned_driver_id)
+          .maybeSingle();
+        if (p) driverName = p.name;
+      }
+      const enrichedTrip = { ...singleTrip, driver_name: driverName };
+      return res.json({ success: true, trip: enrichedTrip, trips: [enrichedTrip] });
+    }
+
+    // 2. Otherwise check if id matches an assigned_driver_id
+    const { data: driverTrips, error: driverErr } = await adminClient
+      .from('driver_trips')
+      .select('*')
+      .eq('assigned_driver_id', id)
+      .order('created_at', { ascending: false });
+
+    if (driverErr) throw driverErr;
+
+    const { data: driverProfile } = await adminClient
+      .from('profiles')
+      .select('name')
+      .eq('id', id)
+      .maybeSingle();
+
+    const driverName = driverProfile?.name || '—';
+    const enrichedTrips = (driverTrips || []).map(t => ({ ...t, driver_name: driverName }));
+
+    return res.json({
+      success: true,
+      trips: enrichedTrips,
+      trip: enrichedTrips[0] || null,
+      message: enrichedTrips.length === 0 ? 'No trips assigned to driver.' : undefined
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch driver trip.' });
+  }
+});
+
 // PUT /api/transport/driver-trips/:id — Update/cancel a driver trip
 app.put('/api/transport/driver-trips/:id', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
   const allowed = ['status', 'vehicle_id', 'vehicle_number', 'bmc_id', 'bmc_name', 'destination',
-    'route', 'scheduled_start_time', 'scheduled_return_time', 'remarks'];
+    'route', 'duty_type', 'selected_bmcs', 'scheduled_start_time', 'scheduled_return_time', 'remarks'];
   const updates = { updated_at: new Date().toISOString() };
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
@@ -3774,6 +3939,56 @@ app.put('/api/transport/driver-trips/:id', requireTransportOfficer, async (req, 
     res.status(500).json({ error: err.message || 'Failed to update driver trip.' });
   }
 });
+
+// DELETE /api/transport/driver-trips/:id & DELETE /api/transport/duties/:id — Safely delete a driver trip duty
+const safeDeleteDutyHandler = async (req, res) => {
+  const { adminClient } = req;
+  const { id } = req.params;
+
+  try {
+    // 1. Attempt delete from driver_trips
+    const { data: driverTrip } = await adminClient
+      .from('driver_trips')
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (driverTrip) {
+      const { error } = await adminClient
+        .from('driver_trips')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      return res.json({ success: true, message: 'Duty deleted successfully.' });
+    }
+
+    // 2. Attempt delete from trips table if present
+    const { data: mainTrip } = await adminClient
+      .from('trips')
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (mainTrip) {
+      const { error } = await adminClient
+        .from('trips')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      return res.json({ success: true, message: 'Duty deleted successfully.' });
+    }
+
+    // Idempotent success if record is already gone
+    return res.json({ success: true, message: 'Duty deleted or record no longer present.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to delete driver trip duty.' });
+  }
+};
+
+app.delete('/api/transport/driver-trips/:id', requireTransportOfficer, safeDeleteDutyHandler);
+app.delete('/api/transport/duties/:id', requireTransportOfficer, safeDeleteDutyHandler);
 
 // GET /api/transport/drivers-list — Get driver-role users for assignment dropdown
 app.get('/api/transport/drivers-list', requireTransportOfficer, async (req, res) => {
