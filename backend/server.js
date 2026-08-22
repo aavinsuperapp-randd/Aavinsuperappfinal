@@ -3586,8 +3586,8 @@ app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
     if (!trip || trip.assigned_driver_id !== profile.id) {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    if (trip.status !== 'in_progress') {
-      return res.status(400).json({ error: 'Trip is not in progress.' });
+    if (!['started', 'in_progress', 'active', 'returning'].includes(trip.status)) {
+      return res.status(400).json({ error: 'Trip is not currently active.' });
     }
 
     // Decode existing journey points
@@ -3703,7 +3703,7 @@ app.get('/api/transport/active-duties-locations', requireTransportOfficer, async
     const { data: activeTrips, error } = await adminClient
       .from('driver_trips')
       .select('id, trip_number, assigned_driver_id, vehicle_number, route, destination, bmc_name, status, start_lat, start_lng, end_lat, end_lng, remarks, journey_path, updated_at, started_at')
-      .in('status', ['in_progress', 'returning']);
+      .in('status', ['started', 'in_progress', 'active', 'returning']);
 
     if (error) throw error;
 

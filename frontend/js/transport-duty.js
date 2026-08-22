@@ -669,7 +669,7 @@ async function setupDutyMap(duty) {
   const mapSection = document.getElementById('duty-map-section');
   if (dutyMapInterval) clearInterval(dutyMapInterval);
 
-  if (duty.status === 'in_progress' || (duty.journey_path && duty.journey_path.length > 0) || duty.start_lat) {
+  if (['started', 'in_progress', 'active', 'returning'].includes(duty.status) || (duty.journey_path && duty.journey_path.length > 0) || duty.start_lat) {
     mapSection.classList.remove('hidden');
     
     // Ensure map initializes after modal shows
@@ -685,7 +685,7 @@ async function setupDutyMap(duty) {
       dutyMap.invalidateSize();
       updateMapData(duty.id);
       
-      if (duty.status === 'in_progress') {
+      if (['started', 'in_progress', 'active', 'returning'].includes(duty.status)) {
         dutyMapInterval = setInterval(() => updateMapData(duty.id), 10000);
       }
     }, 300);
