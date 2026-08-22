@@ -8,6 +8,8 @@ let inPhotoUrl = null;
 let startLocation = null;
 let returnLocation = null;
 let elapsedTimer = null;
+let locationWatchId = null;
+let isLocationTrackingActive = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
   const profile = await checkAuth('driver');
@@ -434,12 +436,44 @@ function renderActiveTripState(trip) {
   document.getElementById('active-out-km').textContent = trip.out_km ? `${trip.out_km} km` : '—';
   document.getElementById('active-out-weight').textContent = trip.out_weight ? `${trip.out_weight.toLocaleString('en-IN')} kg` : '—';
 
-  // Location status removed
-  const locDot = document.getElementById('active-loc-dot');
-  const locText = document.getElementById('active-location-text');
-  if (locDot && locText) {
-    locDot.className = 'loc-dot inactive';
-    locText.textContent = 'Location tracking disabled';
+  startLocationTracking();
+}
+
+async function startLocationTracking() {
+  if (locationWatchId) return;
+  if (!navigator.geolocation) {
+    showToast('Geolocation is not supported. Tracking unavailable.', 'error');
+    return;
+  }
+  isLocationTrackingActive = true;
+  locationWatchId = navigator.geolocation.watchPosition(
+    async (position) => {
+      if (!isLocationTrackingActive) {
+        isLocationTrackingActive = true;
+        try { await apiUpdateTripLocation(tripId, { tracking_status: 'Restored' }); } catch(e) {}
+      }
+      try {
+        await apiUpdateTripLocation(tripId, { lat: position.coords.latitude, lng: position.coords.longitude });
+      } catch (err) {
+        console.error('Failed to update live location:', err);
+      }
+    },
+    async (error) => {
+      console.error('Location tracking error:', error);
+      if (isLocationTrackingActive) {
+        isLocationTrackingActive = false;
+        try { await apiUpdateTripLocation(tripId, { tracking_status: 'Turned OFF' }); } catch(e) {}
+        showToast('Location access lost or turned off.', 'error');
+      }
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
+  );
+}
+
+function stopLocationTracking() {
+  if (locationWatchId) {
+    navigator.geolocation.clearWatch(locationWatchId);
+    locationWatchId = null;
   }
 }
 
@@ -635,6 +669,8 @@ async function handleCompleteTrip() {
 
     const result = await apiCompleteTrip(tripId, payload);
     showToast('Trip completed successfully! 🎉', 'success');
+
+    stopLocationTracking();
 
     currentTrip = result.trip;
     hideEl('step-complete-form');

@@ -428,6 +428,10 @@ function filterDuties() {
 }
 
 let currentDutyForDeletion = null;
+let dutyMap = null;
+let dutyMapPolyline = null;
+let dutyMapMarker = null;
+let dutyMapInterval = null;
 
 function viewDutyDetails(dutyId) {
   const duty = allDuties.find(d => d.id === dutyId);
@@ -525,6 +529,8 @@ function viewDutyDetails(dutyId) {
   // Clean user remarks (strip internal __BMC_DATA__ string)
   const cleanRemarks = (duty.remarks || '').split('\n__BMC_DATA__=')[0].trim();
   document.getElementById('duty-remarks').textContent = cleanRemarks || 'No remarks';
+
+  setupDutyMap(duty);
 
   openModal('duty-detail-modal');
 }
@@ -652,5 +658,111 @@ function closeModal(modalId) {
   if (modal) {
     modal.classList.add('hidden');
     document.body.style.overflow = '';
+    if (modalId === 'duty-detail-modal') {
+      if (dutyMapInterval) clearInterval(dutyMapInterval);
+    }
   }
 }
+
+async function setupDutyMap(duty) {
+  const mapSection = document.getElementById('duty-map-section');
+  if (dutyMapInterval) clearInterval(dutyMapInterval);
+
+  if (duty.status === 'in_progress' || (duty.journey_path && duty.journey_path.length > 0) || duty.start_lat) {
+    mapSection.classList.remove('hidden');
+    
+    // Ensure map initializes after modal shows
+    setTimeout(() => {
+      if (!dutyMap) {
+        dutyMap = L.map('driver-journey-map').setView([11.1271, 78.6569], 7);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© OpenStreetMap'
+        }).addTo(dutyMap);
+      }
+      // Force leaflet to resize properly inside modal
+      dutyMap.invalidateSize();
+      updateMapData(duty.id);
+      
+      if (duty.status === 'in_progress') {
+        dutyMapInterval = setInterval(() => updateMapData(duty.id), 10000);
+      }
+    }, 300);
+  } else {
+    mapSection.classList.add('hidden');
+  }
+}
+
+async function updateMapData(tripId) {
+  try {
+    const data = await transportFetch(`/api/transport/driver-trips/${tripId}`);
+    const trip = data.trip;
+    if (!trip) return;
+
+    let remarks = trip.remarks || '';
+    let interruptions = [];
+    if (remarks.includes('__INTERRUPTIONS_DATA__=')) {
+      try {
+        const iStr = remarks.split('__INTERRUPTIONS_DATA__=')[1].split('\n')[0];
+        interruptions = JSON.parse(iStr);
+      } catch(e) {}
+    }
+    
+    let journey = [];
+    if (remarks.includes('__JOURNEY_DATA__=')) {
+      try {
+        const jStr = remarks.split('__JOURNEY_DATA__=')[1].split('\n')[0];
+        journey = JSON.parse(jStr);
+      } catch(e) {}
+    }
+    
+    let latestLoc = null;
+
+    if (trip.end_lat && trip.end_lng) {
+      latestLoc = { lat: trip.end_lat, lng: trip.end_lng, timestamp: trip.updated_at };
+    } else if (journey.length > 0) {
+      latestLoc = journey[journey.length - 1];
+    } else if (trip.start_lat && trip.start_lng) {
+      latestLoc = { lat: trip.start_lat, lng: trip.start_lng, timestamp: trip.started_at };
+      journey.push(latestLoc); // treat start as first point if journey array is empty
+    }
+
+    // Status UI
+    const isTrackingOff = interruptions.length > 0 && interruptions[interruptions.length - 1].status.includes('OFF');
+    document.getElementById('map-status-text').textContent = trip.status === 'completed' ? 'Trip Completed (Tracking Stopped)' : isTrackingOff ? '🔴 Tracking OFF' : '🟢 Tracking ON';
+    document.getElementById('map-status-text').style.color = trip.status === 'completed' ? '#475569' : isTrackingOff ? '#DC2626' : '#16A34A';
+    document.getElementById('map-last-update').textContent = latestLoc ? formatDateTime(latestLoc.timestamp) : 'No data';
+
+    // Interruptions list
+    const intrContainer = document.getElementById('map-interruptions-container');
+    const intrList = document.getElementById('map-interruptions-list');
+    if (interruptions.length > 0) {
+      intrContainer.classList.remove('hidden');
+      intrList.innerHTML = interruptions.map(i => `<li>${formatTime(i.timestamp)}: ${i.status}</li>`).join('');
+    } else {
+      intrContainer.classList.add('hidden');
+    }
+
+    // Draw Map Elements
+    if (dutyMapPolyline) dutyMap.removeLayer(dutyMapPolyline);
+    if (dutyMapMarker) dutyMap.removeLayer(dutyMapMarker);
+
+    const latlngs = journey.map(point => [point.lat, point.lng]);
+    if (latestLoc) {
+      latlngs.push([latestLoc.lat, latestLoc.lng]);
+    }
+
+    if (latlngs.length > 0) {
+      dutyMapPolyline = L.polyline(latlngs, { color: '#2563EB', weight: 4 }).addTo(dutyMap);
+      dutyMap.fitBounds(dutyMapPolyline.getBounds());
+    }
+
+    if (latestLoc) {
+      dutyMapMarker = L.marker([latestLoc.lat, latestLoc.lng]).addTo(dutyMap);
+      dutyMapMarker.bindPopup('<b>Driver Current Position</b><br>' + formatTime(latestLoc.timestamp)).openPopup();
+    }
+  } catch (err) {
+    console.error('Failed to update map data:', err);
+  }
+}
+

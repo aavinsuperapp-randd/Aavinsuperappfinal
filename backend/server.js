@@ -356,7 +356,7 @@ app.delete('/api/admin/tankers/:id', requireAdminRole, async (req, res) => {
 app.get('/api/admin/trips', requireAdminRole, async (req, res) => {
   try {
     const [tripsRes, visitsRes, profilesRes, bmcsRes, ftirRes, gerberRes] = await Promise.all([
-      req.adminClient.from('trips').select('*').order('created_at', { ascending: false }),
+      req.adminClient.from('trips').select('*').neq('status', 'deleted').order('created_at', { ascending: false }),
       req.adminClient.from('trip_bmc_visits').select('*').order('visit_sequence'),
       req.adminClient.from('profiles').select('id, name, email'),
       req.adminClient.from('bmcs').select('id, name, district'),
@@ -748,7 +748,7 @@ app.get('/api/gm/dashboard-v2', requireGm, async (req, res) => {
       profilesRes, driversRes, tankersRes, bmcsRes
     ] = await Promise.all([
       // Trips for selected date
-      adminClient.from('trips').select('*').gte('created_at', dayStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
+      adminClient.from('trips').select('*').neq('status', 'deleted').gte('created_at', dayStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
       // Trips for last 7 days (for trend)
       adminClient.from('trips').select('id, status, created_at').gte('created_at', trendStartIso).lte('created_at', dayEndIso),
       // All BMC visits
@@ -2650,8 +2650,8 @@ async function getUnifiedDrivers(adminClient) {
     const [dbDriversRes, profileDriversRes, driverTripsRes, workerTripsRes] = await Promise.all([
       adminClient.from('drivers').select('*'),
       adminClient.from('profiles').select('*').eq('role', 'driver'),
-      adminClient.from('driver_trips').select('*'),
-      adminClient.from('trips').select('*')
+      adminClient.from('driver_trips').select('*').neq('status', 'deleted'),
+      adminClient.from('trips').select('*').neq('status', 'deleted')
     ]);
 
     const dbDrivers = dbDriversRes.data || [];
@@ -2732,8 +2732,8 @@ app.get('/api/transport/dashboard', requireTransportOfficer, async (req, res) =>
     const [drivers, vehiclesRes, workerTripsRes, driverTripsRes] = await Promise.all([
       getUnifiedDrivers(adminClient),
       adminClient.from('tankers').select('*'),
-      adminClient.from('trips').select('*'),
-      adminClient.from('driver_trips').select('*')
+      adminClient.from('trips').select('*').neq('status', 'deleted'),
+      adminClient.from('driver_trips').select('*').neq('status', 'deleted')
     ]);
 
     const vehicles = vehiclesRes.data || [];
@@ -2874,7 +2874,7 @@ app.get('/api/transport/drivers/:id/performance', requireTransportOfficer, async
     const { data: driver } = await adminClient.from('drivers').select('*').eq('id', req.params.id).single();
     if (!driver) return res.status(404).json({ error: 'Driver not found' });
 
-    const { data: trips } = await adminClient.from('trips').select('*');
+    const { data: trips } = await adminClient.from('trips').select('*').neq('status', 'deleted');
     const driverTrips = (trips || []).filter(t => t.driver_name === driver.name);
 
     const completedTrips = driverTrips.filter(t => t.status === 'completed');
@@ -2914,7 +2914,7 @@ app.get('/api/transport/vehicles', requireTransportOfficer, async (req, res) => 
 
   try {
     const { data: vehicles } = await adminClient.from('tankers').select('*').order('board_number');
-    const { data: trips } = await adminClient.from('trips').select('*');
+    const { data: trips } = await adminClient.from('trips').select('*').neq('status', 'deleted');
 
     const vehiclesWithStats = (vehicles || []).map(vehicle => {
       const vehicleTrips = (trips || []).filter(t => t.tanker_number === vehicle.board_number);
@@ -2999,7 +2999,7 @@ app.get('/api/transport/vehicles/:id/performance', requireTransportOfficer, asyn
     const { data: vehicle } = await adminClient.from('tankers').select('*').eq('id', req.params.id).single();
     if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' });
 
-    const { data: trips } = await adminClient.from('trips').select('*');
+    const { data: trips } = await adminClient.from('trips').select('*').neq('status', 'deleted');
     const vehicleTrips = (trips || []).filter(t => t.tanker_number === vehicle.board_number);
 
     const lastTrip = vehicleTrips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
@@ -3030,7 +3030,7 @@ app.get('/api/transport/duties', requireTransportOfficer, async (req, res) => {
 
   try {
     // For now, return duties based on trips (placeholder until duties table is created)
-    let query = adminClient.from('trips').select('*');
+    let query = adminClient.from('trips').select('*').neq('status', 'deleted');
 
     if (date) {
       const startOfDay = new Date(date);
@@ -3831,7 +3831,7 @@ app.get('/api/transport/driver-trips', requireTransportOfficer, async (req, res)
   const { status, driver_id, date } = req.query;
 
   try {
-    let query = adminClient.from('driver_trips').select('*').order('created_at', { ascending: false });
+    let query = adminClient.from('driver_trips').select('*').neq('status', 'deleted').order('created_at', { ascending: false });
 
     if (status) query = query.eq('status', status);
     if (driver_id) query = query.eq('assigned_driver_id', driver_id);
@@ -3956,7 +3956,7 @@ const safeDeleteDutyHandler = async (req, res) => {
     if (driverTrip) {
       const { error } = await adminClient
         .from('driver_trips')
-        .delete()
+        .update({ status: 'deleted' })
         .eq('id', id);
 
       if (error) throw error;
@@ -3973,7 +3973,7 @@ const safeDeleteDutyHandler = async (req, res) => {
     if (mainTrip) {
       const { error } = await adminClient
         .from('trips')
-        .delete()
+        .update({ status: 'deleted' })
         .eq('id', id);
 
       if (error) throw error;
