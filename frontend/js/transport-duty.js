@@ -24,7 +24,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('duty-search-input').addEventListener('input', filterDuties);
 
   await loadDuties();
-  setupAllActiveMap();
+
+
+  // Auto-open duty details if id is in URL query parameters
+  const urlParams = new URLSearchParams(window.location.search);
+  const dutyId = urlParams.get('id');
+  if (dutyId) {
+    viewDutyDetails(dutyId);
+  }
 });
 
 function setupSidebarToggle() {
@@ -434,8 +441,16 @@ let dutyMapPolyline = null;
 let dutyMapMarker = null;
 let dutyMapInterval = null;
 
-function viewDutyDetails(dutyId) {
-  const duty = allDuties.find(d => d.id === dutyId);
+async function viewDutyDetails(dutyId) {
+  let duty = allDuties.find(d => d.id === dutyId);
+  if (!duty) {
+    try {
+      const res = await apiGetDriverTrip(dutyId);
+      duty = res?.trip;
+    } catch (err) {
+      console.error('Failed to fetch duty details fallback:', err);
+    }
+  }
   if (!duty) {
     showToast('Duty not found', 'error');
     return;
@@ -762,8 +777,10 @@ async function updateMapData(tripId) {
     }
 
     if (latestLoc && !isNaN(latestLoc.lat) && !isNaN(latestLoc.lng)) {
+      const isLive = trip.status !== 'completed' && latestLoc.timestamp && (Date.now() - new Date(latestLoc.timestamp).getTime() < 10 * 60 * 1000);
+      const timeStr = isLive ? `🟢 Live Location (Updated: ${formatTime(latestLoc.timestamp)})` : `📍 Last Location (${formatDateTime(latestLoc.timestamp)})`;
       dutyMapMarker = L.marker([Number(latestLoc.lat), Number(latestLoc.lng)]).addTo(dutyMap);
-      dutyMapMarker.bindPopup(`<b>${trip.driver_name || 'Driver'}</b><br>Current Location<br>Updated: ${formatTime(latestLoc.timestamp)}`).openPopup();
+      dutyMapMarker.bindPopup(`<div style="font-family:'Outfit',sans-serif; padding:2px;"><b>👨‍✈️ ${trip.driver_name || 'Driver'}</b><br><span style="font-size:0.82rem; color:#475569;">🚛 ${trip.vehicle_number || 'Tanker'}</span><br><span style="font-size:0.8rem; color:#0F172A; font-weight:600;">${timeStr}</span></div>`).openPopup();
     }
   } catch (err) {
     console.error('Failed to update map data:', err);
@@ -804,10 +821,20 @@ async function updateAllActiveMapData() {
     const data = await transportFetch('/api/transport/active-duties-locations');
     const activeDuties = data.activeDuties || [];
 
+    const liveCount = activeDuties.filter(d => d.is_live).length;
     const badge = document.getElementById('active-map-count-badge');
     const updateTime = document.getElementById('active-map-update-time');
-    if (badge) badge.textContent = `${activeDuties.length} Active Driver${activeDuties.length === 1 ? '' : 's'}`;
-    if (updateTime) updateTime.textContent = `Updated: ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    
+    if (badge) {
+      if (liveCount === activeDuties.length && activeDuties.length > 0) {
+        badge.textContent = `🟢 ${activeDuties.length} Active (Live)`;
+      } else {
+        badge.textContent = `${activeDuties.length} Active Driver${activeDuties.length === 1 ? '' : 's'}${liveCount > 0 ? ` (${liveCount} Live)` : ''}`;
+      }
+    }
+    if (updateTime) {
+      updateTime.textContent = `Updated: ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    }
 
     const currentTripIds = new Set(activeDuties.map(d => d.id));
 
@@ -828,10 +855,10 @@ async function updateAllActiveMapData() {
       const journey = duty.journey_path || [];
       const latlngs = journey
         .map(pt => [Number(pt.lat), Number(pt.lng)])
-        .filter(pt => !isNaN(pt[0]) && !isNaN(pt[1]));
+        .filter(pt => !isNaN(pt[0]) && !isNaN(pt[1]) && pt[0] !== 0 && pt[1] !== 0);
 
       const latest = duty.latest_location;
-      if (latest && !isNaN(latest.lat) && !isNaN(latest.lng)) {
+      if (latest && !isNaN(Number(latest.lat)) && !isNaN(Number(latest.lng)) && Number(latest.lat) !== 0) {
         const lastPt = latlngs.length > 0 ? latlngs[latlngs.length - 1] : null;
         if (!lastPt || lastPt[0] !== Number(latest.lat) || lastPt[1] !== Number(latest.lng)) {
           latlngs.push([Number(latest.lat), Number(latest.lng)]);
@@ -858,16 +885,53 @@ async function updateAllActiveMapData() {
         allActiveMap.removeLayer(allActiveMapMarkers[duty.id]);
       }
 
-      if (latest && !isNaN(latest.lat) && !isNaN(latest.lng)) {
-        const marker = L.marker([Number(latest.lat), Number(latest.lng)]).addTo(allActiveMap);
-        
+      if (latest && !isNaN(Number(latest.lat)) && !isNaN(Number(latest.lng)) && Number(latest.lat) !== 0) {
+        const lat = Number(latest.lat);
+        const lng = Number(latest.lng);
+        allBounds.push([lat, lng]);
+
+        // Custom Leaflet DivIcon for Live vs Last Location
+        const isLive = duty.is_live;
+        const iconHtml = isLive
+          ? `<div style="position:relative; width:34px; height:34px; display:flex; align-items:center; justify-content:center;">
+               <div style="position:absolute; width:32px; height:32px; border-radius:50%; background:rgba(22, 163, 74, 0.35); animation:pulse 1.8s infinite ease-out;"></div>
+               <div style="position:relative; width:26px; height:26px; border-radius:50%; background:#16A34A; border:2px solid #FFFFFF; box-shadow:0 2px 6px rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; color:#FFF; font-size:13px; font-weight:700;">🚛</div>
+             </div>`
+          : `<div style="position:relative; width:30px; height:30px; display:flex; align-items:center; justify-content:center;">
+               <div style="position:relative; width:24px; height:24px; border-radius:50%; background:#475569; border:2px solid #FFFFFF; box-shadow:0 2px 5px rgba(0,0,0,0.25); display:flex; align-items:center; justify-content:center; color:#FFF; font-size:12px;">📍</div>
+             </div>`;
+
+        const customIcon = L.divIcon({
+          className: 'custom-driver-map-pin',
+          html: iconHtml,
+          iconSize: [34, 34],
+          iconAnchor: [17, 17],
+          popupAnchor: [0, -18]
+        });
+
+        const marker = L.marker([lat, lng], { icon: customIcon }).addTo(allActiveMap);
+
+        const timeString = isLive
+          ? `🟢 Live Location (Updated: ${formatTime(latest.timestamp)})`
+          : `📍 Last Known Location (${formatDateTime(latest.timestamp)})`;
+
         const popupContent = `
-          <div style="font-family:'Outfit',sans-serif; padding:4px;">
-            <div style="font-weight:800; font-size:0.95rem; color:#0F172A;">👨‍✈️ ${duty.driver_name}</div>
+          <div style="font-family:'Outfit',sans-serif; padding:6px; min-width:210px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:8px;">
+              <span style="font-weight:800; font-size:0.95rem; color:#0F172A;">👨‍✈️ ${duty.driver_name}</span>
+              <span class="badge ${isLive ? 'badge-success' : 'badge-neutral'}" style="font-size:0.7rem; font-weight:700;">
+                ${isLive ? '🟢 Live' : '📍 Last Location'}
+              </span>
+            </div>
             <div style="font-size:0.82rem; color:#475569; margin-top:2px;">🚛 Vehicle: <strong>${duty.vehicle_number}</strong></div>
             <div style="font-size:0.82rem; color:#475569;">🗺️ Route: <strong>${duty.route}</strong></div>
             <div style="font-size:0.78rem; color:#2563EB; margin-top:4px; font-weight:600;">Status: ${formatStatus(duty.status)}</div>
-            <div style="font-size:0.75rem; color:#94A3B8; margin-top:2px;">Last updated: ${formatTime(latest.timestamp)}</div>
+            <div style="font-size:0.78rem; color:#475569; margin-top:4px; padding-top:4px; border-top:1px solid #E2E8F0;">
+              ${timeString}
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" style="width:100%; margin-top:8px; padding:5px 8px; font-size:0.8rem; font-weight:700;" onclick="viewDutyDetails('${duty.id}')">
+              📋 View Duty Details
+            </button>
           </div>
         `;
         marker.bindPopup(popupContent);
@@ -876,7 +940,7 @@ async function updateAllActiveMapData() {
     });
 
     if (allBounds.length > 0) {
-      allActiveMap.fitBounds(allBounds, { padding: [30, 30] });
+      allActiveMap.fitBounds(allBounds, { padding: [40, 40], maxZoom: 14 });
     }
   } catch (err) {
     console.error('Failed to update All Active Duties Map:', err);

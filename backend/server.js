@@ -2732,8 +2732,8 @@ app.get('/api/transport/dashboard', requireTransportOfficer, async (req, res) =>
     const [drivers, vehiclesRes, workerTripsRes, driverTripsRes] = await Promise.all([
       getUnifiedDrivers(adminClient),
       adminClient.from('tankers').select('*'),
-      adminClient.from('trips').select('*').neq('status', 'deleted'),
-      adminClient.from('driver_trips').select('*').neq('status', 'deleted')
+      adminClient.from('trips').select('*').neq('status', 'deleted').order('created_at', { ascending: false }),
+      adminClient.from('driver_trips').select('*').neq('status', 'deleted').order('created_at', { ascending: false })
     ]);
 
     const vehicles = vehiclesRes.data || [];
@@ -3579,7 +3579,7 @@ app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
   try {
     const { data: trip } = await adminClient
       .from('driver_trips')
-      .select('id, assigned_driver_id, status, remarks, start_lat, start_lng, end_lat, end_lng, journey_path')
+      .select('id, assigned_driver_id, status, remarks, start_lat, start_lng, end_lat, end_lng')
       .eq('id', req.params.id)
       .single();
 
@@ -3669,10 +3669,7 @@ app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    // Also update journey_path column if column exists
-    try {
-      updatePayload.journey_path = journey;
-    } catch(e) {}
+    // journey_path column does not exist in schema, relying solely on remarks encoded data
 
     const { data, error } = await adminClient
       .from('driver_trips')
@@ -3700,24 +3697,44 @@ app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
 app.get('/api/transport/active-duties-locations', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
   try {
+    // 1. Fetch all active/in-progress driver trips (not completed, cancelled, or deleted)
     const { data: activeTrips, error } = await adminClient
       .from('driver_trips')
-      .select('id, trip_number, assigned_driver_id, vehicle_number, route, destination, bmc_name, status, start_lat, start_lng, end_lat, end_lng, remarks, journey_path, updated_at, started_at')
-      .in('status', ['started', 'in_progress', 'active', 'returning']);
+      .select('id, trip_number, assigned_driver_id, vehicle_number, route, destination, bmc_name, status, start_lat, start_lng, end_lat, end_lng, remarks, updated_at, started_at, created_at')
+      .not('status', 'in', '("completed","cancelled","deleted")');
 
     if (error) throw error;
 
-    // Enrich driver profiles
-    const driverIds = (activeTrips || []).map(t => t.assigned_driver_id).filter(Boolean);
-    let driverMap = {};
-    if (driverIds.length > 0) {
-      const { data: profiles } = await adminClient
-        .from('profiles')
-        .select('id, name, phone')
-        .in('id', driverIds);
-      (profiles || []).forEach(p => { driverMap[p.id] = p; });
-    }
+    // 2. Fetch unified drivers map for reliable names & fallback locations
+    const drivers = await getUnifiedDrivers(adminClient);
+    const driverMap = {};
+    drivers.forEach(d => {
+      if (d.id) driverMap[d.id] = d;
+      if (d.name) driverMap[d.name.toLowerCase().trim()] = d;
+    });
 
+    // 3. Also fetch the most recent completed trips with location as fallback for drivers without current trip coordinates
+    const { data: recentCompletedTrips } = await adminClient
+      .from('driver_trips')
+      .select('assigned_driver_id, end_lat, end_lng, updated_at')
+      .not('end_lat', 'is', null)
+      .not('end_lng', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(50);
+
+    const driverLastLocationMap = {};
+    (recentCompletedTrips || []).forEach(t => {
+      if (t.assigned_driver_id && !driverLastLocationMap[t.assigned_driver_id] && Number(t.end_lat) !== 0) {
+        driverLastLocationMap[t.assigned_driver_id] = {
+          lat: Number(t.end_lat),
+          lng: Number(t.end_lng),
+          timestamp: t.updated_at,
+          source: 'previous_duty'
+        };
+      }
+    });
+
+    const now = Date.now();
     const result = (activeTrips || []).map(trip => {
       let journey = [];
       if (Array.isArray(trip.journey_path) && trip.journey_path.length > 0) {
@@ -3729,26 +3746,64 @@ app.get('/api/transport/active-duties-locations', requireTransportOfficer, async
         } catch(e) {}
       }
 
-      if (journey.length === 0 && trip.start_lat && trip.start_lng) {
-        journey.push({ lat: Number(trip.start_lat), lng: Number(trip.start_lng), timestamp: trip.started_at || trip.updated_at });
+      // Filter and clean journey points
+      journey = (journey || []).filter(pt => pt && !isNaN(Number(pt.lat)) && !isNaN(Number(pt.lng)) && Number(pt.lat) !== 0 && Number(pt.lng) !== 0);
+
+      // If journey has no points but start_lat/lng exists, push start point
+      if (journey.length === 0 && trip.start_lat && trip.start_lng && Number(trip.start_lat) !== 0) {
+        journey.push({
+          lat: Number(trip.start_lat),
+          lng: Number(trip.start_lng),
+          timestamp: trip.started_at || trip.created_at || trip.updated_at
+        });
       }
 
       const driverProfile = driverMap[trip.assigned_driver_id] || {};
       const driverName = driverProfile.name || 'Driver';
 
-      const latestPt = journey.length > 0 ? journey[journey.length - 1] : (trip.end_lat && trip.end_lng ? { lat: Number(trip.end_lat), lng: Number(trip.end_lng), timestamp: trip.updated_at } : null);
+      // Determine latest point & location source
+      let latestPt = null;
+      let locationType = 'none';
+
+      if (journey.length > 0) {
+        latestPt = journey[journey.length - 1];
+        locationType = journey.length > 1 ? 'live_track' : 'trip_start';
+      } else if (trip.end_lat && trip.end_lng && Number(trip.end_lat) !== 0) {
+        latestPt = { lat: Number(trip.end_lat), lng: Number(trip.end_lng), timestamp: trip.updated_at };
+        locationType = 'last_recorded';
+      } else if (trip.start_lat && trip.start_lng && Number(trip.start_lat) !== 0) {
+        latestPt = { lat: Number(trip.start_lat), lng: Number(trip.start_lng), timestamp: trip.started_at || trip.created_at };
+        locationType = 'trip_start';
+      } else if (driverLastLocationMap[trip.assigned_driver_id]) {
+        latestPt = driverLastLocationMap[trip.assigned_driver_id];
+        locationType = 'previous_duty';
+      }
+
+      // Check if location is "live" (updated within last 10 minutes and trip in active state)
+      let isLive = false;
+      if (latestPt && latestPt.timestamp) {
+        const timeDiffMs = now - new Date(latestPt.timestamp).getTime();
+        const activeState = ['started', 'in_progress', 'active', 'returning'].includes(trip.status);
+        if (activeState && timeDiffMs < 10 * 60 * 1000) { // 10 minutes
+          isLive = true;
+        }
+      }
 
       return {
         id: trip.id,
         trip_number: trip.trip_number,
         driver_id: trip.assigned_driver_id,
         driver_name: driverName,
+        driver_phone: driverProfile.phone || '',
         vehicle_number: trip.vehicle_number || '—',
         route: trip.route || trip.destination || trip.bmc_name || 'Route',
         status: trip.status,
         latest_location: latestPt,
+        is_live: isLive,
+        location_type: locationType,
         journey_path: journey,
-        updated_at: trip.updated_at
+        updated_at: trip.updated_at,
+        started_at: trip.started_at
       };
     });
 

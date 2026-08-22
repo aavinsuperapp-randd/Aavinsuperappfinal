@@ -495,6 +495,115 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) flushOfflineGpsQueue();
 });
 
+function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // Radius of the Earth in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+let silentAudioInterval = null;
+let audioCtx = null;
+
+function startSilentAudioLoop() {
+  if (silentAudioInterval) return;
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    audioCtx = new AudioContext();
+    const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
+    
+    const playSilence = () => {
+      if (!audioCtx) return;
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      const source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioCtx.destination);
+      source.start();
+    };
+
+    silentAudioInterval = setInterval(playSilence, 1000);
+    
+    const resumeHandler = () => {
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      document.removeEventListener('click', resumeHandler);
+      document.removeEventListener('touchstart', resumeHandler);
+    };
+    document.addEventListener('click', resumeHandler);
+    document.addEventListener('touchstart', resumeHandler);
+  } catch (e) {
+    console.warn('Silent audio loop failed:', e);
+  }
+}
+
+function stopSilentAudioLoop() {
+  if (silentAudioInterval) {
+    clearInterval(silentAudioInterval);
+    silentAudioInterval = null;
+  }
+  if (audioCtx) {
+    audioCtx.close();
+    audioCtx = null;
+  }
+}
+
+let fallbackLocationInterval = null;
+
+function startFallbackLocationTracking() {
+  if (fallbackLocationInterval) return;
+  fallbackLocationInterval = setInterval(() => {
+    if (!navigator.geolocation || !isLocationTrackingActive) return;
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const pt = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          timestamp: new Date().toISOString()
+        };
+        const queue = getOfflineGpsQueue();
+        if (queue.length > 0) {
+          const lastPt = queue[queue.length - 1];
+          const dist = calculateDistanceMeters(lastPt.lat, lastPt.lng, pt.lat, pt.lng);
+          const timeDiffMs = new Date(pt.timestamp).getTime() - new Date(lastPt.timestamp || 0).getTime();
+          if (dist >= 5 || timeDiffMs >= 30000) {
+            queue.push(pt);
+            saveOfflineGpsQueue(queue);
+          }
+        } else {
+          queue.push(pt);
+          saveOfflineGpsQueue(queue);
+        }
+
+        const locTextEl = document.getElementById('active-location-text');
+        const locTimeEl = document.getElementById('active-location-time');
+        if (locTextEl) locTextEl.textContent = `Location (F): ${pt.lat.toFixed(5)}, ${pt.lng.toFixed(5)}`;
+        if (locTimeEl) locTimeEl.textContent = `Updated: ${formatTime(pt.timestamp)}`;
+
+        await flushOfflineGpsQueue();
+      },
+      (error) => {
+        console.warn('Fallback background geolocation capture failed:', error);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }, 20000);
+}
+
+function stopFallbackLocationTracking() {
+  if (fallbackLocationInterval) {
+    clearInterval(fallbackLocationInterval);
+    fallbackLocationInterval = null;
+  }
+}
+
 async function startLocationTracking() {
   if (locationWatchId) return;
   if (!navigator.geolocation) {
@@ -503,6 +612,8 @@ async function startLocationTracking() {
   }
   isLocationTrackingActive = true;
   await requestWakeLock();
+  startSilentAudioLoop();
+  startFallbackLocationTracking();
   await flushOfflineGpsQueue();
 
   locationWatchId = navigator.geolocation.watchPosition(
@@ -539,10 +650,13 @@ async function startLocationTracking() {
 }
 
 function stopLocationTracking() {
+  isLocationTrackingActive = false;
   if (locationWatchId) {
     navigator.geolocation.clearWatch(locationWatchId);
     locationWatchId = null;
   }
+  stopSilentAudioLoop();
+  stopFallbackLocationTracking();
   releaseWakeLock();
   flushOfflineGpsQueue();
 }
