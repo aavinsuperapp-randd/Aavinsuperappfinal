@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EO Monitoring Dashboard — AAVIN BMC</title>
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .metric-card { background: #FFFFFF; border-radius: 14px; border: 1px solid #E2E8F0; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
+    .metric-title { font-size: 0.8rem; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-value { font-size: 2rem; font-weight: 800; color: #0F172A; margin-top: 6px; }
+    .metric-sub { font-size: 0.78rem; color: #94A3B8; margin-top: 4px; }
+
+    .bmc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+    .bmc-card { background: #FFFFFF; border-radius: 14px; border: 1px solid #E2E8F0; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; }
+    .bmc-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); border-color: #BFDBFE; }
+    .bmc-card-title { font-size: 1.15rem; font-weight: 800; color: #0F172A; display: flex; justify-content: space-between; align-items: center; }
+    .bmc-code-badge { font-size: 0.75rem; background: #F1F5F9; color: #475569; padding: 3px 8px; border-radius: 6px; font-weight: 700; }
+    .bmc-info-row { display: flex; justify-content: space-between; font-size: 0.84rem; color: #475569; margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+  <div class="admin-shell">
+    <!-- Navigation Sidebar -->
+    <aside class="admin-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>AAVIN EO Portal</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item active">
+          <span>📊</span> Overview Dashboard
+        </a>
+        <a href="bmc.html" class="admin-nav-item">
+          <span>🏭</span> My Assigned BMCs
+        </a>
+        <a href="test-results.html" class="admin-nav-item">
+          <span>🧪</span> Milk Test Results
+        </a>
+        <a href="reports.html" class="admin-nav-item">
+          <span>📋</span> Worker Reports
+        </a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top: auto;">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="admin-main">
+      <header class="admin-header" style="background: #0F172A; color: #FFF; padding: 16px 24px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="font-size: 1.2rem; font-weight: 800;">Executive Officer Portal</div>
+          <span class="badge badge-primary" style="font-size: 0.75rem;">View-Only Monitor</span>
+        </div>
+        <div class="header-user-info" style="display: flex; align-items: center; gap: 10px;">
+          <div id="user-display-name" style="font-weight: 700; font-size: 0.95rem;">Executive Officer</div>
+        </div>
+      </header>
+
+      <main class="admin-content" style="padding: 24px;">
+        <div id="main-dashboard-content" class="hidden">
+          
+          <div style="margin-bottom: 20px;">
+            <h2 style="font-size: 1.4rem; font-weight: 800; color: #0F172A; margin: 0;">Operational Summary</h2>
+            <p style="color: #64748B; font-size: 0.88rem; margin-top: 2px;">Monitoring overview for your assigned Bulk Milk Cooling Centers.</p>
+          </div>
+
+          <!-- Summary Metric Cards -->
+          <div class="metric-grid">
+            <div class="metric-card">
+              <div class="metric-title">Total Assigned BMCs</div>
+              <div class="metric-value" id="card-total-bmcs">0</div>
+              <div class="metric-sub">Monitored centers</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-title">Active BMCs</div>
+              <div class="metric-value" style="color: #16A34A;" id="card-active-bmcs">0</div>
+              <div class="metric-sub">Currently operational</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-title">Today's Test Results</div>
+              <div class="metric-value" style="color: #2563EB;" id="card-today-tests">0</div>
+              <div class="metric-sub">FTIR & Gerber tests</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-title">Quality Alerts</div>
+              <div class="metric-value" style="color: #DC2626;" id="card-quality-alerts">0</div>
+              <div class="metric-sub">Attention required</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-title">Worker Reports</div>
+              <div class="metric-value" style="color: #D97706;" id="card-total-reports">0</div>
+              <div class="metric-sub" id="card-pending-sub">0 pending review</div>
+            </div>
+          </div>
+
+          <!-- Charts Section -->
+          <div class="row mb-4" style="display: flex; gap: 20px; flex-wrap: wrap;">
+            <div class="card" style="flex: 2; min-width: 320px; padding: 20px;">
+              <h4 style="margin: 0 0 16px 0; font-size: 1rem; font-weight: 800; color: #0F172A;">📈 Quality Trends (Fat & SNF)</h4>
+              <div style="height: 240px;"><canvas id="chart-quality-trend"></canvas></div>
+            </div>
+            <div class="card" style="flex: 1; min-width: 260px; padding: 20px;">
+              <h4 style="margin: 0 0 16px 0; font-size: 1rem; font-weight: 800; color: #0F172A;">📊 Quality Distribution</h4>
+              <div style="height: 240px;"><canvas id="chart-quality-dist"></canvas></div>
+            </div>
+          </div>
+
+          <!-- Assigned BMCs Section -->
+          <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1.2rem; font-weight: 800; color: #0F172A; margin: 0;">🏭 My Assigned BMCs</h3>
+            <a href="bmc.html" class="btn btn-outline btn-sm">View All BMC Details ➔</a>
+          </div>
+
+          <div id="assigned-bmcs-container" class="bmc-grid">
+            <div class="text-muted p-4">Loading assigned BMCs...</div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/eo-api.js"></script>
+  <script src="../js/eo-dashboard.js"></script>
+</body>
+</html>

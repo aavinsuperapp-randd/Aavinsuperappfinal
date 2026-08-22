@@ -122,6 +122,20 @@ async function checkAuth(requiredRole) {
         showStatusScreen('rejected');
         return null;
       }
+    } else if (requiredRole === 'executive_officer') {
+      if (profile.role !== 'executive_officer' && profile.role !== 'admin') {
+        showToast("Access Denied: Executive Officer role required.", "error");
+        window.location.href = getPath('login.html');
+        return null;
+      }
+      
+      if (profile.status === 'pending') {
+        showStatusScreen('pending');
+        return null;
+      } else if (profile.status === 'rejected') {
+        showStatusScreen('rejected');
+        return null;
+      }
     }
     
     toggleLoading(false);

@@ -32,4 +32,3 @@ ALTER TABLE public.eo_bmc_assignments ENABLE ROW LEVEL SECURITY;
 -- Allow authenticated users to read assignments
 CREATE POLICY "Allow authenticated read eo_bmc_assignments" 
 ON public.eo_bmc_assignments FOR SELECT USING (auth.role() = 'authenticated');
-

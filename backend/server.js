@@ -72,8 +72,8 @@ app.post('/api/register', async (req, res) => {
   if (!name || !dob || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
-  if (!['user', 'gm', 'driver', 'transport_officer'].includes(role)) {
-    return res.status(400).json({ error: 'Invalid role. Must be user, gm, driver, or transport_officer.' });
+  if (!['user', 'gm', 'driver', 'transport_officer', 'executive_officer'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid role. Must be user, gm, driver, transport_officer, or executive_officer.' });
   }
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
@@ -4241,6 +4241,789 @@ app.get('/api/transport/bmcs-list', requireTransportOfficer, async (req, res) =>
     res.json({ bmcs: bmcs || [] });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to fetch BMCs list.' });
+  }
+});
+
+// ─── EXECUTIVE OFFICER MIDDLEWARE & HELPER ────────────────────────────────────
+async function requireExecutiveOfficer(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
+
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+
+  const { data: profile } = await adminClient
+    .from('profiles').select('*').eq('id', user.id).single();
+
+  if (!profile) return res.status(404).json({ error: 'Profile not found.' });
+  if (profile.role !== 'executive_officer' && profile.role !== 'admin') {
+    return res.status(403).json({ error: 'Executive Officer access required.' });
+  }
+  if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
+
+  req.user = user;
+  req.profile = profile;
+  req.adminClient = adminClient;
+  next();
+}
+
+async function getEoAssignedBmcIds(adminClient, eoId) {
+  try {
+    const { data, error } = await adminClient
+      .from('eo_bmc_assignments')
+      .select('bmc_id')
+      .eq('eo_id', eoId)
+      .eq('status', 'active');
+    if (error) {
+      console.warn('Could not fetch eo_bmc_assignments (table might be initializing):', error.message);
+      return [];
+    }
+    return (data || []).map(r => r.bmc_id).filter(Boolean);
+  } catch (e) {
+    return [];
+  }
+}
+
+// ─── EXECUTIVE OFFICER API ENDPOINTS ──────────────────────────────────────────
+
+// GET /api/eo/dashboard — Summary statistics and assigned BMC cards
+app.get('/api/eo/dashboard', requireExecutiveOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const assignedBmcIds = await getEoAssignedBmcIds(adminClient, profile.id);
+
+    if (assignedBmcIds.length === 0) {
+      return res.json({
+        summary: {
+          total_assigned_bmcs: 0,
+          active_bmcs: 0,
+          total_reports: 0,
+          pending_reports: 0,
+          todays_tests: 0,
+          quality_alerts: 0
+        },
+        bmcs: []
+      });
+    }
+
+    // Fetch assigned BMCs
+    const { data: bmcs } = await adminClient
+      .from('bmcs')
+      .select('*')
+      .in('id', assignedBmcIds);
+
+    // Fetch visits for these BMCs
+    const { data: visits } = await adminClient
+      .from('trip_bmc_visits')
+      .select('*')
+      .in('bmc_id', assignedBmcIds)
+      .order('visited_at', { ascending: false });
+
+    const visitIds = (visits || []).map(v => v.id);
+
+    // Fetch FTIR & Gerber tests
+    let ftirTests = [];
+    let gerberTests = [];
+    if (visitIds.length > 0) {
+      const ftirRes = await adminClient.from('ftir_tests').select('*').in('visit_id', visitIds);
+      const gerberRes = await adminClient.from('gerber_tests').select('*').in('visit_id', visitIds);
+      ftirTests = ftirRes.data || [];
+      gerberTests = gerberRes.data || [];
+    }
+
+    // Fetch issues/reports
+    let bmcIssues = [];
+    if (visitIds.length > 0) {
+      const { data: issues } = await adminClient.from('bmc_issues').select('*').in('visit_id', visitIds);
+      bmcIssues = issues || [];
+    }
+
+    // Calculate dates
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Compute stats
+    let todaysTestsCount = 0;
+    let qualityAlertsCount = 0;
+
+    const allTests = [...ftirTests, ...gerberTests];
+    allTests.forEach(t => {
+      const testDate = (t.created_at || t.test_time || '').split('T')[0];
+      if (testDate === todayStr) todaysTestsCount++;
+      if (t.status === 'fail' || t.status === 'warning' || (t.quality_grade && t.quality_grade.toLowerCase().includes('fail'))) {
+        qualityAlertsCount++;
+      }
+    });
+
+    const activeBmcsCount = (bmcs || []).filter(b => b.is_active !== false).length;
+    const totalReports = (bmcIssues || []).length;
+    const pendingReports = (bmcIssues || []).filter(i => i.status === 'open' || i.status === 'pending').length;
+
+    // Build enriched BMC cards
+    const enrichedBmcs = (bmcs || []).map(bmc => {
+      const bmcVisits = (visits || []).filter(v => v.bmc_id === bmc.id);
+      const bmcVisitIds = new Set(bmcVisits.map(v => v.id));
+      const bmcTests = allTests.filter(t => bmcVisitIds.has(t.visit_id));
+      const bmcTodayTests = bmcTests.filter(t => (t.created_at || t.test_time || '').split('T')[0] === todayStr);
+
+      const latestTest = bmcTests.sort((a, b) => new Date(b.created_at || b.test_time || 0) - new Date(a.created_at || a.test_time || 0))[0] || null;
+      const latestVisit = bmcVisits[0] || null;
+      const uniqueWorkers = new Set(bmcVisits.map(v => v.worker_id).filter(Boolean)).size;
+
+      return {
+        id: bmc.id,
+        name: bmc.name,
+        code: bmc.code || bmc.bmc_code || `BMC-${bmc.id.substring(0, 4)}`,
+        district: bmc.district || '—',
+        location: bmc.location || '—',
+        association_name: bmc.association_name || 'Milk Producers Association',
+        is_active: bmc.is_active !== false,
+        status: bmc.is_active !== false ? 'Active' : 'Inactive',
+        assigned_workers_count: uniqueWorkers,
+        todays_test_count: bmcTodayTests.length,
+        latest_test_date: latestTest ? (latestTest.created_at || latestTest.test_time) : null,
+        latest_test_result: latestTest ? (latestTest.status || latestTest.quality_grade || 'Normal') : 'No tests',
+        latest_report_date: latestVisit ? latestVisit.visited_at : null,
+        last_activity: latestVisit ? latestVisit.visited_at : (bmc.updated_at || bmc.created_at)
+      };
+    });
+
+    res.json({
+      summary: {
+        total_assigned_bmcs: assignedBmcIds.length,
+        active_bmcs: activeBmcsCount,
+        total_reports: totalReports,
+        pending_reports: pendingReports,
+        todays_tests: todaysTestsCount,
+        quality_alerts: qualityAlertsCount
+      },
+      bmcs: enrichedBmcs
+    });
+  } catch (err) {
+    console.error('EO Dashboard API Error:', err);
+    res.status(500).json({ error: err.message || 'Failed to load EO dashboard.' });
+  }
+});
+
+// GET /api/eo/bmcs — Get assigned BMCs list
+app.get('/api/eo/bmcs', requireExecutiveOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const assignedBmcIds = await getEoAssignedBmcIds(adminClient, profile.id);
+    if (assignedBmcIds.length === 0) return res.json({ bmcs: [] });
+
+    const { data: bmcs, error } = await adminClient
+      .from('bmcs')
+      .select('*')
+      .in('id', assignedBmcIds)
+      .order('name');
+
+    if (error) throw error;
+    res.json({ bmcs: bmcs || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch assigned BMCs.' });
+  }
+});
+
+// GET /api/eo/bmcs/:id — Get single assigned BMC details
+app.get('/api/eo/bmcs/:id', requireExecutiveOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  const bmcId = req.params.id;
+
+  try {
+    const assignedBmcIds = await getEoAssignedBmcIds(adminClient, profile.id);
+    if (!assignedBmcIds.includes(bmcId)) {
+      return res.status(403).json({ error: 'Access denied. BMC is not assigned to this Executive Officer.' });
+    }
+
+    const { data: bmc, error } = await adminClient
+      .from('bmcs')
+      .select('*')
+      .eq('id', bmcId)
+      .single();
+
+    if (error || !bmc) return res.status(404).json({ error: 'BMC not found.' });
+
+    // Fetch visits & workers
+    const { data: visits } = await adminClient
+      .from('trip_bmc_visits')
+      .select('*')
+      .eq('bmc_id', bmcId)
+      .order('visited_at', { ascending: false });
+
+    const workerIds = Array.from(new Set((visits || []).map(v => v.worker_id).filter(Boolean)));
+    let workerProfiles = [];
+    if (workerIds.length > 0) {
+      const { data: wp } = await adminClient.from('profiles').select('id, name, email').in('id', workerIds);
+      workerProfiles = wp || [];
+    }
+
+    res.json({
+      bmc: {
+        ...bmc,
+        assigned_eo_name: profile.name,
+        assigned_workers: workerProfiles
+      },
+      recent_visits: visits || []
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch BMC details.' });
+  }
+});
+
+// GET /api/eo/test-results — Read-only milk test results across assigned BMCs
+app.get('/api/eo/test-results', requireExecutiveOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  const { dateFilter, startDate, endDate, bmcId, quality, sortBy } = req.query;
+
+  try {
+    const assignedBmcIds = await getEoAssignedBmcIds(adminClient, profile.id);
+    if (assignedBmcIds.length === 0) return res.json({ testResults: [] });
+
+    let allowedBmcIds = assignedBmcIds;
+    if (bmcId) {
+      if (!assignedBmcIds.includes(bmcId)) {
+        return res.status(403).json({ error: 'Access denied for requested BMC.' });
+      }
+      allowedBmcIds = [bmcId];
+    }
+
+    // Fetch visits for allowed BMCs
+    const { data: visits } = await adminClient
+      .from('trip_bmc_visits')
+      .select('id, bmc_id, bmc_name, worker_id, visited_at')
+      .in('bmc_id', allowedBmcIds);
+
+    if (!visits || visits.length === 0) return res.json({ testResults: [] });
+
+    const visitMap = {};
+    visits.forEach(v => { visitMap[v.id] = v; });
+    const visitIds = visits.map(v => v.id);
+
+    // Fetch FTIR & Gerber tests
+    const [ftirRes, gerberRes, profilesRes] = await Promise.all([
+      adminClient.from('ftir_tests').select('*').in('visit_id', visitIds),
+      adminClient.from('gerber_tests').select('*').in('visit_id', visitIds),
+      adminClient.from('profiles').select('id, name')
+    ]);
+
+    const profileMap = {};
+    (profilesRes.data || []).forEach(p => { profileMap[p.id] = p.name; });
+
+    let tests = [];
+
+    (ftirRes.data || []).forEach(t => {
+      const v = visitMap[t.visit_id] || {};
+      tests.push({
+        id: `ftir_${t.id}`,
+        raw_id: t.id,
+        test_type: 'FTIR',
+        bmc_id: v.bmc_id,
+        bmc_name: v.bmc_name || 'BMC',
+        test_time: t.created_at || t.test_time || v.visited_at,
+        fat: t.fat != null ? Number(t.fat) : null,
+        snf: t.snf != null ? Number(t.snf) : null,
+        clr: t.clr != null ? Number(t.clr) : null,
+        protein: t.protein != null ? Number(t.protein) : null,
+        lactose: t.lactose != null ? Number(t.lactose) : null,
+        added_water: t.added_water != null ? Number(t.added_water) : 0,
+        milk_quantity: t.quantity != null ? Number(t.quantity) : null,
+        temperature: t.temperature != null ? Number(t.temperature) : null,
+        quality_grade: t.status || t.quality_grade || 'PASS',
+        rate: t.rate != null ? Number(t.rate) : null,
+        worker_name: profileMap[v.worker_id] || 'Worker',
+        remarks: t.remarks || '',
+        photo_url: t.photo_url || null
+      });
+    });
+
+    (gerberRes.data || []).forEach(t => {
+      const v = visitMap[t.visit_id] || {};
+      tests.push({
+        id: `gerber_${t.id}`,
+        raw_id: t.id,
+        test_type: 'Gerber',
+        bmc_id: v.bmc_id,
+        bmc_name: v.bmc_name || 'BMC',
+        test_time: t.created_at || t.test_time || v.visited_at,
+        fat: t.fat != null ? Number(t.fat) : null,
+        snf: t.snf != null ? Number(t.snf) : null,
+        clr: t.clr != null ? Number(t.clr) : null,
+        milk_quantity: t.quantity != null ? Number(t.quantity) : null,
+        temperature: t.temperature != null ? Number(t.temperature) : null,
+        quality_grade: t.status || t.quality_grade || 'PASS',
+        rate: t.rate != null ? Number(t.rate) : null,
+        worker_name: profileMap[v.worker_id] || 'Worker',
+        remarks: t.remarks || '',
+        photo_url: t.photo_url || null
+      });
+    });
+
+    // Date filtering
+    const now = new Date();
+    if (dateFilter === 'today') {
+      const todayStr = now.toISOString().split('T')[0];
+      tests = tests.filter(t => (t.test_time || '').startsWith(todayStr));
+    } else if (dateFilter === 'yesterday') {
+      const y = new Date(now);
+      y.setDate(now.getDate() - 1);
+      const yStr = y.toISOString().split('T')[0];
+      tests = tests.filter(t => (t.test_time || '').startsWith(yStr));
+    } else if (dateFilter === 'this_week') {
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      tests = tests.filter(t => new Date(t.test_time) >= startOfWeek);
+    } else if (dateFilter === 'this_month') {
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      tests = tests.filter(t => new Date(t.test_time) >= startOfMonth);
+    } else if (startDate && endDate) {
+      const s = new Date(startDate);
+      const e = new Date(endDate);
+      e.setHours(23, 59, 59, 999);
+      tests = tests.filter(t => {
+        const d = new Date(t.test_time);
+        return d >= s && d <= e;
+      });
+    }
+
+    // Quality filter
+    if (quality && quality !== 'all') {
+      tests = tests.filter(t => String(t.quality_grade).toLowerCase() === quality.toLowerCase());
+    }
+
+    // Sorting
+    if (sortBy === 'oldest') {
+      tests.sort((a, b) => new Date(a.test_time) - new Date(b.test_time));
+    } else if (sortBy === 'highest_fat') {
+      tests.sort((a, b) => (b.fat || 0) - (a.fat || 0));
+    } else if (sortBy === 'lowest_fat') {
+      tests.sort((a, b) => (a.fat || 0) - (b.fat || 0));
+    } else if (sortBy === 'highest_snf') {
+      tests.sort((a, b) => (b.snf || 0) - (a.snf || 0));
+    } else if (sortBy === 'lowest_snf') {
+      tests.sort((a, b) => (a.snf || 0) - (b.snf || 0));
+    } else {
+      // Default: latest
+      tests.sort((a, b) => new Date(b.test_time) - new Date(a.test_time));
+    }
+
+    res.json({ testResults: tests });
+  } catch (err) {
+    console.error('EO Test Results Error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch test results.' });
+  }
+});
+
+// GET /api/eo/test-results/:id — Read-only single test detail
+app.get('/api/eo/test-results/:id', requireExecutiveOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  const testIdStr = req.params.id;
+
+  try {
+    const assignedBmcIds = await getEoAssignedBmcIds(adminClient, profile.id);
+    const isFtir = testIdStr.startsWith('ftir_');
+    const rawId = testIdStr.replace('ftir_', '').replace('gerber_', '');
+
+    const table = isFtir ? 'ftir_tests' : 'gerber_tests';
+    const { data: testRecord, error } = await adminClient.from(table).select('*').eq('id', rawId).single();
+
+    if (error || !testRecord) return res.status(404).json({ error: 'Test result not found.' });
+
+    // Verify BMC assignment
+    const { data: visit } = await adminClient.from('trip_bmc_visits').select('*').eq('id', testRecord.visit_id).single();
+    if (!visit || !assignedBmcIds.includes(visit.bmc_id)) {
+      return res.status(403).json({ error: 'Access denied. Test result belongs to an unassigned BMC.' });
+    }
+
+    const { data: worker } = await adminClient.from('profiles').select('name').eq('id', visit.worker_id).single();
+
+    res.json({
+      testResult: {
+        ...testRecord,
+        test_type: isFtir ? 'FTIR' : 'Gerber',
+        bmc_name: visit.bmc_name,
+        worker_name: worker ? worker.name : 'Worker',
+        visited_at: visit.visited_at
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch test result details.' });
+  }
+});
+
+// GET /api/eo/reports — Worker reports & visits for assigned BMCs
+app.get('/api/eo/reports', requireExecutiveOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const assignedBmcIds = await getEoAssignedBmcIds(adminClient, profile.id);
+    if (assignedBmcIds.length === 0) return res.json({ reports: [] });
+
+    // Fetch visits for assigned BMCs
+    const { data: visits } = await adminClient
+      .from('trip_bmc_visits')
+      .select('*')
+      .in('bmc_id', assignedBmcIds)
+      .order('visited_at', { ascending: false });
+
+    const visitIds = (visits || []).map(v => v.id);
+
+    let issues = [];
+    if (visitIds.length > 0) {
+      const { data: bmcIssues } = await adminClient.from('bmc_issues').select('*').in('visit_id', visitIds);
+      issues = bmcIssues || [];
+    }
+
+    const { data: profiles } = await adminClient.from('profiles').select('id, name');
+    const profileMap = {};
+    (profiles || []).forEach(p => { profileMap[p.id] = p.name; });
+
+    const issueMap = {};
+    issues.forEach(i => { issueMap[i.visit_id] = i; });
+
+    const reports = (visits || []).map(v => {
+      const issue = issueMap[v.id];
+      return {
+        id: v.id,
+        bmc_id: v.bmc_id,
+        bmc_name: v.bmc_name || 'BMC',
+        worker_id: v.worker_id,
+        worker_name: profileMap[v.worker_id] || 'Worker',
+        visited_at: v.visited_at,
+        report_type: issue ? (issue.issue_type || 'Worker Inspection') : 'BMC Visit Report',
+        description: issue ? issue.description : (v.remarks || 'Standard BMC inspection completed.'),
+        status: issue ? (issue.status || 'open') : 'completed',
+        photos: v.photos || (issue && issue.photos) || [],
+        audio_url: v.audio_url || null
+      };
+    });
+
+    res.json({ reports });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch worker reports.' });
+  }
+});
+
+// GET /api/eo/reports/:id — Read-only single report detail
+app.get('/api/eo/reports/:id', requireExecutiveOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const assignedBmcIds = await getEoAssignedBmcIds(adminClient, profile.id);
+    const { data: visit, error } = await adminClient.from('trip_bmc_visits').select('*').eq('id', req.params.id).single();
+
+    if (error || !visit) return res.status(404).json({ error: 'Report not found.' });
+
+    if (!assignedBmcIds.includes(visit.bmc_id)) {
+      return res.status(403).json({ error: 'Access denied. Report belongs to an unassigned BMC.' });
+    }
+
+    const { data: worker } = await adminClient.from('profiles').select('name').eq('id', visit.worker_id).single();
+    const { data: issue } = await adminClient.from('bmc_issues').select('*').eq('visit_id', visit.id).single();
+
+    res.json({
+      report: {
+        id: visit.id,
+        bmc_id: visit.bmc_id,
+        bmc_name: visit.bmc_name,
+        worker_name: worker ? worker.name : 'Worker',
+        visited_at: visit.visited_at,
+        status: visit.status,
+        remarks: visit.remarks,
+        issue: issue || null,
+        photos: visit.photos || []
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch report detail.' });
+  }
+});
+
+// GET /api/eo/worker-assignments — Worker assignments & tasks for assigned BMCs
+app.get('/api/eo/worker-assignments', requireExecutiveOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const assignedBmcIds = await getEoAssignedBmcIds(adminClient, profile.id);
+    if (assignedBmcIds.length === 0) return res.json({ assignments: [] });
+
+    const { data: trips } = await adminClient
+      .from('trips')
+      .select('*')
+      .neq('status', 'deleted')
+      .order('created_at', { ascending: false });
+
+    const { data: visits } = await adminClient
+      .from('trip_bmc_visits')
+      .select('*')
+      .in('bmc_id', assignedBmcIds);
+
+    const relevantTripIds = new Set((visits || []).map(v => v.trip_id));
+    const relevantTrips = (trips || []).filter(t => relevantTripIds.has(t.id));
+
+    const { data: profiles } = await adminClient.from('profiles').select('id, name');
+    const profileMap = {};
+    (profiles || []).forEach(p => { profileMap[p.id] = p.name; });
+
+    const assignments = relevantTrips.map(trip => {
+      const tripVisits = (visits || []).filter(v => v.trip_id === trip.id);
+      return {
+        id: trip.id,
+        trip_number: trip.trip_number,
+        worker_name: profileMap[trip.worker_id] || trip.driver_name || 'Worker',
+        bmcs_covered: tripVisits.map(v => v.bmc_name).join(', ') || 'Assigned BMC',
+        date: trip.created_at,
+        status: trip.status
+      };
+    });
+
+    res.json({ assignments });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch worker assignments.' });
+  }
+});
+
+// GET /api/eo/summary — Aggregated chart data for assigned BMCs
+app.get('/api/eo/summary', requireExecutiveOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const assignedBmcIds = await getEoAssignedBmcIds(adminClient, profile.id);
+    if (assignedBmcIds.length === 0) {
+      return res.json({
+        dailyTests: [],
+        fatTrend: [],
+        snfTrend: [],
+        qualityDistribution: { pass: 0, warning: 0, fail: 0 },
+        workerActivity: []
+      });
+    }
+
+    const { data: visits } = await adminClient
+      .from('trip_bmc_visits')
+      .select('*')
+      .in('bmc_id', assignedBmcIds);
+
+    if (!visits || visits.length === 0) {
+      return res.json({
+        dailyTests: [],
+        fatTrend: [],
+        snfTrend: [],
+        qualityDistribution: { pass: 0, warning: 0, fail: 0 },
+        workerActivity: []
+      });
+    }
+
+    const visitIds = visits.map(v => v.id);
+    const [ftirRes, gerberRes, profilesRes] = await Promise.all([
+      adminClient.from('ftir_tests').select('*').in('visit_id', visitIds),
+      adminClient.from('gerber_tests').select('*').in('visit_id', visitIds),
+      adminClient.from('profiles').select('id, name')
+    ]);
+
+    const profileMap = {};
+    (profilesRes.data || []).forEach(p => { profileMap[p.id] = p.name; });
+
+    const allTests = [...(ftirRes.data || []), ...(gerberRes.data || [])];
+
+    // Aggregation maps
+    const dateCounts = {};
+    const fatByDate = {};
+    const snfByDate = {};
+    const workerCounts = {};
+    let passCount = 0, warnCount = 0, failCount = 0;
+
+    allTests.forEach(t => {
+      const dateStr = (t.created_at || t.test_time || new Date().toISOString()).split('T')[0];
+      dateCounts[dateStr] = (dateCounts[dateStr] || 0) + 1;
+
+      if (t.fat != null) {
+        if (!fatByDate[dateStr]) fatByDate[dateStr] = [];
+        fatByDate[dateStr].push(Number(t.fat));
+      }
+
+      if (t.snf != null) {
+        if (!snfByDate[dateStr]) snfByDate[dateStr] = [];
+        snfByDate[dateStr].push(Number(t.snf));
+      }
+
+      const st = String(t.status || t.quality_grade || 'pass').toLowerCase();
+      if (st.includes('fail')) failCount++;
+      else if (st.includes('warn')) warnCount++;
+      else passCount++;
+    });
+
+    visits.forEach(v => {
+      const workerName = profileMap[v.worker_id] || 'Worker';
+      workerCounts[workerName] = (workerCounts[workerName] || 0) + 1;
+    });
+
+    const sortedDates = Object.keys(dateCounts).sort();
+
+    res.json({
+      dailyTests: sortedDates.map(d => ({ date: d, count: dateCounts[d] })),
+      fatTrend: sortedDates.map(d => ({
+        date: d,
+        avgFat: fatByDate[d] ? Number((fatByDate[d].reduce((a, b) => a + b, 0) / fatByDate[d].length).toFixed(2)) : 4.0
+      })),
+      snfTrend: sortedDates.map(d => ({
+        date: d,
+        avgSnf: snfByDate[d] ? Number((snfByDate[d].reduce((a, b) => a + b, 0) / snfByDate[d].length).toFixed(2)) : 8.5
+      })),
+      qualityDistribution: { pass: passCount, warning: warnCount, fail: failCount },
+      workerActivity: Object.keys(workerCounts).map(w => ({ worker: w, count: workerCounts[w] }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch summary metrics.' });
+  }
+});
+
+
+// ─── ADMIN EXECUTIVE OFFICER MANAGEMENT ENDPOINTS ─────────────────────────────
+
+// GET /api/admin/executive-officers — Get list of EOs and their assigned BMCs
+app.get('/api/admin/executive-officers', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: eoProfiles, error: pError } = await adminClient
+      .from('profiles')
+      .select('id, name, email, status, created_at')
+      .eq('role', 'executive_officer');
+
+    if (pError) throw pError;
+
+    // Fetch active BMC assignments
+    const { data: assignments, error: assignmentError } = await adminClient
+      .from('eo_bmc_assignments')
+      .select('eo_id, bmc_id, assigned_at')
+      .eq('status', 'active');
+
+    if (assignmentError) throw assignmentError;
+
+    const bmcIds = Array.from(new Set((assignments || []).map(a => a.bmc_id)));
+    let bmcMap = {};
+    if (bmcIds.length > 0) {
+      const { data: bmcs, error: bmcError } = await adminClient.from('bmcs').select('id, name, district, location').in('id', bmcIds);
+      if (bmcError) throw bmcError;
+      (bmcs || []).forEach(b => { bmcMap[b.id] = b; });
+    }
+
+    const eoList = (eoProfiles || []).map(eo => {
+      const eoAssignments = (assignments || []).filter(a => a.eo_id === eo.id);
+      const assignedBmcs = eoAssignments.map(a => bmcMap[a.bmc_id]).filter(Boolean);
+
+      return {
+        id: eo.id,
+        name: eo.name,
+        email: eo.email,
+        phone: eo.phone || '—',
+        status: eo.status,
+        created_at: eo.created_at,
+        assigned_bmc_count: assignedBmcs.length,
+        assigned_bmcs: assignedBmcs
+      };
+    });
+
+    res.json({ executive_officers: eoList });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch executive officers.' });
+  }
+});
+
+// POST /api/admin/executive-officers/:id/bmcs — Assign a BMC to an EO
+app.post('/api/admin/executive-officers/:id/bmcs', requireAdminRole, async (req, res) => {
+  const { adminClient, profile: adminProfile } = req;
+  const eoId = req.params.id;
+  const { bmc_id, bmc_ids } = req.body;
+  const targetBmcIds = bmc_ids !== undefined ? bmc_ids : (bmc_id ? [bmc_id] : []);
+
+  try {
+    // Verify target user is an EO
+    const { data: eoUser } = await adminClient.from('profiles').select('id, role, name').eq('id', eoId).single();
+    if (!eoUser || eoUser.role !== 'executive_officer') {
+      return res.status(400).json({ error: 'Selected user is not an Executive Officer.' });
+    }
+
+    // Get current active assignments
+    const { data: existing } = await adminClient
+      .from('eo_bmc_assignments')
+      .select('id, bmc_id')
+      .eq('eo_id', eoId)
+      .eq('status', 'active');
+
+    const currentAssignedIds = (existing || []).map(a => a.bmc_id);
+    
+    // BMCs to deactivate
+    const toDeactivate = currentAssignedIds.filter(id => !targetBmcIds.includes(id));
+    if (toDeactivate.length > 0) {
+      const { error: deactError } = await adminClient
+        .from('eo_bmc_assignments')
+        .update({ status: 'inactive', updated_at: new Date().toISOString() })
+        .eq('eo_id', eoId)
+        .eq('status', 'active')
+        .in('bmc_id', toDeactivate);
+      if (deactError) throw deactError;
+    }
+
+    // BMCs to activate/insert
+    const toActivate = targetBmcIds.filter(id => !currentAssignedIds.includes(id));
+    if (toActivate.length > 0) {
+      for (const bId of toActivate) {
+        const { data: inactiveRecord, error: findError } = await adminClient
+          .from('eo_bmc_assignments')
+          .select('id')
+          .eq('eo_id', eoId)
+          .eq('bmc_id', bId)
+          .eq('status', 'inactive')
+          .maybeSingle();
+
+        if (findError) throw findError;
+
+        if (inactiveRecord) {
+          const { error: updateError } = await adminClient
+            .from('eo_bmc_assignments')
+            .update({ status: 'active', updated_at: new Date().toISOString() })
+            .eq('id', inactiveRecord.id);
+          if (updateError) throw updateError;
+        } else {
+          const { error: insertError } = await adminClient
+            .from('eo_bmc_assignments')
+            .insert({
+              eo_id: eoId,
+              bmc_id: bId,
+              assigned_by: adminProfile.id,
+              assigned_at: new Date().toISOString(),
+              status: 'active'
+            });
+          if (insertError) throw insertError;
+        }
+      }
+    }
+
+    res.status(201).json({
+      message: `BMC assignments updated successfully for ${eoUser.name}.`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to update BMC assignments.' });
+  }
+});
+
+// DELETE /api/admin/executive-officers/:id/bmcs/:bmcId — Unassign a BMC from an EO
+app.delete('/api/admin/executive-officers/:id/bmcs/:bmcId', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const { id: eoId, bmcId } = req.params;
+
+  try {
+    const { error } = await adminClient
+      .from('eo_bmc_assignments')
+      .update({ status: 'inactive', updated_at: new Date().toISOString() })
+      .eq('eo_id', eoId)
+      .eq('bmc_id', bmcId)
+      .eq('status', 'active');
+
+    if (error) throw error;
+
+    res.json({ message: 'BMC assignment removed successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to remove BMC assignment.' });
   }
 });
 

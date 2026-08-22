@@ -110,6 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Route based on role
             if (profile.role === 'gm') {
               window.location.href = getPath('gm.html');
+            } else if (profile.role === 'executive_officer') {
+              window.location.href = getPath('eo/dashboard.html');
             } else if (profile.role === 'transport_officer' || profile.role === 'driver') {
               window.location.href = getPath('transport.html');
             } else {

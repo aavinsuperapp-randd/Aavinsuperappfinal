@@ -60,6 +60,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
+    // Load Executive Officers if on executive-officers page
+    if (path.includes('executive-officers.html')) {
+      await setupExecutiveOfficersPage();
+    }
+
     // Load registrations if on verification page
     if (path.includes('verification.html')) {
       setupVerificationPage();
@@ -99,7 +104,7 @@ function setupVerificationPage() {
       activeTab.classList.remove('btn-outline');
     }
     currentUserFilter = filter;
-    renderRegistrations();
+    renderUserRegistrations();
   }
 
   if (tabPending) tabPending.addEventListener('click', () => setTab(tabPending, 'pending'));
@@ -107,96 +112,77 @@ function setupVerificationPage() {
   if (tabApproved) tabApproved.addEventListener('click', () => setTab(tabApproved, 'approved'));
 }
 
-async function loadUserRegistrations() {
+async function loadUserRegistrations(filter) {
+  if (filter) currentUserFilter = filter;
   const container = document.getElementById('pending-list-container');
   if (!container) return;
-  
-  container.innerHTML = `
-    <tr>
-      <td colspan="6" class="text-center">
-        <div class="spinner" style="margin: 20px auto;"></div>
-      </td>
-    </tr>
-  `;
-  
+
   try {
-    const res = await adminFetch('/api/admin/users');
-    allProfilesCache = res.users || [];
-    renderRegistrations();
+    const data = await adminFetch('/api/admin/users');
+    allProfilesCache = data.users || [];
+    renderUserRegistrations();
   } catch (err) {
-    console.error("❌ Failed to query profiles:", err);
-    showToast(err.message || "Failed to load verification list.", "error");
-    container.innerHTML = `
-      <tr>
-        <td colspan="6" class="text-center text-muted">Error loading users from database.</td>
-      </tr>
-    `;
+    console.error("❌ Failed to fetch user registrations:", err);
+    container.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">Failed to load registration data (${err.message}).</td></tr>`;
   }
 }
 
-function renderRegistrations() {
+function renderUserRegistrations() {
   const container = document.getElementById('pending-list-container');
   if (!container) return;
 
-  let filtered = [...allProfilesCache];
+  let filtered = allProfilesCache;
   if (currentUserFilter === 'pending') {
-    filtered = filtered.filter(p => p.status === 'pending');
+    filtered = allProfilesCache.filter(u => u.status === 'pending');
   } else if (currentUserFilter === 'approved') {
-    filtered = filtered.filter(p => p.status === 'approved');
+    filtered = allProfilesCache.filter(u => u.status === 'approved');
   }
-  
-  if (!filtered || filtered.length === 0) {
-    container.innerHTML = `
-      <tr>
-        <td colspan="6">
-          <div class="empty-state">
-            <div class="empty-state-icon">📋</div>
-            <div class="empty-state-title">No user records found</div>
-            <div class="empty-state-desc">No accounts found matching filter '${currentUserFilter.toUpperCase()}'.</div>
-          </div>
-        </td>
-      </tr>
-    `;
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">No users found for this category.</td></tr>`;
     return;
   }
-  
+
   container.innerHTML = '';
-  filtered.forEach(p => {
+  filtered.forEach(user => {
     const row = document.createElement('tr');
     
-    const regDate = new Date(p.created_at || new Date()).toLocaleDateString('en-IN', {
-      day: 'numeric', month: 'short', year: 'numeric'
-    });
-    
-    const avatarImg = p.profile_image_url 
-      ? `<img src="${p.profile_image_url}" alt="${p.name}" class="avatar avatar-sm">`
-      : `<div class="avatar avatar-sm" style="display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--gray-500);">${p.name ? p.name.charAt(0) : 'U'}</div>`;
-      
-    const statusClass = p.status === 'approved' ? 'badge-success' : (p.status === 'rejected' ? 'badge-danger' : 'badge-pending');
+    const roleBadge = user.role === 'admin' ? '<span class="badge badge-purple">Admin</span>' :
+                      user.role === 'gm' ? '<span class="badge badge-primary">GM Executive</span>' :
+                      user.role === 'transport_officer' ? '<span class="badge badge-info">Transport Manager</span>' :
+                      user.role === 'driver' ? '<span class="badge badge-warning">Driver</span>' :
+                      user.role === 'executive_officer' ? '<span class="badge badge-secondary">Executive Officer</span>' :
+                      '<span class="badge badge-neutral">Field Worker</span>';
+
+    const statusBadge = user.status === 'approved' ? '<span class="badge badge-success">Approved</span>' :
+                        user.status === 'rejected' ? '<span class="badge badge-danger">Rejected</span>' :
+                        '<span class="badge badge-warning">Pending Approval</span>';
+
+    const dobFormatted = user.dob ? new Date(user.dob).toLocaleDateString('en-IN') : 'N/A';
+    const regDate = user.created_at ? new Date(user.created_at).toLocaleDateString('en-IN') : 'N/A';
 
     row.innerHTML = `
       <td>
-        <div class="user-info-cell">
-          ${avatarImg}
-          <div class="user-details">
-            <span class="user-name">${p.name || 'Anonymous User'}</span>
-            <span class="user-email">${p.email}</span>
+        <div class="user-cell">
+          <div class="user-avatar-sm">${user.name ? user.name.charAt(0).toUpperCase() : 'U'}</div>
+          <div>
+            <div class="user-name-bold">${user.name || 'Unnamed User'}</div>
+            <div class="user-email-sub">${user.email}</div>
           </div>
         </div>
       </td>
-      <td><span class="badge badge-neutral">${(p.role || 'user').toUpperCase()}</span></td>
-      <td>${p.dob ? new Date(p.dob).toLocaleDateString('en-IN') : 'N/A'}</td>
+      <td>${roleBadge}</td>
+      <td>${dobFormatted}</td>
       <td>${regDate}</td>
-      <td><span class="badge ${statusClass}">${(p.status || 'pending').toUpperCase()}</span></td>
+      <td>${statusBadge}</td>
       <td>
-        <div class="actions-cell" style="display:flex; gap:6px;">
-          ${p.status !== 'approved' ? `<button class="btn btn-primary btn-sm" onclick="processApproval('${p.id}', 'approved')">Accept</button>` : ''}
-          ${p.status !== 'rejected' ? `<button class="btn btn-outline btn-sm" onclick="processApproval('${p.id}', 'rejected')">Reject</button>` : ''}
-          <button class="btn btn-danger btn-sm" onclick="deleteUser('${p.id}')">🗑️</button>
+        <div class="d-flex gap-1">
+          ${user.status !== 'approved' ? `<button class="btn btn-success btn-sm" onclick="processApproval('${user.id}', 'approved')">Approve</button>` : ''}
+          ${user.status !== 'rejected' ? `<button class="btn btn-danger btn-sm" onclick="processApproval('${user.id}', 'rejected')">Reject</button>` : ''}
+          <button class="btn btn-outline btn-sm text-danger" onclick="deleteUser('${user.id}')" title="Delete User">🗑️</button>
         </div>
       </td>
     `;
-    
     container.appendChild(row);
   });
 }
@@ -222,5 +208,198 @@ window.deleteUser = async function(userId) {
     await loadUserRegistrations();
   } catch (err) {
     showToast(err.message || 'Failed to delete user.', 'error');
+  }
+};
+
+// ─── EXECUTIVE OFFICERS PAGE LOGIC ────────────────────────────────────────────
+let eoCache = [];
+let allBmcsCache = [];
+
+async function setupExecutiveOfficersPage() {
+  await loadExecutiveOfficersData();
+
+  const modal = document.getElementById('assign-bmc-modal');
+  const btnOpen = document.getElementById('btn-open-assign-modal');
+  const btnClose = document.getElementById('close-assign-modal');
+  const btnCancel = document.getElementById('cancel-assign-modal');
+  const form = document.getElementById('assign-bmc-form');
+
+  if (btnOpen) {
+    btnOpen.addEventListener('click', () => {
+      populateAssignModalOptions();
+      if (modal) modal.classList.remove('hidden');
+    });
+  }
+
+  const eoSelect = document.getElementById('modal-select-eo');
+  if (eoSelect) {
+    eoSelect.addEventListener('change', (e) => {
+      populateAssignModalOptions(e.target.value);
+    });
+  }
+
+  const closeModal = () => { if (modal) modal.classList.add('hidden'); };
+  if (btnClose) btnClose.addEventListener('click', closeModal);
+  if (btnCancel) btnCancel.addEventListener('click', closeModal);
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const eoId = document.getElementById('modal-select-eo').value;
+      const selectedChips = document.querySelectorAll('#modal-bmc-chips-container .bmc-chip.selected');
+      const bmcIds = Array.from(selectedChips).map(chip => chip.getAttribute('data-id'));
+
+      if (!eoId) {
+        showToast('Please select an Executive Officer.', 'error');
+        return;
+      }
+
+      try {
+        await adminFetch(`/api/admin/executive-officers/${eoId}/bmcs`, {
+          method: 'POST',
+          body: JSON.stringify({ bmc_ids: bmcIds })
+        });
+        showToast('BMC assignments updated successfully!', 'success');
+        closeModal();
+        await loadExecutiveOfficersData();
+      } catch (err) {
+        showToast(err.message || 'Failed to update BMC assignments.', 'error');
+      }
+    });
+  }
+}
+
+async function loadExecutiveOfficersData() {
+  const container = document.getElementById('eo-cards-container');
+  try {
+    const [eoData, bmcData] = await Promise.all([
+      adminFetch('/api/admin/executive-officers'),
+      adminFetch('/api/admin/bmcs').catch(() => adminFetch('/api/transport/bmcs-list'))
+    ]);
+
+    eoCache = eoData.executive_officers || [];
+    allBmcsCache = bmcData.bmcs || [];
+
+    // Stats
+    const totalEo = eoCache.length;
+    const activeEo = eoCache.filter(e => e.status === 'approved').length;
+    let totalAssigned = 0;
+    eoCache.forEach(e => totalAssigned += (e.assigned_bmc_count || 0));
+
+    if (document.getElementById('stat-total-eo')) document.getElementById('stat-total-eo').textContent = totalEo;
+    if (document.getElementById('stat-assigned-bmcs')) document.getElementById('stat-assigned-bmcs').textContent = totalAssigned;
+    if (document.getElementById('stat-active-eo')) document.getElementById('stat-active-eo').textContent = activeEo;
+
+    renderExecutiveOfficerCards();
+  } catch (err) {
+    console.error('Failed to load Executive Officers:', err);
+    if (container) {
+      container.innerHTML = `<div class="text-danger p-4">Failed to load Executive Officers (${err.message}).</div>`;
+    }
+  }
+}
+
+function renderExecutiveOfficerCards() {
+  const container = document.getElementById('eo-cards-container');
+  if (!container) return;
+
+  if (eoCache.length === 0) {
+    container.innerHTML = `
+      <div class="card p-4 text-center text-muted" style="grid-column: 1 / -1;">
+        <h4>No Executive Officers Found</h4>
+        <p class="text-sm mt-1">There are currently no users registered with the Executive Officer role.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = '';
+  eoCache.forEach(eo => {
+    const card = document.createElement('div');
+    card.className = 'eo-card';
+
+    const bmcTagsHtml = (eo.assigned_bmcs || []).map(bmc => `
+      <span class="bmc-tag">
+        🏭 ${bmc.name} (${bmc.district || 'BMC'})
+        <span class="remove-btn" title="Unassign BMC" onclick="unassignBmcFromEo('${eo.id}', '${bmc.id}', '${bmc.name}')">✕</span>
+      </span>
+    `).join('');
+
+    card.innerHTML = `
+      <div>
+        <div class="eo-card-header">
+          <div>
+            <div class="eo-name">👔 ${eo.name || 'Executive Officer'}</div>
+            <div class="eo-email">📧 ${eo.email}</div>
+          </div>
+          <span class="badge ${eo.status === 'approved' ? 'badge-success' : 'badge-warning'}">
+            ${eo.status === 'approved' ? 'Active' : 'Pending'}
+          </span>
+        </div>
+
+        <div style="font-size: 0.8rem; font-weight: 700; color: #64748B; margin-top: 10px;">
+          ASSIGNED BMCS (${eo.assigned_bmc_count || 0})
+        </div>
+
+        <div class="eo-bmc-tags">
+          ${bmcTagsHtml || '<div class="empty-bmc-text">No BMCs assigned yet. Click below to assign.</div>'}
+        </div>
+      </div>
+
+      <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #F1F5F9; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 0.75rem; color: #94A3B8;">Phone: ${eo.phone}</span>
+        <button class="btn btn-outline btn-sm" style="font-size: 0.78rem;" onclick="openAssignForSpecificEo('${eo.id}')">
+          ✏️ Edit Assignments
+        </button>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function populateAssignModalOptions(selectedEoId = '') {
+  const eoSelect = document.getElementById('modal-select-eo');
+  const bmcContainer = document.getElementById('modal-bmc-chips-container');
+
+  if (eoSelect) {
+    eoSelect.innerHTML = '<option value="">-- Choose Officer --</option>' +
+      eoCache.map(e => `<option value="${e.id}" ${e.id === selectedEoId ? 'selected' : ''}>${e.name} (${e.email})</option>`).join('');
+    eoSelect.value = selectedEoId;
+  }
+
+  if (bmcContainer) {
+    const selectedEo = eoCache.find(e => e.id === selectedEoId);
+    const assignedBmcIds = selectedEo ? (selectedEo.assigned_bmcs || []).map(b => b.id) : [];
+
+    if (allBmcsCache.length === 0) {
+      bmcContainer.innerHTML = '<div class="text-sm text-muted p-2">No BMCs available.</div>';
+    } else {
+      bmcContainer.innerHTML = allBmcsCache.map(b => {
+        const isSelected = assignedBmcIds.includes(b.id);
+        return `
+          <div class="bmc-chip ${isSelected ? 'selected' : ''}" data-id="${b.id}" onclick="this.classList.toggle('selected')">
+            <span style="font-weight: 700;">${b.name}</span>
+            <span style="font-size: 0.75rem; color: inherit; opacity: 0.8;">${b.location || b.district || 'BMC'}</span>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+}
+
+window.openAssignForSpecificEo = function(eoId) {
+  populateAssignModalOptions(eoId);
+  const modal = document.getElementById('assign-bmc-modal');
+  if (modal) modal.classList.remove('hidden');
+};
+
+window.unassignBmcFromEo = async function(eoId, bmcId, bmcName) {
+  if (!confirm(`Are you sure you want to unassign BMC '${bmcName}' from this Executive Officer?`)) return;
+  try {
+    await adminFetch(`/api/admin/executive-officers/${eoId}/bmcs/${bmcId}`, { method: 'DELETE' });
+    showToast(`BMC '${bmcName}' unassigned successfully.`, 'success');
+    await loadExecutiveOfficersData();
+  } catch (err) {
+    showToast(err.message || 'Failed to remove BMC assignment.', 'error');
   }
 };
