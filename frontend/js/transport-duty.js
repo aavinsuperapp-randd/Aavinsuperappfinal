@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('duty-search-input').addEventListener('input', filterDuties);
 
   await loadDuties();
+  setupAllActiveMap();
 });
 
 function setupSidebarToggle() {
@@ -743,26 +744,143 @@ async function updateMapData(tripId) {
       intrContainer.classList.add('hidden');
     }
 
-    // Draw Map Elements
+    // Draw Map Elements — Connect sequential GPS points using a RED Leaflet polyline
     if (dutyMapPolyline) dutyMap.removeLayer(dutyMapPolyline);
     if (dutyMapMarker) dutyMap.removeLayer(dutyMapMarker);
 
-    const latlngs = journey.map(point => [point.lat, point.lng]);
-    if (latestLoc) {
-      latlngs.push([latestLoc.lat, latestLoc.lng]);
+    const latlngs = journey.map(point => [Number(point.lat), Number(point.lng)]).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+    if (latestLoc && !isNaN(latestLoc.lat) && !isNaN(latestLoc.lng)) {
+      const lastPt = latlngs.length > 0 ? latlngs[latlngs.length - 1] : null;
+      if (!lastPt || lastPt[0] !== Number(latestLoc.lat) || lastPt[1] !== Number(latestLoc.lng)) {
+        latlngs.push([Number(latestLoc.lat), Number(latestLoc.lng)]);
+      }
     }
 
     if (latlngs.length > 0) {
-      dutyMapPolyline = L.polyline(latlngs, { color: '#2563EB', weight: 4 }).addTo(dutyMap);
+      dutyMapPolyline = L.polyline(latlngs, { color: '#DC2626', weight: 4, opacity: 0.9 }).addTo(dutyMap);
       dutyMap.fitBounds(dutyMapPolyline.getBounds());
     }
 
-    if (latestLoc) {
-      dutyMapMarker = L.marker([latestLoc.lat, latestLoc.lng]).addTo(dutyMap);
-      dutyMapMarker.bindPopup('<b>Driver Current Position</b><br>' + formatTime(latestLoc.timestamp)).openPopup();
+    if (latestLoc && !isNaN(latestLoc.lat) && !isNaN(latestLoc.lng)) {
+      dutyMapMarker = L.marker([Number(latestLoc.lat), Number(latestLoc.lng)]).addTo(dutyMap);
+      dutyMapMarker.bindPopup(`<b>${trip.driver_name || 'Driver'}</b><br>Current Location<br>Updated: ${formatTime(latestLoc.timestamp)}`).openPopup();
     }
   } catch (err) {
     console.error('Failed to update map data:', err);
   }
 }
+
+// ─── ALL ACTIVE DUTIES LIVE MAP ────────────────────────────────
+let allActiveMap = null;
+let allActiveMapMarkers = {};
+let allActiveMapPolylines = {};
+let allActiveMapInterval = null;
+
+function setupAllActiveMap() {
+  const mapDiv = document.getElementById('all-active-duties-map');
+  if (!mapDiv) return;
+
+  if (!allActiveMap) {
+    allActiveMap = L.map('all-active-duties-map').setView([11.1271, 78.6569], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(allActiveMap);
+  }
+
+  setTimeout(() => {
+    allActiveMap.invalidateSize();
+    updateAllActiveMapData();
+  }, 400);
+
+  if (allActiveMapInterval) clearInterval(allActiveMapInterval);
+  allActiveMapInterval = setInterval(updateAllActiveMapData, 10000);
+}
+
+async function updateAllActiveMapData() {
+  if (!allActiveMap) return;
+
+  try {
+    const data = await transportFetch('/api/transport/active-duties-locations');
+    const activeDuties = data.activeDuties || [];
+
+    const badge = document.getElementById('active-map-count-badge');
+    const updateTime = document.getElementById('active-map-update-time');
+    if (badge) badge.textContent = `${activeDuties.length} Active Driver${activeDuties.length === 1 ? '' : 's'}`;
+    if (updateTime) updateTime.textContent = `Updated: ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+
+    const currentTripIds = new Set(activeDuties.map(d => d.id));
+
+    // Remove markers & polylines for trips that are no longer active
+    Object.keys(allActiveMapMarkers).forEach(tripId => {
+      if (!currentTripIds.has(tripId)) {
+        if (allActiveMapMarkers[tripId]) allActiveMap.removeLayer(allActiveMapMarkers[tripId]);
+        if (allActiveMapPolylines[tripId]) allActiveMap.removeLayer(allActiveMapPolylines[tripId]);
+        delete allActiveMapMarkers[tripId];
+        delete allActiveMapPolylines[tripId];
+      }
+    });
+
+    const allBounds = [];
+
+    // Render each active driver's route and position marker separately
+    activeDuties.forEach(duty => {
+      const journey = duty.journey_path || [];
+      const latlngs = journey
+        .map(pt => [Number(pt.lat), Number(pt.lng)])
+        .filter(pt => !isNaN(pt[0]) && !isNaN(pt[1]));
+
+      const latest = duty.latest_location;
+      if (latest && !isNaN(latest.lat) && !isNaN(latest.lng)) {
+        const lastPt = latlngs.length > 0 ? latlngs[latlngs.length - 1] : null;
+        if (!lastPt || lastPt[0] !== Number(latest.lat) || lastPt[1] !== Number(latest.lng)) {
+          latlngs.push([Number(latest.lat), Number(latest.lng)]);
+        }
+      }
+
+      // 1. Draw RED polyline for this specific driver's trip
+      if (allActiveMapPolylines[duty.id]) {
+        allActiveMap.removeLayer(allActiveMapPolylines[duty.id]);
+      }
+
+      if (latlngs.length > 0) {
+        const polyline = L.polyline(latlngs, {
+          color: '#DC2626', // Connected RED line
+          weight: 4,
+          opacity: 0.9
+        }).addTo(allActiveMap);
+        allActiveMapPolylines[duty.id] = polyline;
+        latlngs.forEach(pt => allBounds.push(pt));
+      }
+
+      // 2. Draw current location marker for driver
+      if (allActiveMapMarkers[duty.id]) {
+        allActiveMap.removeLayer(allActiveMapMarkers[duty.id]);
+      }
+
+      if (latest && !isNaN(latest.lat) && !isNaN(latest.lng)) {
+        const marker = L.marker([Number(latest.lat), Number(latest.lng)]).addTo(allActiveMap);
+        
+        const popupContent = `
+          <div style="font-family:'Outfit',sans-serif; padding:4px;">
+            <div style="font-weight:800; font-size:0.95rem; color:#0F172A;">👨‍✈️ ${duty.driver_name}</div>
+            <div style="font-size:0.82rem; color:#475569; margin-top:2px;">🚛 Vehicle: <strong>${duty.vehicle_number}</strong></div>
+            <div style="font-size:0.82rem; color:#475569;">🗺️ Route: <strong>${duty.route}</strong></div>
+            <div style="font-size:0.78rem; color:#2563EB; margin-top:4px; font-weight:600;">Status: ${formatStatus(duty.status)}</div>
+            <div style="font-size:0.75rem; color:#94A3B8; margin-top:2px;">Last updated: ${formatTime(latest.timestamp)}</div>
+          </div>
+        `;
+        marker.bindPopup(popupContent);
+        allActiveMapMarkers[duty.id] = marker;
+      }
+    });
+
+    if (allBounds.length > 0) {
+      allActiveMap.fitBounds(allBounds, { padding: [30, 30] });
+    }
+  } catch (err) {
+    console.error('Failed to update All Active Duties Map:', err);
+  }
+}
+
 

@@ -168,124 +168,143 @@ async function runAnalysis() {
   }
 }
 
-function updateMetrics(metrics) {
-  document.getElementById('metric-total-trips').textContent = metrics.total_trips || 0;
-  document.getElementById('metric-completed-trips').textContent = metrics.completed_trips || 0;
-  document.getElementById('metric-total-visits').textContent = metrics.total_visits || 0;
-  document.getElementById('metric-avg-duration').textContent = formatDurationMs(metrics.avg_duration_ms);
-  document.getElementById('metric-total-hours').textContent = formatDurationMs(metrics.total_hours_ms);
-  
-  const tripsPerDay = metrics.trips_per_day || 0;
-  document.getElementById('metric-trips-per-day').textContent = tripsPerDay.toFixed(1);
-  
-  const visitsPerTrip = metrics.visits_per_trip || 0;
-  document.getElementById('metric-visits-per-trip').textContent = visitsPerTrip.toFixed(1);
+function safeSetText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
 }
 
-function renderCharts(chartData) {
+function updateMetrics(metrics = {}) {
+  safeSetText('metric-total-trips', metrics.total_trips || 0);
+  safeSetText('metric-completed-trips', metrics.completed_trips || 0);
+  safeSetText('metric-total-visits', metrics.total_visits || 0);
+  safeSetText('metric-avg-duration', formatDurationMs(metrics.avg_duration_ms));
+  safeSetText('metric-total-hours', formatDurationMs(metrics.total_hours_ms));
+  
+  const tripsPerDay = Number(metrics.trips_per_day || 0);
+  safeSetText('metric-trips-per-day', tripsPerDay.toFixed(1));
+  
+  const visitsPerTrip = Number(metrics.visits_per_trip || 0);
+  safeSetText('metric-visits-per-trip', visitsPerTrip.toFixed(1));
+}
+
+function renderCharts(chartData = {}) {
+  const dates = chartData.dates || [];
+  const tripsByDate = chartData.trips_by_date || [];
+  const visitsByDate = chartData.visits_by_date || [];
+  const durationByDate = chartData.duration_by_date || [];
+  const dutyHoursByDate = chartData.duty_hours_by_date || [];
+
   // Trips Over Time
   const ctx1 = document.getElementById('tripsOverTimeChart');
-  if (chart1) chart1.destroy();
-  chart1 = new Chart(ctx1, {
-    type: 'line',
-    data: {
-      labels: chartData.dates || [],
-      datasets: [{
-        label: 'Trips',
-        data: chartData.trips_by_date || [],
-        borderColor: '#2563EB',
-        backgroundColor: 'rgba(37, 99, 235, 0.1)',
-        tension: 0.4,
-        fill: true
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1, font: { family: 'Outfit' } } },
-        x: { ticks: { font: { family: 'Outfit' } } }
+  if (ctx1) {
+    if (chart1) chart1.destroy();
+    chart1 = new Chart(ctx1, {
+      type: 'line',
+      data: {
+        labels: dates,
+        datasets: [{
+          label: 'Trips',
+          data: tripsByDate,
+          borderColor: '#2563EB',
+          backgroundColor: 'rgba(37, 99, 235, 0.1)',
+          tension: 0.4,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1, font: { family: 'Outfit' } } },
+          x: { ticks: { font: { family: 'Outfit' } } }
+        }
       }
-    }
-  });
+    });
+  }
 
   // BMC Visits Over Time
   const ctx2 = document.getElementById('visitsOverTimeChart');
-  if (chart2) chart2.destroy();
-  chart2 = new Chart(ctx2, {
-    type: 'line',
-    data: {
-      labels: chartData.dates || [],
-      datasets: [{
-        label: 'BMC Visits',
-        data: chartData.visits_by_date || [],
-        borderColor: '#10B981',
-        backgroundColor: 'rgba(16, 185, 129, 0.1)',
-        tension: 0.4,
-        fill: true
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1, font: { family: 'Outfit' } } },
-        x: { ticks: { font: { family: 'Outfit' } } }
+  if (ctx2) {
+    if (chart2) chart2.destroy();
+    chart2 = new Chart(ctx2, {
+      type: 'line',
+      data: {
+        labels: dates,
+        datasets: [{
+          label: 'BMC Visits',
+          data: visitsByDate,
+          borderColor: '#10B981',
+          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+          tension: 0.4,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1, font: { family: 'Outfit' } } },
+          x: { ticks: { font: { family: 'Outfit' } } }
+        }
       }
-    }
-  });
+    });
+  }
 
   // Trip Duration Over Time
   const ctx3 = document.getElementById('durationOverTimeChart');
-  if (chart3) chart3.destroy();
-  chart3 = new Chart(ctx3, {
-    type: 'bar',
-    data: {
-      labels: chartData.dates || [],
-      datasets: [{
-        label: 'Duration (hours)',
-        data: chartData.duration_by_date || [],
-        backgroundColor: '#F59E0B',
-        borderRadius: 6
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, ticks: { font: { family: 'Outfit' } } },
-        x: { ticks: { font: { family: 'Outfit' } } }
+  if (ctx3) {
+    if (chart3) chart3.destroy();
+    chart3 = new Chart(ctx3, {
+      type: 'bar',
+      data: {
+        labels: dates,
+        datasets: [{
+          label: 'Duration (hours)',
+          data: durationByDate,
+          backgroundColor: '#F59E0B',
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { font: { family: 'Outfit' } } },
+          x: { ticks: { font: { family: 'Outfit' } } }
+        }
       }
-    }
-  });
+    });
+  }
 
   // Duty Hours
   const ctx4 = document.getElementById('dutyHoursChart');
-  if (chart4) chart4.destroy();
-  chart4 = new Chart(ctx4, {
-    type: 'bar',
-    data: {
-      labels: chartData.dates || [],
-      datasets: [{
-        label: 'Duty Hours',
-        data: chartData.duty_hours_by_date || [],
-        backgroundColor: '#8B5CF6',
-        borderRadius: 6
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, ticks: { font: { family: 'Outfit' } } },
-        x: { ticks: { font: { family: 'Outfit' } } }
+  if (ctx4) {
+    if (chart4) chart4.destroy();
+    chart4 = new Chart(ctx4, {
+      type: 'bar',
+      data: {
+        labels: dates,
+        datasets: [{
+          label: 'Duty Hours',
+          data: dutyHoursByDate,
+          backgroundColor: '#8B5CF6',
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { font: { family: 'Outfit' } } },
+          x: { ticks: { font: { family: 'Outfit' } } }
+        }
       }
-    }
-  });
+    });
+  }
 }
 
 function renderTripHistory(trips) {

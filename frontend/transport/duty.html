@@ -74,6 +74,20 @@
             </div>
           </div>
 
+          <!-- All Active Duties Live Map -->
+          <div class="content-card mb-4" id="all-active-map-card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #E2E8F0;">
+              <h4 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 8px;">
+                <span>📡</span> All Active Duties Live Map
+                <span class="badge badge-primary" style="font-size: 0.75rem; margin-left: 8px; padding: 4px 8px;" id="active-map-count-badge">0 Active Drivers</span>
+              </h4>
+              <span style="font-size: 0.8rem; color: #64748B; font-weight: 500;" id="active-map-update-time">Auto-refreshing live GPS</span>
+            </div>
+            <div style="padding: 16px;">
+              <div id="all-active-duties-map" style="height: 380px; width: 100%; border-radius: 12px; border: 1px solid #CBD5E1; background: #F1F5F9; z-index: 1;"></div>
+            </div>
+          </div>
+
           <!-- Duties Table -->
           <div class="table-card">
             <div class="table-card-header" style="display: flex; justify-content: space-between; align-items: center; padding: 20px 24px;">

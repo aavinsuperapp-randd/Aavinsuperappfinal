@@ -300,19 +300,25 @@
               <div id="mileage-error" class="mileage-error hidden"></div>
             </div>
 
-            <!-- In Weight Photo -->
+            <!-- In KM Photo Proof -->
             <div class="form-group">
-              <label class="form-label-driver">In Weight Photo <span class="required">*</span></label>
+              <label class="form-label-driver">In KM Photo Proof <span class="required">*</span></label>
               <div class="photo-upload-area" id="in-photo-upload-area">
-                <img id="in-photo-preview" src="" alt="In Weight Photo" class="photo-preview hidden">
+                <img id="in-photo-preview" src="" alt="In KM Photo Proof" class="photo-preview hidden">
                 <div id="in-photo-placeholder" class="photo-placeholder">
                   <div class="photo-placeholder-icon">📷</div>
-                  <p>Take a photo or upload from gallery</p>
+                  <p>Take photo of final odometer reading or choose from gallery</p>
                 </div>
-                <input type="file" id="in-photo-input" accept="image/*" capture="environment" style="display:none;">
-                <div class="photo-actions">
-                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('in-photo-input').click()">
-                    📷 Camera / Gallery
+                <!-- Camera: opens device camera directly -->
+                <input type="file" id="in-photo-input-camera" accept="image/*" capture="environment" style="display:none;">
+                <!-- Gallery: opens file picker -->
+                <input type="file" id="in-photo-input-gallery" accept="image/*" style="display:none;">
+                <div class="photo-actions" style="gap:8px;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('in-photo-input-camera').click()">
+                    📸 Open Camera
+                  </button>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('in-photo-input-gallery').click()">
+                    🖼️ From Gallery
                   </button>
                   <button type="button" class="btn btn-ghost btn-sm" id="in-photo-remove" onclick="removePhoto('in')" style="display:none;">✕ Remove</button>
                 </div>

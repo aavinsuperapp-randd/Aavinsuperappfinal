@@ -344,7 +344,10 @@ function removePhoto(type) {
     document.getElementById('in-photo-placeholder').classList.remove('hidden');
     document.getElementById('in-photo-upload-area').classList.remove('has-photo');
     document.getElementById('in-photo-remove').style.display = 'none';
-    document.getElementById('in-photo-input').value = '';
+    const cam = document.getElementById('in-photo-input-camera');
+    const gal = document.getElementById('in-photo-input-gallery');
+    if (cam) cam.value = '';
+    if (gal) gal.value = '';
   }
   validatePreTripForm();
 }
@@ -439,34 +442,99 @@ function renderActiveTripState(trip) {
   startLocationTracking();
 }
 
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if ('wakeLock' in navigator) {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+    } catch(e) {}
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) {
+    try { wakeLock.release(); } catch(e) {}
+    wakeLock = null;
+  }
+}
+
+function getOfflineGpsQueueKey() {
+  return `driver_offline_gps_queue_${tripId || 'general'}`;
+}
+
+function getOfflineGpsQueue() {
+  try {
+    const raw = localStorage.getItem(getOfflineGpsQueueKey());
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) { return []; }
+}
+
+function saveOfflineGpsQueue(queue) {
+  try {
+    localStorage.setItem(getOfflineGpsQueueKey(), JSON.stringify(queue));
+  } catch(e) {}
+}
+
+async function flushOfflineGpsQueue() {
+  const queue = getOfflineGpsQueue();
+  if (queue.length === 0 || !tripId) return;
+
+  try {
+    await apiUpdateTripLocation(tripId, { points: queue });
+    localStorage.removeItem(getOfflineGpsQueueKey());
+    console.log('✅ Auto-synced', queue.length, 'offline GPS points.');
+  } catch(err) {
+    console.warn('Sync failed, retaining queue:', err.message);
+  }
+}
+
+// Auto-sync when device comes back online or tab becomes visible
+window.addEventListener('online', flushOfflineGpsQueue);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) flushOfflineGpsQueue();
+});
+
 async function startLocationTracking() {
   if (locationWatchId) return;
   if (!navigator.geolocation) {
-    showToast('Geolocation is not supported. Tracking unavailable.', 'error');
+    showToast('Geolocation is not supported by your browser.', 'error');
     return;
   }
   isLocationTrackingActive = true;
+  await requestWakeLock();
+  await flushOfflineGpsQueue();
+
   locationWatchId = navigator.geolocation.watchPosition(
     async (position) => {
-      if (!isLocationTrackingActive) {
-        isLocationTrackingActive = true;
-        try { await apiUpdateTripLocation(tripId, { tracking_status: 'Restored' }); } catch(e) {}
-      }
-      try {
-        await apiUpdateTripLocation(tripId, { lat: position.coords.latitude, lng: position.coords.longitude });
-      } catch (err) {
-        console.error('Failed to update live location:', err);
-      }
+      const pt = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        timestamp: new Date().toISOString()
+      };
+
+      // Queue point locally first for offline safety
+      const queue = getOfflineGpsQueue();
+      queue.push(pt);
+      saveOfflineGpsQueue(queue);
+
+      const locTextEl = document.getElementById('active-location-text');
+      const locTimeEl = document.getElementById('active-location-time');
+      if (locTextEl) locTextEl.textContent = `Location: ${pt.lat.toFixed(5)}, ${pt.lng.toFixed(5)}`;
+      if (locTimeEl) locTimeEl.textContent = `Updated: ${formatTime(pt.timestamp)}`;
+
+      // Attempt sync
+      await flushOfflineGpsQueue();
     },
     async (error) => {
       console.error('Location tracking error:', error);
       if (isLocationTrackingActive) {
         isLocationTrackingActive = false;
-        try { await apiUpdateTripLocation(tripId, { tracking_status: 'Turned OFF' }); } catch(e) {}
-        showToast('Location access lost or turned off.', 'error');
+        try { await apiUpdateTripLocation(tripId, { tracking_status: 'Location Lost' }); } catch(e) {}
+        showToast('Location access lost. GPS points will be queued until restored.', 'error');
       }
     },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
   );
 }
 
@@ -475,6 +543,8 @@ function stopLocationTracking() {
     navigator.geolocation.clearWatch(locationWatchId);
     locationWatchId = null;
   }
+  releaseWakeLock();
+  flushOfflineGpsQueue();
 }
 
 function startElapsedTimer(startedAt) {
@@ -516,12 +586,25 @@ function setupCompleteTripForm() {
   document.getElementById('input-in-km').addEventListener('input', updateMileagePreview);
   document.getElementById('input-in-weight').addEventListener('input', updateMileagePreview);
 
-  // In weight photo
-  document.getElementById('in-photo-input').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    await handlePhotoUpload('in', file);
-  });
+  // In KM photo proof camera input
+  const inPhotoCamera = document.getElementById('in-photo-input-camera');
+  if (inPhotoCamera) {
+    inPhotoCamera.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      await handlePhotoUpload('in', file);
+    });
+  }
+
+  // In KM photo proof gallery input
+  const inPhotoGallery = document.getElementById('in-photo-input-gallery');
+  if (inPhotoGallery) {
+    inPhotoGallery.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      await handlePhotoUpload('in', file);
+    });
+  }
 
   // Return location
   document.getElementById('btn-get-return-location').addEventListener('click', getReturnLocation);

@@ -3560,33 +3560,205 @@ app.post('/api/driver/trips/:id/complete', requireDriver, async (req, res) => {
   }
 });
 
+// Helper: Calculate distance in meters between two lat/lng points
+function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+}
+
 // ─── PATCH /api/driver/trips/:id/location ────────────────────────────────────
 app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
   const { adminClient, profile } = req;
-  const { lat, lng } = req.body;
-  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng are required.' });
+  const { lat, lng, points, tracking_status } = req.body;
 
   try {
     const { data: trip } = await adminClient
-      .from('driver_trips').select('assigned_driver_id, status').eq('id', req.params.id).single();
+      .from('driver_trips')
+      .select('id, assigned_driver_id, status, remarks, start_lat, start_lng, end_lat, end_lng, journey_path')
+      .eq('id', req.params.id)
+      .single();
 
-    if (!trip || trip.assigned_driver_id !== profile.id) return res.status(403).json({ error: 'Access denied.' });
-    if (trip.status !== 'in_progress') return res.status(400).json({ error: 'Trip is not in progress.' });
+    if (!trip || trip.assigned_driver_id !== profile.id) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    if (trip.status !== 'in_progress') {
+      return res.status(400).json({ error: 'Trip is not in progress.' });
+    }
 
-    // Store as end_lat/lng (current location)
+    // Decode existing journey points
+    let journey = [];
+    if (Array.isArray(trip.journey_path) && trip.journey_path.length > 0) {
+      journey = [...trip.journey_path];
+    } else if (trip.remarks && trip.remarks.includes('__JOURNEY_DATA__=')) {
+      try {
+        const jStr = trip.remarks.split('__JOURNEY_DATA__=')[1].split('\n')[0];
+        journey = JSON.parse(jStr);
+      } catch(e) {}
+    }
+
+    if (journey.length === 0 && trip.start_lat && trip.start_lng) {
+      journey.push({ lat: Number(trip.start_lat), lng: Number(trip.start_lng), timestamp: trip.started_at || new Date().toISOString() });
+    }
+
+    const newPoints = [];
+    if (Array.isArray(points) && points.length > 0) {
+      points.forEach(pt => {
+        if (pt && pt.lat && pt.lng) {
+          newPoints.push({ lat: Number(pt.lat), lng: Number(pt.lng), timestamp: pt.timestamp || new Date().toISOString() });
+        }
+      });
+    } else if (lat && lng) {
+      newPoints.push({ lat: Number(lat), lng: Number(lng), timestamp: new Date().toISOString() });
+    }
+
+    // Append new points while avoiding unnecessary duplicates (<5 meters & <30s)
+    let addedCount = 0;
+    newPoints.forEach(pt => {
+      if (journey.length > 0) {
+        const lastPt = journey[journey.length - 1];
+        const dist = calculateDistanceMeters(lastPt.lat, lastPt.lng, pt.lat, pt.lng);
+        const timeDiffMs = new Date(pt.timestamp).getTime() - new Date(lastPt.timestamp || 0).getTime();
+        
+        if (dist >= 5 || timeDiffMs >= 30000) {
+          journey.push(pt);
+          addedCount++;
+        }
+      } else {
+        journey.push(pt);
+        addedCount++;
+      }
+    });
+
+    const latestPt = journey[journey.length - 1] || (newPoints.length > 0 ? newPoints[newPoints.length - 1] : null);
+    const endLat = latestPt ? latestPt.lat : trip.end_lat;
+    const endLng = latestPt ? latestPt.lng : trip.end_lng;
+
+    // Decode existing interruptions
+    let interruptions = [];
+    let cleanRemarks = trip.remarks || '';
+    if (cleanRemarks.includes('__INTERRUPTIONS_DATA__=')) {
+      try {
+        const iStr = cleanRemarks.split('__INTERRUPTIONS_DATA__=')[1].split('\n')[0];
+        interruptions = JSON.parse(iStr);
+      } catch(e) {}
+    }
+    
+    if (tracking_status) {
+      interruptions.push({ status: tracking_status, timestamp: new Date().toISOString() });
+    }
+
+    // Reconstruct remarks string with embedded data for full backward compatibility
+    let baseRemarks = (cleanRemarks.split('\n__JOURNEY_DATA__=')[0] || '').split('\n__INTERRUPTIONS_DATA__=')[0].trim();
+    let updatedRemarks = baseRemarks;
+    if (journey.length > 0) {
+      updatedRemarks += `\n__JOURNEY_DATA__=${JSON.stringify(journey)}`;
+    }
+    if (interruptions.length > 0) {
+      updatedRemarks += `\n__INTERRUPTIONS_DATA__=${JSON.stringify(interruptions)}`;
+    }
+
+    const updatePayload = {
+      end_lat: endLat,
+      end_lng: endLng,
+      remarks: updatedRemarks,
+      updated_at: new Date().toISOString()
+    };
+
+    // Also update journey_path column if column exists
+    try {
+      updatePayload.journey_path = journey;
+    } catch(e) {}
+
     const { data, error } = await adminClient
       .from('driver_trips')
-      .update({ end_lat: Number(lat), end_lng: Number(lng), updated_at: new Date().toISOString() })
+      .update(updatePayload)
       .eq('id', req.params.id)
-      .select('id, end_lat, end_lng')
+      .select('id, end_lat, end_lng, updated_at')
       .single();
 
     if (error) throw error;
-    res.json({ location: data, updated_at: new Date().toISOString() });
+
+    res.json({
+      success: true,
+      points_added: addedCount,
+      total_points: journey.length,
+      latest_location: { lat: endLat, lng: endLng },
+      updated_at: data.updated_at
+    });
   } catch (err) {
+    console.error('Location update error:', err);
     res.status(500).json({ error: err.message || 'Failed to update location.' });
   }
 });
+
+// ─── GET /api/transport/active-duties-locations ──────────────────────────────
+app.get('/api/transport/active-duties-locations', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: activeTrips, error } = await adminClient
+      .from('driver_trips')
+      .select('id, trip_number, assigned_driver_id, vehicle_number, route, destination, bmc_name, status, start_lat, start_lng, end_lat, end_lng, remarks, journey_path, updated_at, started_at')
+      .in('status', ['in_progress', 'returning']);
+
+    if (error) throw error;
+
+    // Enrich driver profiles
+    const driverIds = (activeTrips || []).map(t => t.assigned_driver_id).filter(Boolean);
+    let driverMap = {};
+    if (driverIds.length > 0) {
+      const { data: profiles } = await adminClient
+        .from('profiles')
+        .select('id, name, phone')
+        .in('id', driverIds);
+      (profiles || []).forEach(p => { driverMap[p.id] = p; });
+    }
+
+    const result = (activeTrips || []).map(trip => {
+      let journey = [];
+      if (Array.isArray(trip.journey_path) && trip.journey_path.length > 0) {
+        journey = trip.journey_path;
+      } else if (trip.remarks && trip.remarks.includes('__JOURNEY_DATA__=')) {
+        try {
+          const jStr = trip.remarks.split('__JOURNEY_DATA__=')[1].split('\n')[0];
+          journey = JSON.parse(jStr);
+        } catch(e) {}
+      }
+
+      if (journey.length === 0 && trip.start_lat && trip.start_lng) {
+        journey.push({ lat: Number(trip.start_lat), lng: Number(trip.start_lng), timestamp: trip.started_at || trip.updated_at });
+      }
+
+      const driverProfile = driverMap[trip.assigned_driver_id] || {};
+      const driverName = driverProfile.name || 'Driver';
+
+      const latestPt = journey.length > 0 ? journey[journey.length - 1] : (trip.end_lat && trip.end_lng ? { lat: Number(trip.end_lat), lng: Number(trip.end_lng), timestamp: trip.updated_at } : null);
+
+      return {
+        id: trip.id,
+        trip_number: trip.trip_number,
+        driver_id: trip.assigned_driver_id,
+        driver_name: driverName,
+        vehicle_number: trip.vehicle_number || '—',
+        route: trip.route || trip.destination || trip.bmc_name || 'Route',
+        status: trip.status,
+        latest_location: latestPt,
+        journey_path: journey,
+        updated_at: trip.updated_at
+      };
+    });
+
+    res.json({ activeDuties: result });
+  } catch (err) {
+    console.error('Failed to fetch active duties locations:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch active duties locations' });
+  }
+});
+
 
 // ─── GET /api/driver/history ──────────────────────────────────────────────────
 app.get('/api/driver/history', requireDriver, async (req, res) => {
