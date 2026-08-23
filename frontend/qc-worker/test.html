@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Perform QC Laboratory Test — AAVIN QC Worker</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/worker.css">
+  <link rel="stylesheet" href="../css/qc.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="qc-shell">
+    <div id="qc-sidebar-overlay" class="qc-sidebar-overlay"></div>
+
+    <!-- QC Sidebar -->
+    <aside class="qc-sidebar" id="qc-sidebar">
+      <div class="qs-logo">
+        <div class="qs-logo-inner">
+          <img src="/assets/aavin-logo.png" alt="AAVIN">
+          <div>
+            <span>QC Portal</span>
+            <div class="qs-logo-badge">LAB TESTING</div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="qs-nav">
+        <a href="dashboard.html" class="qs-nav-item">
+          <span>📊</span> Dashboard
+        </a>
+        <a href="samples.html" class="qs-nav-item active">
+          <span>🧪</span> Sample Queue
+        </a>
+        <a href="history.html" class="qs-nav-item">
+          <span>📜</span> Test History
+        </a>
+        <a href="profile.html" class="qs-nav-item">
+          <span>👤</span> My Profile
+        </a>
+        <div class="qs-nav-divider"></div>
+        <button id="logout-btn" class="qs-nav-item" style="color:#FCA5A5;">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="qc-main">
+      <header class="qc-header">
+        <div class="qc-header-left">
+          <button id="qc-mobile-toggle-btn" class="qc-mobile-btn">☰</button>
+          <div class="qc-header-title">QC Laboratory Testing Form</div>
+        </div>
+        <div class="qc-header-right">
+          <div>Role: <strong>QC Worker</strong></div>
+          <div>User: <strong id="qc-header-name">Loading...</strong></div>
+        </div>
+      </header>
+
+      <main class="qc-content">
+        <div id="main-qc-content" class="hidden">
+
+          <a href="samples.html" style="font-size:0.84rem; font-weight:600; color:var(--qc-700); text-decoration:none; display:inline-flex; align-items:center; gap:4px; margin-bottom:16px;">
+            ← Back to Samples Queue
+          </a>
+
+          <div class="qc-page-top" style="margin-bottom:14px;">
+            <h1>Laboratory Sample Testing 🧪</h1>
+            <p>Inspect sample information, review original Field Worker BMC test results, and record lab test data.</p>
+          </div>
+
+          <div id="qc-test-status-banner"></div>
+
+          <!-- Section 1: Sample Information -->
+          <div class="qc-form-card">
+            <div class="qc-form-title">
+              <span>📋</span> Sample &amp; BMC Collection Details
+            </div>
+            <div class="qc-info-grid">
+              <div class="qc-info-item">
+                <div class="qc-info-label">Sample ID</div>
+                <div class="qc-info-value" id="info-sample-id">Loading...</div>
+              </div>
+              <div class="qc-info-item">
+                <div class="qc-info-label">BMC Name</div>
+                <div class="qc-info-value" id="info-bmc-name">Loading...</div>
+              </div>
+              <div class="qc-info-item">
+                <div class="qc-info-label">Location / District</div>
+                <div class="qc-info-value" id="info-bmc-loc">Loading...</div>
+              </div>
+              <div class="qc-info-item">
+                <div class="qc-info-label">Field Worker</div>
+                <div class="qc-info-value" id="info-worker-name">Loading...</div>
+              </div>
+              <div class="qc-info-item">
+                <div class="qc-info-label">Trip Number</div>
+                <div class="qc-info-value" id="info-trip-no">Loading...</div>
+              </div>
+              <div class="qc-info-item">
+                <div class="qc-info-label">Collection Date/Time</div>
+                <div class="qc-info-value" id="info-coll-time">Loading...</div>
+              </div>
+              <div class="qc-info-item">
+                <div class="qc-info-label">Compartment</div>
+                <div class="qc-info-value" id="info-compartment">Loading...</div>
+              </div>
+              <div class="qc-info-item">
+                <div class="qc-info-label">Tanker Board No.</div>
+                <div class="qc-info-value" id="info-tanker">Loading...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: Original BMC Test Result -->
+          <div class="qc-form-card" style="border-left: 4px solid #2563EB;">
+            <div class="qc-form-title" style="color:#1E40AF;">
+              <span>🏭</span> Field Worker / BMC Test Result (Original)
+            </div>
+            <div id="bmc-test-result-display">
+              <div class="text-sm text-muted">Loading BMC test parameters...</div>
+            </div>
+          </div>
+
+          <!-- Section 3: QC Laboratory Testing Form -->
+          <form id="qc-test-form" class="qc-form-card" style="border-left: 4px solid var(--qc-500);">
+            <div class="qc-form-title" style="color:var(--qc-800);">
+              <span>🔬</span> QC Laboratory Test Entry
+            </div>
+
+            <!-- Parameters Grid -->
+            <div class="qc-form-grid" style="margin-bottom:20px;">
+              <div class="qc-form-group">
+                <label class="qc-form-label">Fat % *</label>
+                <input type="number" step="0.01" id="qc-fat" class="qc-form-input" placeholder="e.g. 4.20" required>
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">SNF % (Solids Not Fat) *</label>
+                <input type="number" step="0.01" id="qc-snf" class="qc-form-input" placeholder="e.g. 8.50" required>
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">CLR (Corrected Lactometer)</label>
+                <input type="number" step="0.1" id="qc-clr" class="qc-form-input" placeholder="e.g. 28.0">
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">Temperature (°C)</label>
+                <input type="number" step="0.1" id="qc-temp" class="qc-form-input" placeholder="e.g. 30.5">
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">Acidity (%)</label>
+                <input type="number" step="0.01" id="qc-acidity" class="qc-form-input" placeholder="e.g. 0.14">
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">Protein %</label>
+                <input type="number" step="0.01" id="qc-protein" class="qc-form-input" placeholder="e.g. 3.20">
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">Lactose %</label>
+                <input type="number" step="0.01" id="qc-lactose" class="qc-form-input" placeholder="e.g. 4.70">
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">Density (g/cm³)</label>
+                <input type="number" step="0.001" id="qc-density" class="qc-form-input" placeholder="e.g. 1.028">
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">Added Water %</label>
+                <input type="number" step="0.1" id="qc-water" class="qc-form-input" placeholder="e.g. 0.0">
+              </div>
+            </div>
+
+            <!-- Additional Lab Information -->
+            <div class="qc-form-title" style="font-size:0.82rem; color:#475569; margin-top:10px;">
+              <span>⚙️</span> Sample Condition &amp; Lab Instrument Details
+            </div>
+
+            <div class="qc-form-grid" style="margin-bottom:20px;">
+              <div class="qc-form-group">
+                <label class="qc-form-label">Sample Condition</label>
+                <select id="qc-condition" class="qc-form-input">
+                  <option value="good" selected>Good / Fresh</option>
+                  <option value="degraded">Degraded / High Temp</option>
+                  <option value="rejected">Rejected / Coagulated</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">Sample Received Time</label>
+                <input type="datetime-local" id="qc-received-time" class="qc-form-input">
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">Equipment / Analyzer Used</label>
+                <input type="text" id="qc-equipment" class="qc-form-input" placeholder="e.g. FTIR Milk Analyzer / Gerber Centrifuge">
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">Instrument Serial ID</label>
+                <input type="text" id="qc-instrument-id" class="qc-form-input" placeholder="e.g. LAB-FTIR-04">
+              </div>
+              <div class="qc-form-group">
+                <label class="qc-form-label">Overall QC Result</label>
+                <select id="qc-overall-result" class="qc-form-input">
+                  <option value="pass" selected>PASS (Meets Standards)</option>
+                  <option value="warning">WARNING (Slight Deviation)</option>
+                  <option value="fail">FAIL (Substandard / Adulterated)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Remarks & Observations -->
+            <div class="qc-form-grid" style="margin-bottom:24px;">
+              <div class="qc-form-group" style="grid-column: 1 / -1;">
+                <label class="qc-form-label">QC Analyst Remarks</label>
+                <textarea id="qc-remarks" class="qc-form-input" rows="2" placeholder="Note any specific observations or lab notes..."></textarea>
+              </div>
+              <div class="qc-form-group" style="grid-column: 1 / -1;">
+                <label class="qc-form-label">Additional Observations</label>
+                <input type="text" id="qc-observations" class="qc-form-input" placeholder="Optional notes on sample seal condition, color, odor, etc.">
+              </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="display:flex; align-items:center; justify-content:flex-end; gap:12px; border-top:1px solid #F1F5F9; padding-top:16px;">
+              <button type="submit" id="btn-save-draft" class="btn-qc btn-qc-outline">
+                💾 Save Draft
+              </button>
+              <button type="button" id="btn-submit-report" class="btn-qc btn-qc-primary">
+                🚀 Submit Report to QC AGM
+              </button>
+            </div>
+          </form>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Submission Summary Modal -->
+  <div id="confirm-modal" class="qc-sidebar-overlay hidden" style="display:flex; align-items:center; justify-content:center; padding:20px; z-index:500;">
+    <div style="background:#fff; border-radius:16px; max-width:500px; width:100%; padding:24px; box-shadow:0 10px 25px rgba(0,0,0,0.15);">
+      <h3 style="margin:0 0 8px; font-size:1.1rem; color:#0F172A;">Submit QC Test Report Summary</h3>
+      <p style="font-size:0.83rem; color:#64748B; margin-bottom:16px;">Please review the comparison between Field BMC Test and QC Lab Test before final submission.</p>
+
+      <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:14px; font-size:0.84rem; margin-bottom:20px;">
+        <div style="margin-bottom:10px;">Sample ID: <strong id="sum-sample-id">--</strong> | BMC: <strong id="sum-bmc-name">--</strong></div>
+        <table class="qc-compare-table">
+          <thead>
+            <tr>
+              <th>Parameter</th>
+              <th>BMC Field</th>
+              <th>QC Lab</th>
+              <th>Diff</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Fat %</td>
+              <td id="sum-bmc-fat">--</td>
+              <td id="sum-qc-fat" style="color:var(--qc-700); font-weight:700;">--</td>
+              <td id="sum-diff-fat" style="font-weight:700;">--</td>
+            </tr>
+            <tr>
+              <td>SNF %</td>
+              <td id="sum-bmc-snf">--</td>
+              <td id="sum-qc-snf" style="color:var(--qc-700); font-weight:700;">--</td>
+              <td id="sum-diff-snf" style="font-weight:700;">--</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button class="btn-qc btn-qc-outline" onclick="document.getElementById('confirm-modal').classList.add('hidden')">Cancel</button>
+        <button id="btn-confirm-submit" class="btn-qc btn-qc-primary">Confirm &amp; Submit Report</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/qc-worker-api.js"></script>
+  <script src="../js/qc-worker-test.js"></script>
+</body>
+</html>

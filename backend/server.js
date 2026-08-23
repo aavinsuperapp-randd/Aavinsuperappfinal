@@ -72,8 +72,8 @@ app.post('/api/register', async (req, res) => {
   if (!name || !dob || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
-  if (!['user', 'gm', 'driver', 'transport_officer', 'executive_officer'].includes(role)) {
-    return res.status(400).json({ error: 'Invalid role. Must be user, gm, driver, transport_officer, or executive_officer.' });
+  if (!['user', 'gm', 'driver', 'transport_officer', 'executive_officer', 'qc_worker', 'qc_agm'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid role. Must be user, gm, driver, transport_officer, executive_officer, qc_worker, or qc_agm.' });
   }
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
@@ -504,6 +504,84 @@ async function requireGm(req, res, next) {
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
   if (profile.role !== 'gm' && profile.role !== 'admin') {
     return res.status(403).json({ error: 'GM access required.' });
+  }
+  if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
+
+  req.user = user;
+  req.profile = profile;
+  req.adminClient = adminClient;
+  next();
+}
+
+// ─── Transport Officer JWT Middleware ─────────────────────────────────────────
+async function requireTransportOfficer(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
+
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+
+  const { data: profile } = await adminClient
+    .from('profiles').select('*').eq('id', user.id).single();
+
+  if (!profile) return res.status(404).json({ error: 'Profile not found.' });
+  if (profile.role !== 'transport_officer' && profile.role !== 'admin') {
+    return res.status(403).json({ error: 'Transport Officer access required.' });
+  }
+  if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
+
+  req.user = user;
+  req.profile = profile;
+  req.adminClient = adminClient;
+  next();
+}
+
+// ─── QC Worker JWT Middleware ──────────────────────────────────────────────────
+async function requireQcWorker(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
+
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+
+  const { data: profile } = await adminClient
+    .from('profiles').select('*').eq('id', user.id).single();
+
+  if (!profile) return res.status(404).json({ error: 'Profile not found.' });
+  if (profile.role !== 'qc_worker' && profile.role !== 'admin') {
+    return res.status(403).json({ error: 'QC Worker access required.' });
+  }
+  if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
+
+  req.user = user;
+  req.profile = profile;
+  req.adminClient = adminClient;
+  next();
+}
+
+// ─── QC AGM JWT Middleware ────────────────────────────────────────────────────
+async function requireQcAgm(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
+
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+
+  const { data: profile } = await adminClient
+    .from('profiles').select('*').eq('id', user.id).single();
+
+  if (!profile) return res.status(404).json({ error: 'Profile not found.' });
+  if (profile.role !== 'qc_agm' && profile.role !== 'admin') {
+    return res.status(403).json({ error: 'QC AGM access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
 
@@ -2021,48 +2099,13 @@ app.put('/api/admin/tankers/:id/toggle', async (req, res) => {
 
 
 // ─── GET /api/bmcs/search ─────────────────────────────────────────────────────
-// ─── POST /api/worker/create-bmc ─────────────────────────────────────────────
-// Allows workers to register a new BMC unit from the field
-app.post('/api/worker/create-bmc', requireWorker, async (req, res) => {
-  const { adminClient } = req;
-  const { name, district, location, contact_number, latitude, longitude, profile_image_url } = req.body;
-
-  if (!name || !district || !location || !contact_number) {
-    return res.status(400).json({ error: 'Name, district, location, and contact number are required.' });
-  }
-  if (latitude === undefined || latitude === null || longitude === undefined || longitude === null) {
-    return res.status(400).json({ error: 'GPS coordinates (latitude and longitude) are required.' });
-  }
-
-  try {
-    // Check for duplicate BMC name (case-insensitive)
-    const { data: existing } = await adminClient
-      .from('bmcs')
-      .select('id')
-      .ilike('name', name.trim())
-      .limit(1);
-
-    if (existing && existing.length > 0) {
-      return res.status(409).json({ error: 'A BMC with this name already exists.' });
-    }
-
-    const { data, error } = await adminClient.from('bmcs').insert({
-      name: name.trim(),
-      district: district.trim(),
-      location: location.trim(),
-      contact_number: contact_number.trim(),
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
-      profile_image_url: profile_image_url || null,
-      is_active: true
-    }).select().single();
-
-    if (error) throw error;
-    res.status(201).json({ bmc: data });
-  } catch (err) {
-    console.error('❌ Create BMC error:', err);
-    res.status(500).json({ error: err.message || 'Failed to create BMC.' });
-  }
+// ─── POST /api/worker/create-bmc — DISABLED (backend enforcement) ─────────────
+// Field Workers are no longer permitted to create BMC records.
+// BMC management is handled by P&I AGM and Administrators only.
+app.post('/api/worker/create-bmc', requireWorker, (req, res) => {
+  return res.status(403).json({
+    error: 'Field Workers are no longer permitted to create BMC records. Contact the P&I AGM to add or manage BMCs.'
+  });
 });
 
 app.get('/api/bmcs/search', requireWorker, async (req, res) => {
@@ -2076,38 +2119,13 @@ app.get('/api/bmcs/search', requireWorker, async (req, res) => {
   res.json({ bmcs: data || [] });
 });
 
-// ─── POST /api/trips ──────────────────────────────────────────────────────────
-app.post('/api/trips', requireWorker, async (req, res) => {
-  const { adminClient, profile } = req;
-  const { trip_name, driver_name, tanker_number, driver_id, tanker_id, out_time } = req.body;
-
-  const finalDriver = (driver_name || '').trim();
-  const finalTanker = (tanker_number || '').trim();
-
-  if (!trip_name || !finalDriver || !finalTanker) {
-    return res.status(400).json({ error: 'trip_name, driver_name, and tanker_number are required.' });
-  }
-
-  // Prevent duplicate active trips
-  const { data: existing } = await adminClient
-    .from('trips').select('id').eq('worker_id', profile.id).eq('status', 'active').limit(1);
-  if (existing && existing.length > 0) {
-    return res.status(409).json({ error: 'You already have an active trip. Complete it before starting a new one.' });
-  }
-
-  const { data, error } = await adminClient.from('trips').insert({
-    trip_name,
-    worker_id: profile.id,
-    driver_name: finalDriver,
-    tanker_number: finalTanker,
-    driver_id: driver_id || null,
-    tanker_id: tanker_id || null,
-    out_time: out_time || new Date().toISOString(),
-    status: 'active'
-  }).select().single();
-
-  if (error) return res.status(500).json({ error: error.message });
-  res.status(201).json({ trip: data });
+// ─── POST /api/trips — DISABLED (backend enforcement) ────────────────────────
+// Field Workers can no longer independently create trips.
+// All trips are created by the Transport Manager and assigned to workers by the P&I AGM.
+app.post('/api/trips', requireWorker, (req, res) => {
+  return res.status(403).json({
+    error: 'Workers cannot independently create trips. Trips are created by the Transport Manager and assigned to you by the P&I AGM. Check "My Assigned Trips" on your dashboard.'
+  });
 });
 
 // ─── GET /api/trips ───────────────────────────────────────────────────────────
@@ -2126,7 +2144,7 @@ app.get('/api/trips/:id', requireWorker, async (req, res) => {
   const { adminClient, profile } = req;
   const { data: trip, error } = await adminClient
     .from('trips')
-    .select('*')
+    .select('*, assigned_bmc:bmcs(*)')
     .eq('id', req.params.id)
     .eq('worker_id', profile.id)   // Enforce ownership
     .single();
@@ -5024,6 +5042,984 @@ app.delete('/api/admin/executive-officers/:id/bmcs/:bmcId', requireAdminRole, as
     res.json({ message: 'BMC assignment removed successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to remove BMC assignment.' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ──  P&I AGM WORKFLOW ROUTES (Transport Manager → P&I AGM → Field Worker)  ──
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── POST /api/transport/create-trip ─────────────────────────────────────────
+// Transport Manager creates a trip that will be assigned to a Field Worker by P&I AGM
+app.post('/api/transport/create-trip', requireTransportOfficer, async (req, res) => {
+  const { adminClient, profile } = req;
+  const {
+    trip_name, driver_name, tanker_number,
+    route_description, bmc_id, out_time
+  } = req.body;
+
+  if (!trip_name || !driver_name || !tanker_number) {
+    return res.status(400).json({ error: 'trip_name, driver_name, and tanker_number are required.' });
+  }
+
+  try {
+    // Generate a unique trip number
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const { count } = await adminClient
+      .from('trips').select('id', { count: 'exact', head: true })
+      .eq('created_by_to', true);
+    const tripNum = `TO-${dateStr}-${String((count || 0) + 1).padStart(4, '0')}`;
+
+    const { data, error } = await adminClient.from('trips').insert({
+      trip_name: trip_name.trim(),
+      trip_number: tripNum,
+      worker_id: null,                          // Set to null until P&I AGM assigns
+      created_by_to: true,
+      transport_officer_id: profile.id,
+      assignment_status: 'pending_assignment',
+      driver_name: (driver_name || '').trim(),
+      tanker_number: (tanker_number || '').trim(),
+      route_description: (route_description || '').trim() || null,
+      bmc_id: bmc_id || null,
+      out_time: out_time || new Date().toISOString(),
+      status: 'active'
+    }).select().single();
+
+    if (error) throw error;
+
+    console.log(`[TO Trip Created] ${tripNum} by ${profile.name} (id=${profile.id})`);
+    res.status(201).json({ trip: data, message: 'Trip created. P&I AGM will assign a Field Worker.' });
+  } catch (err) {
+    console.error('❌ Transport Officer create-trip error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create trip.' });
+  }
+});
+
+// ─── GET /api/gm/pending-trips ────────────────────────────────────────────────
+// P&I AGM sees all Transport Manager-created trips with assignment status
+app.get('/api/gm/pending-trips', requireGm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: trips, error } = await adminClient
+      .from('trips')
+      .select('*')
+      .eq('created_by_to', true)
+      .neq('status', 'deleted')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const tripList = trips || [];
+
+    // Collect unique profile IDs to resolve names
+    const profileIds = new Set();
+    tripList.forEach(t => {
+      if (t.transport_officer_id) profileIds.add(t.transport_officer_id);
+      if (t.worker_id) profileIds.add(t.worker_id);
+      if (t.assigned_by_gm_id) profileIds.add(t.assigned_by_gm_id);
+    });
+
+    let profileMap = {};
+    if (profileIds.size > 0) {
+      const { data: profiles } = await adminClient
+        .from('profiles')
+        .select('id, name, email')
+        .in('id', Array.from(profileIds));
+      (profiles || []).forEach(p => profileMap[p.id] = p);
+    }
+
+    // Resolve BMC names
+    const bmcIds = tripList.filter(t => t.bmc_id).map(t => t.bmc_id);
+    let bmcMap = {};
+    if (bmcIds.length > 0) {
+      const { data: bmcs } = await adminClient
+        .from('bmcs').select('id, name, district, location').in('id', bmcIds);
+      (bmcs || []).forEach(b => bmcMap[b.id] = b);
+    }
+
+    const enriched = tripList.map(t => {
+      const to = profileMap[t.transport_officer_id] || {};
+      const worker = t.worker_id ? (profileMap[t.worker_id] || {}) : null;
+      const gm = t.assigned_by_gm_id ? (profileMap[t.assigned_by_gm_id] || {}) : null;
+      const bmc = t.bmc_id ? (bmcMap[t.bmc_id] || null) : null;
+      return {
+        id: t.id,
+        trip_number: t.trip_number || t.id.slice(0, 8).toUpperCase(),
+        trip_name: t.trip_name,
+        driver_name: t.driver_name,
+        tanker_number: t.tanker_number,
+        route_description: t.route_description || '—',
+        out_time: t.out_time,
+        status: t.status,
+        assignment_status: t.assignment_status || 'pending_assignment',
+        created_at: t.created_at,
+        assigned_at: t.assigned_at,
+        transport_officer_name: to.name || 'Unknown TO',
+        transport_officer_id: t.transport_officer_id,
+        assigned_worker_id: t.worker_id,
+        assigned_worker_name: worker ? worker.name : null,
+        assigned_by_gm_name: gm ? gm.name : null,
+        bmc: bmc
+      };
+    });
+
+    res.json({ trips: enriched });
+  } catch (err) {
+    console.error('❌ GM Pending Trips error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch pending trips.' });
+  }
+});
+
+// ─── POST /api/gm/trips/:id/assign-worker ────────────────────────────────────
+// P&I AGM assigns a Field Worker to a Transport Manager trip
+app.post('/api/gm/trips/:id/assign-worker', requireGm, async (req, res) => {
+  const { adminClient, profile } = req;
+  const tripId = req.params.id;
+  const { worker_id } = req.body;
+
+  if (!worker_id) {
+    return res.status(400).json({ error: 'worker_id is required.' });
+  }
+
+  try {
+    // 1. Fetch the trip — must be a TO-created trip
+    const { data: trip, error: tripErr } = await adminClient
+      .from('trips')
+      .select('*')
+      .eq('id', tripId)
+      .eq('created_by_to', true)
+      .maybeSingle();
+
+    if (tripErr || !trip) {
+      return res.status(404).json({ error: 'Trip not found or is not a Transport Manager trip.' });
+    }
+
+    // 2. Verify the target worker exists and has the correct role
+    const { data: worker, error: workerErr } = await adminClient
+      .from('profiles')
+      .select('id, name, role, status')
+      .eq('id', worker_id)
+      .single();
+
+    if (workerErr || !worker) {
+      return res.status(404).json({ error: 'Field Worker not found.' });
+    }
+    if (worker.role !== 'user') {
+      return res.status(400).json({ error: 'Only Field Workers (role=user) can be assigned to trips.' });
+    }
+    if (worker.status !== 'approved') {
+      return res.status(400).json({ error: 'This worker account is not approved.' });
+    }
+
+    // 3. Check if already assigned to the same worker — prevent duplicate update
+    if (trip.worker_id === worker_id) {
+      return res.json({
+        success: true,
+        message: 'This worker is already assigned to this trip.',
+        already_assigned: true,
+        trip: {
+          id: trip.id,
+          assignment_status: trip.assignment_status,
+          worker_id: trip.worker_id,
+          worker_name: worker.name
+        }
+      });
+    }
+
+    // 4. Perform the assignment — write worker_id (the single source of truth)
+    const { data: updated, error: updateErr } = await adminClient
+      .from('trips')
+      .update({
+        worker_id: worker_id,
+        assignment_status: 'worker_assigned',
+        assigned_at: new Date().toISOString(),
+        assigned_by_gm_id: profile.id,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', tripId)
+      .select()
+      .single();
+
+    if (updateErr || !updated) {
+      throw updateErr || new Error('Assignment update failed.');
+    }
+
+    console.log(`[Worker Assignment] Trip ${tripId} assigned to worker ${worker.name} (${worker_id}) by GM ${profile.name}`);
+
+    res.json({
+      success: true,
+      message: `Field Worker "${worker.name}" successfully assigned to trip.`,
+      trip: {
+        id: updated.id,
+        trip_name: updated.trip_name,
+        assignment_status: updated.assignment_status,
+        worker_id: updated.worker_id,
+        worker_name: worker.name,
+        assigned_at: updated.assigned_at
+      }
+    });
+  } catch (err) {
+    console.error('❌ Worker Assignment error:', err);
+    res.status(500).json({ error: err.message || 'Failed to assign worker.' });
+  }
+});
+
+// ─── GET /api/worker/assigned-trips ──────────────────────────────────────────
+// Field Worker sees trips assigned to them by P&I AGM
+app.get('/api/worker/assigned-trips', requireWorker, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    // Fetch trips where this worker is assigned AND trip was created by Transport Manager
+    const { data: trips, error } = await adminClient
+      .from('trips')
+      .select('*')
+      .eq('worker_id', profile.id)
+      .eq('created_by_to', true)
+      .neq('status', 'deleted')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const tripList = trips || [];
+
+    // Collect TO profile IDs
+    const toIds = [...new Set(tripList.filter(t => t.transport_officer_id).map(t => t.transport_officer_id))];
+    let toMap = {};
+    if (toIds.length > 0) {
+      const { data: tos } = await adminClient
+        .from('profiles').select('id, name').in('id', toIds);
+      (tos || []).forEach(p => toMap[p.id] = p.name);
+    }
+
+    // Collect BMC IDs
+    const bmcIds = [...new Set(tripList.filter(t => t.bmc_id).map(t => t.bmc_id))];
+    let bmcMap = {};
+    if (bmcIds.length > 0) {
+      const { data: bmcs } = await adminClient
+        .from('bmcs').select('id, name, district, location, contact_number').in('id', bmcIds);
+      (bmcs || []).forEach(b => bmcMap[b.id] = b);
+    }
+
+    // Enrich with BMC visit counts for progress display
+    const tripIds = tripList.map(t => t.id);
+    let visitCounts = {};
+    if (tripIds.length > 0) {
+      const { data: visits } = await adminClient
+        .from('trip_bmc_visits')
+        .select('trip_id, status')
+        .in('trip_id', tripIds);
+      (visits || []).forEach(v => {
+        if (!visitCounts[v.trip_id]) visitCounts[v.trip_id] = { total: 0, completed: 0 };
+        visitCounts[v.trip_id].total++;
+        if (v.status === 'completed') visitCounts[v.trip_id].completed++;
+      });
+    }
+
+    const enriched = tripList.map(t => ({
+      id: t.id,
+      trip_number: t.trip_number || t.id.slice(0, 8).toUpperCase(),
+      trip_name: t.trip_name,
+      driver_name: t.driver_name,
+      tanker_number: t.tanker_number,
+      route_description: t.route_description || '—',
+      status: t.status,
+      assignment_status: t.assignment_status || 'worker_assigned',
+      out_time: t.out_time,
+      in_time: t.in_time,
+      assigned_at: t.assigned_at,
+      created_at: t.created_at,
+      transport_officer_name: toMap[t.transport_officer_id] || 'Transport Manager',
+      bmc: t.bmc_id ? (bmcMap[t.bmc_id] || null) : null,
+      visits_total: (visitCounts[t.id] || {}).total || 0,
+      visits_completed: (visitCounts[t.id] || {}).completed || 0
+    }));
+
+    res.json({ trips: enriched });
+  } catch (err) {
+    console.error('❌ Worker Assigned Trips error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch assigned trips.' });
+  }
+});
+
+// ─── GET /api/gm/available-workers ───────────────────────────────────────────
+// P&I AGM fetches list of available approved Field Workers for assignment modal
+app.get('/api/gm/available-workers', requireGm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: workers, error } = await adminClient
+      .from('profiles')
+      .select('id, name, email, status, profile_image_url')
+      .eq('role', 'user')
+      .eq('status', 'approved')
+      .order('name');
+
+    if (error) throw error;
+
+    // For each worker, get their current active trip count
+    const workerIds = (workers || []).map(w => w.id);
+    let activeTripCounts = {};
+    if (workerIds.length > 0) {
+      const { data: activeTrips } = await adminClient
+        .from('trips')
+        .select('worker_id')
+        .in('worker_id', workerIds)
+        .eq('status', 'active');
+      (activeTrips || []).forEach(t => {
+        activeTripCounts[t.worker_id] = (activeTripCounts[t.worker_id] || 0) + 1;
+      });
+    }
+
+    const enriched = (workers || []).map(w => ({
+      id: w.id,
+      name: w.name,
+      email: w.email,
+      profile_image_url: w.profile_image_url,
+      active_trips: activeTripCounts[w.id] || 0,
+      availability: (activeTripCounts[w.id] || 0) === 0 ? 'Available' : 'On Active Trip'
+    }));
+
+    res.json({ workers: enriched });
+  } catch (err) {
+    console.error('❌ Available Workers error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch workers.' });
+  }
+});
+
+// ─── QC WORKER & QC AGM API ROUTES ───────────────────────────────────────────
+
+// GET /api/qc-worker/profile
+app.get('/api/qc-worker/profile', requireQcWorker, (req, res) => {
+  res.json({ profile: req.profile });
+});
+
+// GET /api/qc-worker/dashboard-stats
+app.get('/api/qc-worker/dashboard-stats', requireQcWorker, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const { count: totalVisits } = await adminClient
+      .from('trip_bmc_visits')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'completed');
+
+    const { data: myTests } = await adminClient
+      .from('qc_lab_tests')
+      .select('id, status, created_at, submitted_at')
+      .eq('qc_worker_id', profile.id);
+
+    const tests = myTests || [];
+    const today = new Date().toISOString().split('T')[0];
+
+    const testedToday = tests.filter(t => t.created_at && t.created_at.startsWith(today)).length;
+    const submittedCount = tests.filter(t => t.status === 'submitted' || t.status === 'approved').length;
+    const pendingSubmissionCount = tests.filter(t => t.status === 'testing' || t.status === 'in_progress' || t.status === 'returned').length;
+
+    const { data: allQcTests } = await adminClient.from('qc_lab_tests').select('visit_id');
+    const testedVisitIds = new Set((allQcTests || []).map(t => t.visit_id));
+
+    const { data: visits } = await adminClient
+      .from('trip_bmc_visits')
+      .select('id')
+      .eq('status', 'completed');
+
+    const pendingSamplesCount = (visits || []).filter(v => !testedVisitIds.has(v.id)).length;
+
+    res.json({
+      samples_pending: pendingSamplesCount,
+      tested_today: testedToday,
+      reports_submitted: submittedCount,
+      pending_submission: pendingSubmissionCount,
+      total_samples: totalVisits || 0
+    });
+  } catch (err) {
+    console.error('❌ QC Worker Stats error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-worker/samples
+app.get('/api/qc-worker/samples', requireQcWorker, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: rawVisits, error } = await adminClient
+      .from('trip_bmc_visits')
+      .select(`
+        *,
+        bmc:bmcs(*),
+        trip:trips(*, worker:profiles!trips_worker_id_fkey(*)),
+        ftir_tests(*),
+        gerber_tests(*),
+        qc_test:qc_lab_tests(*)
+      `)
+      .eq('status', 'completed')
+      .order('visit_end_time', { ascending: false });
+
+    if (error) throw error;
+    res.json({ samples: rawVisits || [] });
+  } catch (err) {
+    console.error('❌ QC Worker Samples error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-worker/samples/:id
+app.get('/api/qc-worker/samples/:id', requireQcWorker, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: visit, error } = await adminClient
+      .from('trip_bmc_visits')
+      .select(`
+        *,
+        bmc:bmcs(*),
+        trip:trips(*, worker:profiles!trips_worker_id_fkey(*)),
+        ftir_tests(*),
+        gerber_tests(*),
+        qc_test:qc_lab_tests(*)
+      `)
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !visit) return res.status(404).json({ error: 'Sample visit record not found.' });
+    res.json({ sample: visit });
+  } catch (err) {
+    console.error('❌ QC Worker Sample detail error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/qc-worker/tests (Save/Upsert Draft)
+app.post('/api/qc-worker/tests', requireQcWorker, async (req, res) => {
+  const { adminClient, profile } = req;
+  const {
+    visit_id,
+    sample_received_at,
+    sample_condition,
+    fat,
+    snf,
+    clr,
+    temperature,
+    acidity,
+    protein,
+    lactose,
+    density,
+    water_percentage,
+    test_start_time,
+    test_end_time,
+    equipment_used,
+    instrument_id,
+    overall_result,
+    remarks,
+    additional_observations
+  } = req.body;
+
+  if (!visit_id) return res.status(400).json({ error: 'visit_id is required.' });
+
+  try {
+    const { data: existing } = await adminClient
+      .from('qc_lab_tests')
+      .select('id, status')
+      .eq('visit_id', visit_id)
+      .maybeSingle();
+
+    const payload = {
+      visit_id,
+      qc_worker_id: profile.id,
+      sample_received_at: sample_received_at || new Date().toISOString(),
+      sample_condition: sample_condition || 'good',
+      fat: fat !== undefined && fat !== '' && fat !== null ? parseFloat(fat) : null,
+      snf: snf !== undefined && snf !== '' && snf !== null ? parseFloat(snf) : null,
+      clr: clr !== undefined && clr !== '' && clr !== null ? parseFloat(clr) : null,
+      temperature: temperature !== undefined && temperature !== '' && temperature !== null ? parseFloat(temperature) : null,
+      acidity: acidity !== undefined && acidity !== '' && acidity !== null ? parseFloat(acidity) : null,
+      protein: protein !== undefined && protein !== '' && protein !== null ? parseFloat(protein) : null,
+      lactose: lactose !== undefined && lactose !== '' && lactose !== null ? parseFloat(lactose) : null,
+      density: density !== undefined && density !== '' && density !== null ? parseFloat(density) : null,
+      water_percentage: water_percentage !== undefined && water_percentage !== '' && water_percentage !== null ? parseFloat(water_percentage) : null,
+      test_start_time: test_start_time || new Date().toISOString(),
+      test_end_time: test_end_time || null,
+      equipment_used: equipment_used || null,
+      instrument_id: instrument_id || null,
+      overall_result: overall_result || 'pass',
+      remarks: remarks || null,
+      additional_observations: additional_observations || null,
+      status: existing ? (existing.status === 'returned' ? 'in_progress' : existing.status) : 'in_progress',
+      updated_at: new Date().toISOString()
+    };
+
+    let resultData;
+    if (existing) {
+      const { data, error } = await adminClient
+        .from('qc_lab_tests')
+        .update(payload)
+        .eq('id', existing.id)
+        .select()
+        .single();
+      if (error) throw error;
+      resultData = data;
+    } else {
+      const { data, error } = await adminClient
+        .from('qc_lab_tests')
+        .insert(payload)
+        .select()
+        .single();
+      if (error) throw error;
+      resultData = data;
+    }
+
+    res.json({ success: true, test: resultData });
+  } catch (err) {
+    console.error('❌ Save QC Test error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/qc-worker/tests/:id/submit
+app.post('/api/qc-worker/tests/:id/submit', requireQcWorker, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const { data: test, error: fetchErr } = await adminClient
+      .from('qc_lab_tests')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+
+    if (fetchErr || !test) return res.status(404).json({ error: 'QC Test not found.' });
+    if (test.qc_worker_id !== profile.id && profile.role !== 'admin') {
+      return res.status(403).json({ error: 'You are not authorized to submit this test.' });
+    }
+
+    const { data: updated, error: updateErr } = await adminClient
+      .from('qc_lab_tests')
+      .update({
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (updateErr) throw updateErr;
+
+    await adminClient.from('qc_audit_logs').insert({
+      entity_type: 'qc_lab_test',
+      entity_id: req.params.id,
+      action: 'submitted',
+      actor_id: profile.id,
+      old_values: { status: test.status },
+      new_values: { status: 'submitted' }
+    });
+
+    res.json({ success: true, message: 'QC Test Report submitted successfully!', test: updated });
+  } catch (err) {
+    console.error('❌ Submit QC Test error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-worker/history
+app.get('/api/qc-worker/history', requireQcWorker, async (req, res) => {
+  const { adminClient, profile } = req;
+  try {
+    const { data: tests, error } = await adminClient
+      .from('qc_lab_tests')
+      .select(`
+        *,
+        visit:trip_bmc_visits(
+          *,
+          bmc:bmcs(*),
+          trip:trips(*, worker:profiles!trips_worker_id_fkey(*)),
+          ftir_tests(*),
+          gerber_tests(*)
+        ),
+        reviews:qc_test_reviews(*)
+      `)
+      .eq('qc_worker_id', profile.id)
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+    res.json({ tests: tests || [] });
+  } catch (err) {
+    console.error('❌ QC Worker History error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── QC AGM APIs ─────────────────────────────────────────────────────────────
+
+// GET /api/qc-agm/profile
+app.get('/api/qc-agm/profile', requireQcAgm, (req, res) => {
+  res.json({ profile: req.profile });
+});
+
+// GET /api/qc-agm/dashboard
+app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { count: totalSamples } = await adminClient
+      .from('trip_bmc_visits')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'completed');
+
+    const { count: bmcTestsCount } = await adminClient
+      .from('ftir_tests')
+      .select('id', { count: 'exact', head: true });
+
+    const { count: qcLabTestsCount } = await adminClient
+      .from('qc_lab_tests')
+      .select('id', { count: 'exact', head: true });
+
+    const { count: importedRecordsCount } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('id', { count: 'exact', head: true });
+
+    const { data: qcTests } = await adminClient
+      .from('qc_lab_tests')
+      .select('id, status, visit_id, fat, snf, clr, visit:trip_bmc_visits(ftir_tests(*), gerber_tests(*))');
+
+    const tests = qcTests || [];
+    const submittedCount = tests.filter(t => t.status === 'submitted').length;
+    const reviewedCount = tests.filter(t => t.status === 'approved' || t.status === 'returned').length;
+
+    let varianceCount = 0;
+    tests.forEach(t => {
+      if (t.visit) {
+        const ftir = Array.isArray(t.visit.ftir_tests) ? t.visit.ftir_tests[0] : t.visit.ftir_tests;
+        const gerber = Array.isArray(t.visit.gerber_tests) ? t.visit.gerber_tests[0] : t.visit.gerber_tests;
+        const bmcFat = (ftir && ftir.fat) || (gerber && gerber.fat_percentage);
+        const bmcSnf = (ftir && ftir.snf) || (gerber && gerber.snf);
+        if (t.fat !== null && bmcFat !== null && bmcFat !== undefined) {
+          if (Math.abs(t.fat - bmcFat) >= 0.3) varianceCount++;
+        } else if (t.snf !== null && bmcSnf !== null && bmcSnf !== undefined) {
+          if (Math.abs(t.snf - bmcSnf) >= 0.3) varianceCount++;
+        }
+      }
+    });
+
+    const pendingQcTests = (totalSamples || 0) - (qcLabTestsCount || 0);
+
+    res.json({
+      total_samples: totalSamples || 0,
+      bmc_tests: bmcTestsCount || 0,
+      qc_lab_tests: qcLabTestsCount || 0,
+      imported_records: importedRecordsCount || 0,
+      pending_qc_tests: pendingQcTests < 0 ? 0 : pendingQcTests,
+      reports_submitted: submittedCount,
+      reviewed: reviewedCount,
+      variance_detected: varianceCount
+    });
+  } catch (err) {
+    console.error('❌ QC AGM Dashboard error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-agm/tests
+app.get('/api/qc-agm/tests', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: visits, error } = await adminClient
+      .from('trip_bmc_visits')
+      .select(`
+        *,
+        bmc:bmcs(*),
+        trip:trips(*, worker:profiles!trips_worker_id_fkey(*)),
+        ftir_tests(*),
+        gerber_tests(*),
+        qc_test:qc_lab_tests(*, qc_worker:profiles(*), reviews:qc_test_reviews(*))
+      `)
+      .eq('status', 'completed')
+      .order('visit_end_time', { ascending: false });
+
+    if (error) throw error;
+    res.json({ tests: visits || [] });
+  } catch (err) {
+    console.error('❌ QC AGM All Tests error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-agm/tests/:id
+app.get('/api/qc-agm/tests/:id', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: visit, error } = await adminClient
+      .from('trip_bmc_visits')
+      .select(`
+        *,
+        bmc:bmcs(*),
+        trip:trips(*, worker:profiles!trips_worker_id_fkey(*)),
+        ftir_tests(*),
+        gerber_tests(*),
+        qc_test:qc_lab_tests(*, qc_worker:profiles(*), reviews:qc_test_reviews(*))
+      `)
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !visit) return res.status(404).json({ error: 'Test details not found.' });
+
+    let excelRows = [];
+    if (visit.bmc_id) {
+      const { data: xRows } = await adminClient
+        .from('qc_excel_import_rows')
+        .select('*, batch:qc_excel_imports(*)')
+        .eq('bmc_id', visit.bmc_id)
+        .order('test_date', { ascending: false });
+      excelRows = xRows || [];
+    }
+
+    res.json({ test: visit, excel_rows: excelRows });
+  } catch (err) {
+    console.error('❌ QC AGM Single Test error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/qc-agm/tests/:id/review (approve or return)
+app.post('/api/qc-agm/tests/:id/review', requireQcAgm, async (req, res) => {
+  const { adminClient, profile } = req;
+  const { action, remarks } = req.body;
+
+  if (!['approved', 'returned'].includes(action)) {
+    return res.status(400).json({ error: 'Action must be "approved" or "returned".' });
+  }
+  if (action === 'returned' && (!remarks || !remarks.trim())) {
+    return res.status(400).json({ error: 'Remarks are required when returning a report for correction.' });
+  }
+
+  try {
+    const { data: test, error: fetchErr } = await adminClient
+      .from('qc_lab_tests')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+
+    if (fetchErr || !test) return res.status(404).json({ error: 'QC Test not found.' });
+
+    const newStatus = action === 'approved' ? 'approved' : 'returned';
+    const { data: updated, error: updateErr } = await adminClient
+      .from('qc_lab_tests')
+      .update({
+        status: newStatus,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (updateErr) throw updateErr;
+
+    await adminClient.from('qc_test_reviews').insert({
+      qc_test_id: req.params.id,
+      reviewer_id: profile.id,
+      action: action,
+      remarks: remarks || null
+    });
+
+    await adminClient.from('qc_audit_logs').insert({
+      entity_type: 'qc_lab_test',
+      entity_id: req.params.id,
+      action: action,
+      actor_id: profile.id,
+      old_values: { status: test.status },
+      new_values: { status: newStatus, remarks }
+    });
+
+    res.json({ success: true, message: `Report successfully ${action}!`, test: updated });
+  } catch (err) {
+    console.error('❌ Review QC Test error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-agm/bmcs
+app.get('/api/qc-agm/bmcs', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: bmcs, error } = await adminClient.from('bmcs').select('*').order('name');
+    if (error) throw error;
+    res.json({ bmcs: bmcs || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-agm/bmcs/:id/tests
+app.get('/api/qc-agm/bmcs/:id/tests', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: visits, error } = await adminClient
+      .from('trip_bmc_visits')
+      .select(`
+        *,
+        bmc:bmcs(*),
+        trip:trips(*, worker:profiles!trips_worker_id_fkey(*)),
+        ftir_tests(*),
+        gerber_tests(*),
+        qc_test:qc_lab_tests(*, qc_worker:profiles(*))
+      `)
+      .eq('bmc_id', req.params.id)
+      .eq('status', 'completed')
+      .order('visit_end_time', { ascending: false });
+
+    if (error) throw error;
+
+    const { data: excelRows } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('*, batch:qc_excel_imports(*)')
+      .eq('bmc_id', req.params.id)
+      .order('test_date', { ascending: false });
+
+    res.json({ visits: visits || [], excel_rows: excelRows || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/qc-agm/import/excel
+app.post('/api/qc-agm/import/excel', requireQcAgm, async (req, res) => {
+  const { adminClient, profile } = req;
+  const { file_name, rows, notes } = req.body;
+
+  if (!file_name || !Array.isArray(rows)) {
+    return res.status(400).json({ error: 'file_name and rows array are required.' });
+  }
+
+  try {
+    const { data: importBatch, error: importErr } = await adminClient
+      .from('qc_excel_imports')
+      .insert({
+        file_name,
+        imported_by: profile.id,
+        total_rows: rows.length,
+        notes: notes || null,
+        status: 'completed'
+      })
+      .select()
+      .single();
+
+    if (importErr) throw importErr;
+
+    const { data: bmcs } = await adminClient.from('bmcs').select('id, name, district');
+    const bmcMap = {};
+    (bmcs || []).forEach(b => {
+      bmcMap[b.name.toLowerCase().trim()] = b.id;
+    });
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    const insertRows = rows.map((r, idx) => {
+      const matchedBmcId = r.bmc_id || (r.bmc_name ? bmcMap[r.bmc_name.toLowerCase().trim()] : null);
+      let rStatus = 'imported';
+      let errMsgs = [];
+
+      if (!r.fat && !r.snf) {
+        rStatus = 'error';
+        errMsgs.push('Missing Fat and SNF');
+        errorCount++;
+      } else {
+        successCount++;
+      }
+
+      return {
+        import_id: importBatch.id,
+        bmc_id: matchedBmcId || null,
+        bmc_name: r.bmc_name || null,
+        sample_ref: r.sample_id || r.sample_ref || `ROW-${idx + 1}`,
+        test_date: r.test_date || new Date().toISOString().split('T')[0],
+        fat: r.fat !== undefined && r.fat !== '' && r.fat !== null ? parseFloat(r.fat) : null,
+        snf: r.snf !== undefined && r.snf !== '' && r.snf !== null ? parseFloat(r.snf) : null,
+        clr: r.clr !== undefined && r.clr !== '' && r.clr !== null ? parseFloat(r.clr) : null,
+        temperature: r.temperature !== undefined && r.temperature !== '' && r.temperature !== null ? parseFloat(r.temperature) : null,
+        acidity: r.acidity !== undefined && r.acidity !== '' && r.acidity !== null ? parseFloat(r.acidity) : null,
+        protein: r.protein !== undefined && r.protein !== '' && r.protein !== null ? parseFloat(r.protein) : null,
+        lactose: r.lactose !== undefined && r.lactose !== '' && r.lactose !== null ? parseFloat(r.lactose) : null,
+        density: r.density !== undefined && r.density !== '' && r.density !== null ? parseFloat(r.density) : null,
+        overall_result: r.overall_result || 'pass',
+        raw_data: r,
+        row_status: rStatus,
+        error_message: errMsgs.join('; ') || null
+      };
+    });
+
+    if (insertRows.length > 0) {
+      const { error: rowErr } = await adminClient.from('qc_excel_import_rows').insert(insertRows);
+      if (rowErr) throw rowErr;
+    }
+
+    await adminClient.from('qc_excel_imports').update({
+      successful_rows: successCount,
+      failed_rows: errorCount,
+      duplicate_rows: 0
+    }).eq('id', importBatch.id);
+
+    res.json({
+      success: true,
+      message: `Successfully imported ${successCount} records (${errorCount} failed).`,
+      import_id: importBatch.id
+    });
+  } catch (err) {
+    console.error('❌ Excel Import error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-agm/imports
+app.get('/api/qc-agm/imports', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: imports, error } = await adminClient
+      .from('qc_excel_imports')
+      .select('*, importer:profiles(id, name, email)')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json({ imports: imports || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-agm/imports/:id
+app.get('/api/qc-agm/imports/:id', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: batch, error: batchErr } = await adminClient
+      .from('qc_excel_imports')
+      .select('*, importer:profiles(id, name, email)')
+      .eq('id', req.params.id)
+      .single();
+
+    if (batchErr || !batch) return res.status(404).json({ error: 'Import batch not found.' });
+
+    const { data: rows, error: rowsErr } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('*, bmc:bmcs(*)')
+      .eq('import_id', req.params.id)
+      .order('created_at', { ascending: true });
+
+    if (rowsErr) throw rowsErr;
+
+    res.json({ import_batch: batch, rows: rows || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-agm/excel-data
+app.get('/api/qc-agm/excel-data', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: rows, error } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('*, bmc:bmcs(*), batch:qc_excel_imports(*)')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json({ rows: rows || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

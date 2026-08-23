@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await loadTripDetails();
   setupAddBmcModal();
-  setupCreateBmcModal();
+
   setupCloseTripModal();
 });
 
@@ -210,8 +210,28 @@ function setupAddBmcModal() {
   async function performBmcSearch(q) {
     resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-desc">Loading BMCs...</div></div>';
     try {
-      const res = await apiSearchBmcs(q);
-      const list = res.bmcs || [];
+      let list = [];
+      
+      if (currentTrip && currentTrip.bmc_id) {
+        if (currentTrip.assigned_bmc) {
+          const match = q === '' || 
+            (currentTrip.assigned_bmc.name && currentTrip.assigned_bmc.name.toLowerCase().includes(q.toLowerCase())) ||
+            (currentTrip.assigned_bmc.district && currentTrip.assigned_bmc.district.toLowerCase().includes(q.toLowerCase())) ||
+            (currentTrip.assigned_bmc.location && currentTrip.assigned_bmc.location.toLowerCase().includes(q.toLowerCase()));
+          
+          if (match) {
+            list = [currentTrip.assigned_bmc];
+          }
+        } else {
+          // Fallback if assigned_bmc isn't populated but bmc_id is present
+          const res = await apiSearchBmcs(q);
+          list = (res.bmcs || []).filter(b => b.id === currentTrip.bmc_id);
+        }
+      } else {
+        // If no BMC is assigned to the trip, we probably shouldn't show any, 
+        // but for safety if it's an old trip without an assignment, we can show none.
+        list = [];
+      }
       
       // Count existing visits per BMC in current trip
       const bmcCountMap = {};
@@ -220,7 +240,7 @@ function setupAddBmcModal() {
       });
       
       if (list.length === 0) {
-        resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-desc">No BMC found.</div></div>';
+        resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-desc">No BMC found, or no BMC has been assigned to this trip. You can only view the BMC assigned to you for this trip.</div></div>';
         return;
       }
 
@@ -271,208 +291,7 @@ window.addBmcToTrip = async function(bmcId) {
   }
 };
 
-function setupCreateBmcModal() {
-  const openBtn = document.getElementById('qa-create-bmc');
-  const modal = document.getElementById('create-bmc-modal');
-  const closeBtn = document.getElementById('create-bmc-close');
-  const cancelBtn = document.getElementById('create-bmc-cancel');
-  const submitBtn = document.getElementById('create-bmc-submit');
 
-  const nameInput = document.getElementById('create-bmc-name');
-  const districtInput = document.getElementById('create-bmc-district');
-  const locationInput = document.getElementById('create-bmc-location');
-  const contactInput = document.getElementById('create-bmc-contact');
-  
-  const detectLocBtn = document.getElementById('create-detect-location-btn');
-  const locStatus = document.getElementById('create-location-status');
-  const coordsDisplay = document.getElementById('create-coords-display');
-  const latInput = document.getElementById('create-bmc-latitude');
-  const lngInput = document.getElementById('create-bmc-longitude');
-
-  const imageZone = document.getElementById('create-bmc-image-drop');
-  const imageInput = document.getElementById('create-bmc-image-input');
-  const previewImg = document.getElementById('create-bmc-preview-img');
-  const imagePlaceholder = document.getElementById('create-bmc-image-placeholder');
-
-  let selectedFile = null;
-  let detectedLat = null;
-  let detectedLng = null;
-
-  if (!openBtn || !modal) return;
-
-  function openModal() {
-    modal.classList.remove('hidden');
-    nameInput.value = '';
-    districtInput.value = '';
-    locationInput.value = '';
-    contactInput.value = '';
-    latInput.value = '';
-    lngInput.value = '';
-    locStatus.textContent = '';
-    detectLocBtn.textContent = '📡 Detect My Location';
-    detectLocBtn.disabled = false;
-    selectedFile = null;
-    detectedLat = null;
-    detectedLng = null;
-
-    // Reset image
-    previewImg.src = '';
-    previewImg.classList.add('hidden');
-    imagePlaceholder.style.display = '';
-    imageInput.value = '';
-
-    nameInput.focus();
-  }
-
-  function closeModal() {
-    modal.classList.add('hidden');
-  }
-
-  openBtn.addEventListener('click', openModal);
-  closeBtn.addEventListener('click', closeModal);
-  cancelBtn.addEventListener('click', closeModal);
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) closeModal();
-  });
-
-  // Geolocation detection
-  detectLocBtn.addEventListener('click', () => {
-    if (!navigator.geolocation) {
-      locStatus.textContent = '❌ Geolocation not supported by your browser.';
-      return;
-    }
-
-    detectLocBtn.disabled = true;
-    detectLocBtn.textContent = '📡 Detecting…';
-    locStatus.textContent = 'Requesting location permission…';
-
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        detectedLat = pos.coords.latitude;
-        detectedLng = pos.coords.longitude;
-
-        latInput.value = detectedLat;
-        lngInput.value = detectedLng;
-
-
-        locStatus.textContent = '✅ Location detected!';
-        detectLocBtn.disabled = false;
-        detectLocBtn.textContent = '📡 Re-detect Location';
-        showToast('Location detected successfully.', 'success');
-      },
-      err => {
-        detectLocBtn.disabled = false;
-        detectLocBtn.textContent = '📡 Detect My Location';
-        const msgs = {
-          1: 'Permission denied. Please allow location access in your browser.',
-          2: 'Position unavailable. Try again.',
-          3: 'Request timed out. Try again.'
-        };
-        locStatus.textContent = '❌ ' + (msgs[err.code] || 'Unknown error.');
-        showToast('Location detection failed: ' + (msgs[err.code] || 'Error'), 'error');
-      },
-      { timeout: 12000, maximumAge: 0 }
-    );
-  });
-
-  // Image Upload Logic
-  imageZone.addEventListener('click', () => imageInput.click());
-  imageInput.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    selectedFile = file;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      previewImg.src = ev.target.result;
-      previewImg.classList.remove('hidden');
-      imagePlaceholder.style.display = 'none';
-    };
-    reader.readAsDataURL(file);
-  });
-
-  // Save/Submit BMC
-  submitBtn.addEventListener('click', async () => {
-    const name = nameInput.value.trim();
-    const district = districtInput.value.trim();
-    const location = locationInput.value.trim();
-    const contact_number = contactInput.value.trim();
-    const lat = latInput.value;
-    const lng = lngInput.value;
-
-    if (!name || !district || !location || !contact_number) {
-      showToast('All fields are required.', 'error');
-      return;
-    }
-    if (!lat || !lng) {
-      showToast('GPS coordinates are required. Please click "Detect My Location".', 'error');
-      return;
-    }
-
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Registering...';
-
-    try {
-      let imageUrl = null;
-
-      // Upload image if selected (or convert to Base64)
-      if (selectedFile) {
-        const client = await initSupabase();
-        if (client) {
-          try {
-            const ext = selectedFile.name.split('.').pop();
-            const path = `bmcs/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-            const { error: uploadErr } = await client.storage
-              .from('profile_images')
-              .upload(path, selectedFile, { cacheControl: '3600', upsert: true });
-
-            if (!uploadErr) {
-              const { data: { publicUrl } } = client.storage.from('profile_images').getPublicUrl(path);
-              imageUrl = publicUrl;
-            } else {
-              console.warn('Storage bucket upload failed, using Data URL fallback:', uploadErr.message);
-              imageUrl = await getOptimizedBase64(selectedFile);
-            }
-          } catch (err) {
-            console.warn('Storage upload error, using Data URL fallback:', err);
-            imageUrl = await getOptimizedBase64(selectedFile);
-          }
-        } else {
-          imageUrl = await getOptimizedBase64(selectedFile);
-        }
-      }
-
-      await apiCreateBmc({
-        name,
-        district,
-        location,
-        contact_number,
-        latitude: parseFloat(lat),
-        longitude: parseFloat(lng),
-        profile_image_url: imageUrl
-      });
-
-      showToast(`BMC "${name}" registered successfully!`, 'success');
-      closeModal();
-      // Automatically trigger the search modal to add it to the trip
-      setTimeout(() => {
-        const searchModal = document.getElementById('add-bmc-modal');
-        const searchInput = document.getElementById('add-bmc-input');
-        if (searchModal && searchInput) {
-           searchModal.classList.remove('hidden');
-           searchInput.value = name;
-           // Trigger input event to fire search
-           searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-      }, 500);
-    } catch (err) {
-      console.error('Create BMC error:', err);
-      showToast(err.message || 'Failed to create BMC.', 'error');
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Save BMC';
-    }
-  });
-}
 
 function getOptimizedBase64(file, maxWidth = 800, quality = 0.8) {
   return new Promise((resolve) => {

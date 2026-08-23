@@ -262,7 +262,27 @@ async function setupCreateTripModal() {
 
     try {
       await apiCreateDriverTrip(payload);
-      showToast('Driver trip assigned successfully!', 'success');
+
+      // Also create a P&I AGM pending trip record so the P&I AGM can assign a Field Worker
+      try {
+        const driverObj = driversList.find(d => d.id === driverSelect.value);
+        const driverName = driverObj ? driverObj.name : 'Driver';
+        const tankerNum = vehicleObj ? vehicleObj.board_number : 'Tanker';
+        const firstBmc = selectedBmcs[0] || null;
+
+        await apiCreateTransportTrip({
+          trip_name: `Trip - ${routeInput.value.trim()}`,
+          driver_name: driverName,
+          tanker_number: tankerNum,
+          route_description: routeInput.value.trim(),
+          bmc_id: firstBmc ? firstBmc.bmc_id : null,
+          out_time: startTimeInput.value ? new Date(startTimeInput.value).toISOString() : new Date().toISOString()
+        });
+      } catch (toErr) {
+        console.warn('Transport trip record creation warning:', toErr.message);
+      }
+
+      showToast('Driver trip assigned successfully! Pending P&I AGM Field Worker assignment.', 'success');
       closeModal('create-trip-modal');
       form.reset();
       selectedBmcs = [];

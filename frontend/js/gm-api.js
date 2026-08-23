@@ -1,4 +1,4 @@
-// gm-api.js — API Helper for General Manager Portal
+// gm-api.js — API Helper for P&I AGM Portal
 
 async function gmFetch(endpoint, options = {}) {
   const client = await initSupabase();
@@ -36,13 +36,13 @@ async function apiGetGmDashboard() {
   return gmFetch('/api/gm/dashboard');
 }
 
-// Fetch Comprehensive GM Dashboard V2 (Single Date)
+// Fetch Comprehensive P&I AGM Dashboard V2 (Single Date)
 async function apiGetGmDashboardV2(dateStr = '') {
   const query = dateStr ? `?date=${encodeURIComponent(dateStr)}` : '';
   return gmFetch(`/api/gm/dashboard-v2${query}`);
 }
 
-// Create BMC via GM Portal
+// Create BMC via P&I AGM Portal
 async function apiGmCreateBmc(data) {
   return gmFetch('/api/gm/create-bmc', {
     method: 'POST',
@@ -50,7 +50,7 @@ async function apiGmCreateBmc(data) {
   });
 }
 
-// Update BMC via GM Portal
+// Update BMC via P&I AGM Portal
 async function apiGmUpdateBmc(id, data) {
   return gmFetch(`/api/gm/bmcs/${id}`, {
     method: 'PUT',
@@ -58,15 +58,13 @@ async function apiGmUpdateBmc(id, data) {
   });
 }
 
-
-// Fetch GM Operational Analysis Data
+// Fetch P&I AGM Operational Analysis Data
 async function apiGetGmAnalysis({ type = 'vehicle', entityId = '', startDate = '', endDate = '' } = {}) {
   const queryParams = new URLSearchParams();
   if (type) queryParams.set('type', type);
   if (entityId) queryParams.set('entityId', entityId);
   if (startDate) queryParams.set('startDate', startDate);
   if (endDate) queryParams.set('endDate', endDate);
-
   return gmFetch(`/api/gm/analysis?${queryParams.toString()}`);
 }
 
@@ -76,7 +74,6 @@ async function apiGetGmRequirements({ bmcId = '', status = 'all', search = '' } 
   if (bmcId) queryParams.set('bmcId', bmcId);
   if (status) queryParams.set('status', status);
   if (search) queryParams.set('search', search);
-
   return gmFetch(`/api/gm/requirements?${queryParams.toString()}`);
 }
 
@@ -93,7 +90,6 @@ async function apiGetGmIssues({ bmcId = '', status = 'all', category = '', sever
   if (category) queryParams.set('category', category);
   if (severity) queryParams.set('severity', severity);
   if (search) queryParams.set('search', search);
-
   return gmFetch(`/api/gm/issues?${queryParams.toString()}`);
 }
 
@@ -112,7 +108,35 @@ async function apiGetGmBmcProfile(bmcId) {
   return gmFetch(`/api/gm/bmcs/${bmcId}/profile`);
 }
 
-// Auto-initialize sidebar toggle for all screens
+// ── P&I AGM WORKFLOW APIs ─────────────────────────────────────────────────────
+
+// Fetch all Transport Manager-created trips with assignment status
+async function apiGetGmPendingTrips() {
+  return gmFetch('/api/gm/pending-trips');
+}
+
+// Fetch available approved Field Workers for the assignment modal
+async function apiGetGmAvailableWorkers() {
+  return gmFetch('/api/gm/available-workers');
+}
+
+// Assign a Field Worker to a Transport Manager trip (P&I AGM action)
+async function apiAssignWorkerToTrip(tripId, workerId) {
+  return gmFetch(`/api/gm/trips/${tripId}/assign-worker`, {
+    method: 'POST',
+    body: JSON.stringify({ worker_id: workerId })
+  });
+}
+
+// Transport Officer: create a P&I workflow trip via gmFetch (uses same token mechanism)
+async function apiCreateTransportTrip(data) {
+  return gmFetch('/api/transport/create-trip', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+// ── Sidebar Toggle (shared across all P&I AGM portal pages) ──────────────────
 function initGmSidebarToggle() {
   const toggleBtn = document.getElementById('sidebar-toggle-btn');
   const sidebar = document.querySelector('.admin-sidebar');
@@ -144,7 +168,6 @@ function initGmSidebarToggle() {
   if (toggleBtn) toggleBtn.addEventListener('click', toggleSidebar);
   if (overlay) overlay.addEventListener('click', closeSidebar);
 
-  // Close on nav link click (mobile)
   if (sidebar) {
     sidebar.querySelectorAll('a').forEach(link => {
       link.addEventListener('click', closeSidebar);

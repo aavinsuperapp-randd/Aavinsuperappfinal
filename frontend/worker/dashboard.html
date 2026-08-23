@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Worker Dashboard — AAVIN Tracker</title>
+  <title>Field Worker Dashboard — AAVIN Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="/css/global.css">
   <link rel="stylesheet" href="/css/worker.css">
@@ -12,6 +12,64 @@
   <link rel="stylesheet" href="../css/worker.css">
   <link rel="stylesheet" href="../css/bmc-admin.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    /* ── Assigned Trips Section ───────────────────────────────── */
+    .assigned-trips-section { margin-top: 24px; }
+    .assigned-trips-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .assigned-trips-header h3 {
+      margin: 0; font-size: 1rem; font-weight: 700; color: #0F172A;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .assigned-count-badge {
+      background: #2563EB; color: #fff; border-radius: 20px;
+      padding: 2px 9px; font-size: 0.72rem; font-weight: 700;
+    }
+    .assigned-trip-card {
+      background: #fff; border-radius: 14px;
+      border: 1.5px solid #E2E8F0;
+      padding: 18px 20px; margin-bottom: 12px;
+      transition: box-shadow 0.15s, border-color 0.15s;
+    }
+    .assigned-trip-card:hover { box-shadow: 0 4px 20px rgba(37,99,235,0.10); border-color: #BFDBFE; }
+    .assigned-trip-card-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .assigned-trip-card-title { font-weight: 700; color: #0F172A; font-size: 0.95rem; }
+    .assigned-trip-card-id  { font-size: 0.72rem; color: #94A3B8; margin-top: 2px; }
+    .assigned-trip-meta {
+      display: flex; flex-wrap: wrap; gap: 12px;
+      font-size: 0.8rem; color: #475569; margin-bottom: 10px;
+    }
+    .assigned-trip-meta span { display: flex; align-items: center; gap: 4px; }
+    .assign-status-pill {
+      display: inline-block; padding: 3px 10px; border-radius: 20px;
+      font-size: 0.72rem; font-weight: 700;
+      background: #D1FAE5; color: #065F46;
+      text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    .assign-status-pill.pending_assignment { background: #FEF3C7; color: #92400E; }
+    .assign-status-pill.worker_assigned   { background: #DBEAFE; color: #1E40AF; }
+    .assign-status-pill.in_progress       { background: #D1FAE5; color: #065F46; }
+    .btn-open-trip {
+      background: linear-gradient(135deg, #2563EB, #1D4ED8);
+      color: #fff; border: none; border-radius: 8px;
+      padding: 8px 18px; font-size: 0.83rem; font-weight: 600;
+      cursor: pointer; text-decoration: none; display: inline-block;
+      transition: opacity 0.15s;
+    }
+    .btn-open-trip:hover { opacity: 0.88; }
+    .no-trips-info {
+      text-align: center; padding: 32px 20px;
+      background: #F8FAFC; border-radius: 14px;
+      border: 1.5px dashed #CBD5E1; color: #64748B;
+    }
+    .no-trips-info .no-trips-icon { font-size: 2rem; margin-bottom: 8px; }
+    .no-trips-info p { margin: 0; font-size: 0.88rem; line-height: 1.5; }
+  </style>
 </head>
 <body>
 
@@ -24,7 +82,7 @@
       <div class="ws-logo">
         <div style="display:flex;align-items:center;gap:12px;">
           <img src="/assets/aavin-logo.png" alt="AAVIN">
-          <span>Worker Portal</span>
+          <span>Field Worker Portal</span>
         </div>
       </div>
 
@@ -32,13 +90,12 @@
         <a href="dashboard.html" class="ws-nav-item active">
           <span>🏠</span> Dashboard
         </a>
-        <a href="trip-create.html" class="ws-nav-item">
-          <span>🚚</span> Start New Trip
+        <a href="#assigned-trips-section" class="ws-nav-item" id="nav-assigned-trips">
+          <span>🚛</span> My Assigned Trips
         </a>
         <a href="history.html" class="ws-nav-item">
           <span>📜</span> Trip History
         </a>
-
         <a href="profile.html" class="ws-nav-item">
           <span>👤</span> My Profile
         </a>
@@ -54,20 +111,20 @@
       <header class="worker-header">
         <div class="d-flex align-items-center gap-3">
           <button id="mobile-menu-toggle" class="mobile-menu-btn">☰</button>
-          <div class="worker-header-title">AAVIN BMC Monitoring & Operations</div>
+          <div class="worker-header-title">AAVIN BMC Monitoring &amp; Operations</div>
         </div>
         <div class="worker-header-user">
-          R&D Worker: <strong id="header-worker-name">Loading...</strong>
+          Field Worker: <strong id="header-worker-name">Loading...</strong>
         </div>
       </header>
 
       <main class="worker-content">
         <div id="main-content-area" class="hidden">
-          
+
           <!-- Page Top Greeting -->
           <div class="page-top">
             <h1>Good Day, <span id="welcome-name" style="color:#2563EB;">Worker</span> 👋</h1>
-            <p>Here is your daily milk collection route summary and field tools.</p>
+            <p>Trips are assigned to you by the P&amp;I AGM. Check your assigned trips below to begin field operations.</p>
           </div>
 
           <!-- Stats Grid -->
@@ -81,26 +138,39 @@
               <div class="stat-lbl">Completed Trips</div>
             </div>
             <div class="stat-card">
-              <div class="stat-num" id="stat-active-trips" style="color:#2563EB;">0</div>
-              <div class="stat-lbl">Active In-Transit</div>
+              <div class="stat-num" id="stat-assigned-trips" style="color:#2563EB;">0</div>
+              <div class="stat-lbl">Assigned to Me</div>
             </div>
-
           </div>
 
-          <!-- Active Trip Banner / Card -->
+          <!-- Active Trip Banner / Card (existing) -->
           <div id="active-trip-container">
             <!-- Rendered dynamically by worker-dashboard.js -->
           </div>
 
-          <!-- Quick Actions Grid -->
+          <!-- ── MY ASSIGNED TRIPS ─────────────────────────────────── -->
+          <div class="assigned-trips-section" id="assigned-trips-section">
+            <div class="assigned-trips-header">
+              <h3>
+                🚛 My Assigned Trips
+                <span class="assigned-count-badge" id="assigned-count-badge">0</span>
+              </h3>
+              <button id="refresh-assigned-btn" class="btn btn-outline btn-sm" style="font-size:0.78rem;">↻ Refresh</button>
+            </div>
+            <div id="assigned-trips-container">
+              <!-- Rendered by worker-dashboard.js -->
+              <div class="no-trips-info">
+                <div class="no-trips-icon">🔄</div>
+                <p>Loading your assigned trips...</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Actions Grid (condensed — no Start Trip or Create BMC) -->
           <div class="section-header mt-3">
             <div class="section-title">⚡ Quick Actions</div>
           </div>
           <div class="quick-actions">
-            <a href="trip-create.html" class="qa-btn" id="qa-start-trip">
-              <span class="qa-icon">🚚</span>
-              <span>Start Trip</span>
-            </a>
             <button class="qa-btn" id="qa-search-bmc">
               <span class="qa-icon">🔍</span>
               <span>Search BMC</span>
@@ -109,23 +179,23 @@
               <span class="qa-icon">📜</span>
               <span>Trip History</span>
             </a>
-
             <a href="profile.html" class="qa-btn">
               <span class="qa-icon">👤</span>
               <span>My Profile</span>
             </a>
           </div>
 
-          <!-- Field Operations Guidelines -->
+          <!-- Field Operations Guidelines (updated) -->
           <div class="form-section mt-3">
             <div class="form-section-title">
-              <span>📌</span> Daily Collection Workflow
+              <span>📌</span> Your Field Workflow
             </div>
             <div style="font-size:.85rem; color:#4B5563; line-height:1.6;">
               <ol style="margin-left:20px;">
-                <li><strong>Start Collection Trip:</strong> Select assigned vehicle tanker & driver.</li>
+                <li><strong>Check Assigned Trips:</strong> The P&amp;I AGM assigns trips to you. You'll see them above.</li>
+                <li><strong>Open Assigned Trip:</strong> Click "Open Trip" on your assigned trip to begin field operations.</li>
                 <li><strong>Visit BMC Units:</strong> Search and add BMC cooling centers along your route.</li>
-                <li><strong>Digital & Physical Testing:</strong> Record Compartment, FTIR Digital & Gerber test results.</li>
+                <li><strong>Digital &amp; Physical Testing:</strong> Record Compartment, FTIR Digital &amp; Gerber test results.</li>
                 <li><strong>Log Issues:</strong> Note any equipment breakdowns.</li>
                 <li><strong>Complete Trip:</strong> Record Factory IN-time upon arrival to close the trip.</li>
               </ol>
@@ -137,83 +207,22 @@
     </div>
   </div>
 
-  <!-- BMC Search Modal -->
-  <!-- Create BMC Modal -->
-  <div id="create-bmc-modal" class="bmc-modal-overlay hidden">
+  <!-- BMC Search Modal (kept for search-only use) -->
+  <div id="bmc-search-modal" class="bmc-modal-overlay hidden">
     <div class="bmc-modal">
       <div class="bmc-modal-header">
-        <h3 id="create-bmc-modal-title">Register New BMC</h3>
-        <button id="create-bmc-close" class="bmc-modal-close">✕</button>
+        <h3>🔍 Search BMC</h3>
+        <button id="bmc-search-close" class="bmc-modal-close">✕</button>
       </div>
       <div class="bmc-modal-body">
-
-        <!-- Image Upload -->
         <div class="form-group mb-3">
-          <label class="form-label">BMC Profile Picture (Optional)</label>
-          <div class="bmc-image-upload" id="create-bmc-image-drop">
-            <img id="create-bmc-preview-img" src="" alt="" class="hidden" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">
-            <div id="create-bmc-image-placeholder">
-              <div style="font-size:2rem;">🏭</div>
-              <div class="text-sm text-muted mt-1">Click to upload image</div>
-            </div>
-            <input type="file" id="create-bmc-image-input" accept="image/*" style="display:none;">
-          </div>
+          <label class="form-label">Search BMC by Name, District, or Location</label>
+          <input type="text" id="bmc-search-input" class="form-input" placeholder="e.g. Erode Central or Madurai...">
         </div>
-
-        <div class="form-row">
-          <div class="form-group mb-3">
-            <label class="form-label" for="create-bmc-name">BMC Name *</label>
-            <input type="text" id="create-bmc-name" class="form-input" placeholder="e.g. Erode Central BMC">
-          </div>
-          <div class="form-group mb-3">
-            <label class="form-label" for="create-bmc-district">District *</label>
-            <input type="text" id="create-bmc-district" class="form-input" placeholder="e.g. Erode">
-          </div>
-        </div>
-
-        <div class="form-group mb-3">
-          <label class="form-label" for="create-bmc-contact">Contact Number *</label>
-          <input type="tel" id="create-bmc-contact" class="form-input" placeholder="e.g. 9876543210" maxlength="15">
-        </div>
-
-        <!-- Location Block -->
-        <div class="form-group mb-3">
-          <label class="form-label">Location *</label>
-          <div class="bmc-location-block" id="create-bmc-location-block">
-            <input type="text" id="create-bmc-location" class="form-input" placeholder="Location name / address" style="margin-bottom:10px;">
-            <div style="display:flex; gap:10px; margin-bottom:10px;">
-              <input type="number" id="create-bmc-latitude" class="form-input" placeholder="Latitude" step="any">
-              <input type="number" id="create-bmc-longitude" class="form-input" placeholder="Longitude" step="any">
-            </div>
-            <div class="bmc-location-actions">
-              <button type="button" id="create-detect-location-btn" class="btn btn-outline btn-sm">
-                📡 Detect My Location
-              </button>
-              <span id="create-location-status" class="text-sm text-muted"></span>
-            </div>
-          </div>
-          <div class="form-hint" style="font-size: 0.75rem; color: #6b7280; margin-top: 4px;">GPS coordinates are required. Enter them manually or click "Detect My Location" to auto-fill.</div>
-        </div>
-
+        <div id="bmc-search-results" style="max-height:260px; overflow-y:auto;"></div>
       </div>
-      <div class="bmc-modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--gray-200); display: flex; justify-content: flex-end; gap: 10px;">
-        <button id="create-bmc-cancel" class="btn btn-outline">Cancel</button>
-        <button id="create-bmc-submit" class="btn btn-primary">Save BMC</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="bmc-search-modal" class="search-overlay hidden">
-    <div class="search-box">
-      <div class="search-box-header">
-        <span>🔍</span>
-        <input type="text" id="modal-bmc-input" class="search-box-input" placeholder="Search BMC by name, location, or district...">
-        <button id="modal-bmc-close" class="btn btn-outline btn-sm">Close</button>
-      </div>
-      <div id="modal-bmc-results" class="search-results">
-        <div class="empty-state">
-          <div class="empty-state-desc">Type to search BMC master data...</div>
-        </div>
+      <div class="bmc-modal-footer" style="padding:12px 20px; display:flex; justify-content:flex-end;">
+        <button id="bmc-search-cancel" class="btn btn-outline">Close</button>
       </div>
     </div>
   </div>

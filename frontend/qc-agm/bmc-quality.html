@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BMC Quality Analysis — AAVIN QC AGM</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/worker.css">
+  <link rel="stylesheet" href="../css/qc.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="qc-shell">
+    <div id="qc-agm-sidebar-overlay" class="qc-sidebar-overlay"></div>
+
+    <!-- QC AGM Sidebar -->
+    <aside class="qc-sidebar" id="qc-agm-sidebar">
+      <div class="qs-logo">
+        <div class="qs-logo-inner">
+          <img src="/assets/aavin-logo.png" alt="AAVIN">
+          <div>
+            <span>QC AGM Desk</span>
+            <div class="qs-logo-badge" style="background:#0D9488;">QUALITY CONTROL</div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="qs-nav">
+        <a href="dashboard.html" class="qs-nav-item">
+          <span>📊</span> Dashboard Overview
+        </a>
+        <a href="all-tests.html" class="qs-nav-item">
+          <span>🔬</span> All Test Results
+        </a>
+        <a href="bmc-quality.html" class="qs-nav-item active">
+          <span>🏭</span> BMC Quality Analysis
+        </a>
+        <a href="excel-import.html" class="qs-nav-item">
+          <span>📥</span> Excel Import
+        </a>
+        <a href="import-history.html" class="qs-nav-item">
+          <span>📜</span> Import History
+        </a>
+        <a href="variance.html" class="qs-nav-item">
+          <span>⚠️</span> Variance Analysis
+        </a>
+        <a href="profile.html" class="qs-nav-item">
+          <span>👤</span> My Profile
+        </a>
+        <div class="qs-nav-divider"></div>
+        <button id="logout-btn" class="qs-nav-item" style="color:#FCA5A5;">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="qc-main">
+      <header class="qc-header">
+        <div class="qc-header-left">
+          <button id="qc-agm-toggle-btn" class="qc-mobile-btn">☰</button>
+          <div class="qc-header-title">BMC-Wise Historical Quality Performance</div>
+        </div>
+        <div class="qc-header-right">
+          <div>Role: <strong>QC AGM</strong></div>
+          <div>User: <strong id="header-agm-name">Loading...</strong></div>
+        </div>
+      </header>
+
+      <main class="qc-content">
+        <div id="main-qc-agm-content" class="hidden">
+
+          <div class="qc-page-top">
+            <h1>BMC Quality Analysis 🏭</h1>
+            <p>Select a Bulk Milk Cooler center to review chronological testing history, average fat/SNF, and variance trends.</p>
+          </div>
+
+          <!-- Selector -->
+          <div class="qc-form-card" style="margin-bottom:20px;">
+            <div class="qc-form-group" style="max-width:400px;">
+              <label class="qc-form-label">Select Bulk Milk Cooling Center (BMC)</label>
+              <select id="bmc-select" class="qc-form-input">
+                <option value="">Loading BMC list...</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- BMC Stats Header -->
+          <div id="bmc-summary-card" class="qc-form-card hidden" style="border-left:4px solid var(--qc-500); margin-bottom:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <h2 style="margin:0 0 4px; font-size:1.2rem; color:#0F172A;" id="b-name">--</h2>
+                <div style="font-size:0.83rem; color:#64748B;" id="b-loc">--</div>
+              </div>
+            </div>
+            <div class="qc-stats-grid mt-3" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));">
+              <div class="qc-stat-card">
+                <div class="qc-stat-num" id="b-total-tests">0</div>
+                <div class="qc-stat-lbl">Total Visits</div>
+              </div>
+              <div class="qc-stat-card accent-blue">
+                <div class="qc-stat-num" id="b-avg-fat">0.0%</div>
+                <div class="qc-stat-lbl">Average Fat</div>
+              </div>
+              <div class="qc-stat-card accent-teal">
+                <div class="qc-stat-num" id="b-avg-snf">0.0%</div>
+                <div class="qc-stat-lbl">Average SNF</div>
+              </div>
+              <div class="qc-stat-card accent-red">
+                <div class="qc-stat-num" id="b-variance-count">0</div>
+                <div class="qc-stat-lbl">Variances</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chronological History Table -->
+          <div class="qc-section">
+            <div class="qc-section-header">
+              <div class="qc-section-title">
+                <span>📜</span> Chronological Testing History for Selected BMC
+              </div>
+            </div>
+
+            <div class="qc-table-wrap">
+              <table class="qc-table">
+                <thead>
+                  <tr>
+                    <th>Date / Time</th>
+                    <th>Sample ID</th>
+                    <th>Field Worker</th>
+                    <th>Field Fat</th>
+                    <th>QC Lab Fat</th>
+                    <th>Fat Diff</th>
+                    <th>Field SNF</th>
+                    <th>QC Lab SNF</th>
+                    <th>SNF Diff</th>
+                  </tr>
+                </thead>
+                <tbody id="bmc-history-tbody">
+                  <tr>
+                    <td colspan="9" style="text-align:center; padding:20px; color:#64748B;">Please select a BMC center above.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/qc-agm-api.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      const profile = await checkAuth('qc_agm');
+      if (!profile) return;
+
+      document.getElementById('main-qc-agm-content').classList.remove('hidden');
+      document.getElementById('header-agm-name').textContent = profile.name;
+      document.getElementById('logout-btn').addEventListener('click', handleLogout);
+
+      await loadBmcOptions();
+
+      document.getElementById('bmc-select').addEventListener('change', handleBmcChange);
+    });
+
+    let allBmcs = [];
+
+    async function loadBmcOptions() {
+      try {
+        const res = await apiQcAgmGetBmcs();
+        allBmcs = res.bmcs || [];
+
+        const sel = document.getElementById('bmc-select');
+        if (allBmcs.length === 0) {
+          sel.innerHTML = `<option value="">No BMC centers found</option>`;
+          return;
+        }
+
+        sel.innerHTML = `<option value="">-- Select a BMC Center --</option>` +
+          allBmcs.map(b => `<option value="${b.id}">${b.name} (${b.district})</option>`).join('');
+      } catch (err) {
+        console.error('Error loading BMC options:', err);
+      }
+    }
+
+    async function handleBmcChange(e) {
+      const bmcId = e.target.value;
+      if (!bmcId) {
+        document.getElementById('bmc-summary-card').classList.add('hidden');
+        return;
+      }
+
+      const selectedBmc = allBmcs.find(b => b.id === bmcId);
+      if (selectedBmc) {
+        document.getElementById('b-name').textContent = selectedBmc.name;
+        document.getElementById('b-loc').textContent = `📍 ${selectedBmc.location}, ${selectedBmc.district} | Contact: ${selectedBmc.contact_number}`;
+        document.getElementById('bmc-summary-card').classList.remove('hidden');
+      }
+
+      try {
+        const res = await apiQcAgmGetBmcTests(bmcId);
+        const visits = res.visits || [];
+
+        let fatSum = 0, snfSum = 0, count = 0, varianceCount = 0;
+
+        const tbody = document.getElementById('bmc-history-tbody');
+
+        if (visits.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:#64748B;">No testing visits recorded for this BMC.</td></tr>`;
+          document.getElementById('b-total-tests').textContent = 0;
+          document.getElementById('b-avg-fat').textContent = '0.0%';
+          document.getElementById('b-avg-snf').textContent = '0.0%';
+          document.getElementById('b-variance-count').textContent = 0;
+          return;
+        }
+
+        tbody.innerHTML = visits.map(v => {
+          const ftir = Array.isArray(v.ftir_tests) ? v.ftir_tests[0] : v.ftir_tests;
+          const gerber = Array.isArray(v.gerber_tests) ? v.gerber_tests[0] : v.gerber_tests;
+          const qcTest = Array.isArray(v.qc_test) ? v.qc_test[0] : v.qc_test;
+
+          const bmcFat = (ftir && ftir.fat) ?? (gerber && gerber.fat_percentage) ?? 'N/A';
+          const bmcSnf = (ftir && ftir.snf) ?? (gerber && gerber.snf) ?? 'N/A';
+          const qcFat = qcTest && qcTest.fat !== null ? qcTest.fat : 'N/A';
+          const qcSnf = qcTest && qcTest.snf !== null ? qcTest.snf : 'N/A';
+
+          if (bmcFat !== 'N/A') { fatSum += parseFloat(bmcFat); count++; }
+          if (bmcSnf !== 'N/A') { snfSum += parseFloat(bmcSnf); }
+
+          let fatDiff = 'N/A', snfDiff = 'N/A';
+          let isVar = false;
+
+          if (bmcFat !== 'N/A' && qcFat !== 'N/A') {
+            const d = (parseFloat(qcFat) - parseFloat(bmcFat)).toFixed(2);
+            fatDiff = `${d > 0 ? '+' : ''}${d}%`;
+            if (Math.abs(parseFloat(d)) >= 0.3) { isVar = true; varianceCount++; }
+          }
+          if (bmcSnf !== 'N/A' && qcSnf !== 'N/A') {
+            const d = (parseFloat(qcSnf) - parseFloat(bmcSnf)).toFixed(2);
+            snfDiff = `${d > 0 ? '+' : ''}${d}%`;
+          }
+
+          const workerName = v.trip && v.trip.worker ? v.trip.worker.name : 'Field Worker';
+          const dateStr = v.visit_end_time ? new Date(v.visit_end_time).toLocaleString() : 'N/A';
+          const sampleId = `SMP-${v.id.slice(0, 6).toUpperCase()}`;
+
+          return `
+            <tr style="${isVar ? 'background:#FEF2F2;' : ''}">
+              <td>${dateStr}</td>
+              <td><strong>${sampleId}</strong></td>
+              <td>${workerName}</td>
+              <td><span style="color:#1D4ED8; font-weight:700;">${bmcFat}${bmcFat !== 'N/A' ? '%' : ''}</span></td>
+              <td><span style="color:#0F766E; font-weight:700;">${qcFat}${qcFat !== 'N/A' ? '%' : ''}</span></td>
+              <td><strong class="${isVar ? 'diff-bad' : 'diff-ok'}">${fatDiff}</strong></td>
+              <td><span style="color:#1D4ED8; font-weight:700;">${bmcSnf}${bmcSnf !== 'N/A' ? '%' : ''}</span></td>
+              <td><span style="color:#0F766E; font-weight:700;">${qcSnf}${qcSnf !== 'N/A' ? '%' : ''}</span></td>
+              <td><strong class="diff-ok">${snfDiff}</strong></td>
+            </tr>
+          `;
+        }).join('');
+
+        document.getElementById('b-total-tests').textContent = visits.length;
+        document.getElementById('b-avg-fat').textContent = count > 0 ? `${(fatSum / count).toFixed(2)}%` : '0.0%';
+        document.getElementById('b-avg-snf').textContent = count > 0 ? `${(snfSum / count).toFixed(2)}%` : '0.0%';
+        document.getElementById('b-variance-count').textContent = varianceCount;
+      } catch (err) {
+        console.error('Error fetching BMC history:', err);
+      }
+    }
+  </script>
+</body>
+</html>

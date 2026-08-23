@@ -114,6 +114,10 @@ document.addEventListener('DOMContentLoaded', () => {
               window.location.href = getPath('eo/dashboard.html');
             } else if (profile.role === 'transport_officer' || profile.role === 'driver') {
               window.location.href = getPath('transport.html');
+            } else if (profile.role === 'qc_worker') {
+              window.location.href = getPath('qc-worker/dashboard.html');
+            } else if (profile.role === 'qc_agm') {
+              window.location.href = getPath('qc-agm/dashboard.html');
             } else {
               // Default to worker for 'user' role
               window.location.href = getPath('worker.html');

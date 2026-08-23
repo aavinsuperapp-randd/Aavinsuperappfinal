@@ -63,17 +63,26 @@ async function apiSearchBmcs(q = '') {
   return workerFetch(`/api/bmcs/search?q=${encodeURIComponent(q)}`);
 }
 
-// ─── Create BMC ──────────────────────────────────────────────────────────────
+// ─── Create BMC ─ DISABLED at backend (403 Forbidden) ─────────────────────
+// Field Workers are no longer allowed to create BMC records.
+// This function is kept for reference only — any call will receive a 403.
 async function apiCreateBmc(body) {
+  // This will receive: 403 Field Workers are no longer permitted to create BMC records.
   return workerFetch('/api/worker/create-bmc', { method: 'POST', body: JSON.stringify(body) });
 }
 
-// ─── Trips ───────────────────────────────────────────────────────────────────
+// ─── Trips ─ DISABLED at backend (403 Forbidden) ───────────────────────────
+// Workers cannot independently create trips. Trips are created by
+// Transport Officers and assigned to workers by the P&I AGM.
 async function apiCreateTrip(body) {
+  // This will receive: 403 Workers cannot independently create trips.
   return workerFetch('/api/trips', { method: 'POST', body: JSON.stringify(body) });
 }
 async function apiGetTrips() {
   return workerFetch('/api/trips');
+}
+async function apiGetAssignedTrips() {
+  return workerFetch('/api/worker/assigned-trips');
 }
 async function apiGetTrip(id) {
   return workerFetch(`/api/trips/${id}`);

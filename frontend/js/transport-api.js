@@ -248,6 +248,16 @@ function formatDate(dateStr) {
   });
 }
 
+/**
+ * Create a trip to be assigned to a Field Worker by P&I AGM
+ */
+async function apiCreateTransportTrip(data) {
+  return transportFetch('/api/transport/create-trip', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
 function formatTime(dateStr) {
   if (!dateStr) return '—';
   const d = new Date(dateStr);

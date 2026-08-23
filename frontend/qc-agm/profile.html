@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Profile — AAVIN QC AGM</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/worker.css">
+  <link rel="stylesheet" href="../css/qc.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="qc-shell">
+    <div id="qc-agm-sidebar-overlay" class="qc-sidebar-overlay"></div>
+
+    <!-- QC AGM Sidebar -->
+    <aside class="qc-sidebar" id="qc-agm-sidebar">
+      <div class="qs-logo">
+        <div class="qs-logo-inner">
+          <img src="/assets/aavin-logo.png" alt="AAVIN">
+          <div>
+            <span>QC AGM Desk</span>
+            <div class="qs-logo-badge" style="background:#0D9488;">QUALITY CONTROL</div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="qs-nav">
+        <a href="dashboard.html" class="qs-nav-item">
+          <span>📊</span> Dashboard Overview
+        </a>
+        <a href="all-tests.html" class="qs-nav-item">
+          <span>🔬</span> All Test Results
+        </a>
+        <a href="bmc-quality.html" class="qs-nav-item">
+          <span>🏭</span> BMC Quality Analysis
+        </a>
+        <a href="excel-import.html" class="qs-nav-item">
+          <span>📥</span> Excel Import
+        </a>
+        <a href="import-history.html" class="qs-nav-item">
+          <span>📜</span> Import History
+        </a>
+        <a href="variance.html" class="qs-nav-item">
+          <span>⚠️</span> Variance Analysis
+        </a>
+        <a href="profile.html" class="qs-nav-item active">
+          <span>👤</span> My Profile
+        </a>
+        <div class="qs-nav-divider"></div>
+        <button id="logout-btn" class="qs-nav-item" style="color:#FCA5A5;">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="qc-main">
+      <header class="qc-header">
+        <div class="qc-header-left">
+          <button id="qc-agm-toggle-btn" class="qc-mobile-btn">☰</button>
+          <div class="qc-header-title">My Executive Account Profile</div>
+        </div>
+        <div class="qc-header-right">
+          <div>Role: <strong>QC AGM</strong></div>
+          <div>User: <strong id="header-agm-name">Loading...</strong></div>
+        </div>
+      </header>
+
+      <main class="qc-content">
+        <div id="main-qc-agm-content" class="hidden">
+
+          <div class="qc-page-top">
+            <h1>QC AGM Executive Profile 👤</h1>
+            <p>Your authenticated Quality Assurance Assistant General Manager profile details.</p>
+          </div>
+
+          <div class="qc-form-card" style="max-width:550px;">
+            <div style="display:flex; align-items:center; gap:16px; margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid #F1F5F9;">
+              <div style="width:64px; height:64px; border-radius:50%; background:var(--qc-100); color:var(--qc-700); font-size:2rem; display:flex; align-items:center; justify-content:center; font-weight:800;">
+                🔬
+              </div>
+              <div>
+                <h3 style="margin:0 0 2px; font-size:1.1rem; color:#0F172A;" id="prof-name">Loading...</h3>
+                <span class="qc-pill pill-approved">QC AGM DESK</span>
+              </div>
+            </div>
+
+            <div class="qc-info-grid" style="grid-template-columns: 1fr;">
+              <div class="qc-info-item">
+                <div class="qc-info-label">Email Address</div>
+                <div class="qc-info-value" id="prof-email">--</div>
+              </div>
+              <div class="qc-info-item">
+                <div class="qc-info-label">Date of Birth</div>
+                <div class="qc-info-value" id="prof-dob">--</div>
+              </div>
+              <div class="qc-info-item">
+                <div class="qc-info-label">Account Status</div>
+                <div class="qc-info-value" style="color:#16A34A;">Approved</div>
+              </div>
+            </div>
+
+            <div style="margin-top:24px;">
+              <button class="btn-qc btn-qc-outline btn-block" onclick="handleLogout()">🚪 Logout from Account</button>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/qc-agm-api.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      const profile = await checkAuth('qc_agm');
+      if (!profile) return;
+      document.getElementById('main-qc-agm-content').classList.remove('hidden');
+      document.getElementById('header-agm-name').textContent = profile.name;
+      document.getElementById('prof-name').textContent = profile.name;
+      document.getElementById('prof-email').textContent = profile.email;
+      document.getElementById('prof-dob').textContent = profile.dob || 'N/A';
+      document.getElementById('logout-btn').addEventListener('click', handleLogout);
+    });
+  </script>
+</body>
+</html>

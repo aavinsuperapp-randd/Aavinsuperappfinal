@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>All Test Results — AAVIN QC AGM</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/worker.css">
+  <link rel="stylesheet" href="../css/qc.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="qc-shell">
+    <div id="qc-agm-sidebar-overlay" class="qc-sidebar-overlay"></div>
+
+    <!-- QC AGM Sidebar -->
+    <aside class="qc-sidebar" id="qc-agm-sidebar">
+      <div class="qs-logo">
+        <div class="qs-logo-inner">
+          <img src="/assets/aavin-logo.png" alt="AAVIN">
+          <div>
+            <span>QC AGM Desk</span>
+            <div class="qs-logo-badge" style="background:#0D9488;">QUALITY CONTROL</div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="qs-nav">
+        <a href="dashboard.html" class="qs-nav-item">
+          <span>📊</span> Dashboard Overview
+        </a>
+        <a href="all-tests.html" class="qs-nav-item active">
+          <span>🔬</span> All Test Results
+        </a>
+        <a href="bmc-quality.html" class="qs-nav-item">
+          <span>🏭</span> BMC Quality Analysis
+        </a>
+        <a href="excel-import.html" class="qs-nav-item">
+          <span>📥</span> Excel Import
+        </a>
+        <a href="import-history.html" class="qs-nav-item">
+          <span>📜</span> Import History
+        </a>
+        <a href="variance.html" class="qs-nav-item">
+          <span>⚠️</span> Variance Analysis
+        </a>
+        <a href="profile.html" class="qs-nav-item">
+          <span>👤</span> My Profile
+        </a>
+        <div class="qs-nav-divider"></div>
+        <button id="logout-btn" class="qs-nav-item" style="color:#FCA5A5;">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="qc-main">
+      <header class="qc-header">
+        <div class="qc-header-left">
+          <button id="qc-agm-toggle-btn" class="qc-mobile-btn">☰</button>
+          <div class="qc-header-title">All Test Results &amp; Three-Way Comparison</div>
+        </div>
+        <div class="qc-header-right">
+          <div>Role: <strong>QC AGM</strong></div>
+          <div>User: <strong id="header-agm-name">Loading...</strong></div>
+        </div>
+      </header>
+
+      <main class="qc-content">
+        <div id="main-qc-agm-content" class="hidden">
+
+          <div class="qc-page-top">
+            <h1>All Milk Test Results 🔬</h1>
+            <p>Unified view of BMC Field Tests, QC Lab Tests, and Excel Imports with three-way side-by-side comparison.</p>
+          </div>
+
+          <div class="qc-section">
+            <div class="qc-filter-bar">
+              <input type="text" id="all-search" placeholder="🔍 Search Sample ID, BMC, or Field Worker..." style="min-width:240px;">
+              <select id="all-source-filter">
+                <option value="all" selected>All Sources</option>
+                <option value="bmc">BMC Field Test</option>
+                <option value="qc">QC Lab Test</option>
+                <option value="excel">Excel Import</option>
+              </select>
+              <select id="all-status-filter">
+                <option value="all" selected>All Statuses</option>
+                <option value="submitted">Submitted</option>
+                <option value="approved">Approved</option>
+                <option value="returned">Returned</option>
+                <option value="pending">Pending QC</option>
+              </select>
+              <select id="all-variance-filter">
+                <option value="all" selected>All (Variance &amp; Normal)</option>
+                <option value="yes">⚠️ Variance Only (&ge;0.3%)</option>
+                <option value="no">Normal Only</option>
+              </select>
+            </div>
+
+            <div class="qc-table-wrap">
+              <table class="qc-table">
+                <thead>
+                  <tr>
+                    <th>Sample ID</th>
+                    <th>BMC Center</th>
+                    <th>Date</th>
+                    <th>Field Worker</th>
+                    <th>BMC (Fat / SNF)</th>
+                    <th>QC Lab (Fat / SNF)</th>
+                    <th>QC Analyst</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="all-tests-tbody">
+                  <tr>
+                    <td colspan="9" style="text-align:center; padding:20px; color:#64748B;">Loading all test records...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Comparison & Review Modal -->
+  <div id="detail-modal" class="qc-sidebar-overlay hidden" style="display:flex; align-items:center; justify-content:center; padding:20px; z-index:500;">
+    <div style="background:#fff; border-radius:16px; max-width:680px; width:100%; padding:24px; box-shadow:0 12px 30px rgba(0,0,0,0.2); max-height:90vh; overflow-y:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid #F1F5F9; padding-bottom:12px;">
+        <h3 style="margin:0; font-size:1.15rem; color:#0F172A;">Three-Way Test Comparison &amp; Review</h3>
+        <button class="qc-mobile-btn" onclick="document.getElementById('detail-modal').classList.add('hidden')">✕</button>
+      </div>
+
+      <div class="qc-info-grid" style="margin-bottom:20px; font-size:0.83rem;">
+        <div>Sample ID: <strong id="modal-sample-id">--</strong></div>
+        <div>BMC Center: <strong id="modal-bmc-name">--</strong></div>
+        <div>Field Worker: <strong id="modal-worker-name">--</strong></div>
+        <div>Collection Time: <strong id="modal-coll-date">--</strong></div>
+      </div>
+
+      <div style="margin-bottom:20px;">
+        <h4 style="margin:0 0 10px; font-size:0.88rem; color:#374151;">Parameter Comparison Table</h4>
+        <table class="qc-compare-table">
+          <thead>
+            <tr>
+              <th>Parameter</th>
+              <th class="col-bmc">BMC Field Test</th>
+              <th class="col-qc">QC Lab Test</th>
+              <th class="col-xl">Imported Excel</th>
+              <th>Variance (QC vs BMC)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Fat %</td>
+              <td class="col-bmc" id="m-bmc-fat">--</td>
+              <td class="col-qc" id="m-qc-fat">--</td>
+              <td class="col-xl" id="m-xl-fat">--</td>
+              <td id="m-diff-fat" style="font-weight:700;">--</td>
+            </tr>
+            <tr>
+              <td>SNF %</td>
+              <td class="col-bmc" id="m-bmc-snf">--</td>
+              <td class="col-qc" id="m-qc-snf">--</td>
+              <td class="col-xl" id="m-xl-snf">--</td>
+              <td id="m-diff-snf" style="font-weight:700;">--</td>
+            </tr>
+            <tr>
+              <td>CLR</td>
+              <td class="col-bmc" id="m-bmc-clr">--</td>
+              <td class="col-qc" id="m-qc-clr">--</td>
+              <td class="col-xl" id="m-xl-clr">--</td>
+              <td>--</td>
+            </tr>
+            <tr>
+              <td>Temperature (°C)</td>
+              <td class="col-bmc" id="m-bmc-temp">--</td>
+              <td class="col-qc" id="m-qc-temp">--</td>
+              <td class="col-xl">--</td>
+              <td>--</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- QC AGM Review Action Form -->
+      <div id="review-action-section" style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:16px; margin-bottom:20px;">
+        <h4 style="margin:0 0 10px; font-size:0.88rem; color:#0F172A;">QC AGM Review &amp; Approval</h4>
+        <div class="qc-form-group" style="margin-bottom:12px;">
+          <label class="qc-form-label">Review Remarks / Return Reason</label>
+          <textarea id="review-remarks-input" class="qc-form-input" rows="2" placeholder="Required if returning report for correction..."></textarea>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:10px;">
+          <button id="btn-return-report" class="btn-qc btn-qc-danger">
+            ↩ Return for Correction
+          </button>
+          <button id="btn-approve-report" class="btn-qc btn-qc-primary">
+            ✓ Approve Report
+          </button>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end;">
+        <button class="btn-qc btn-qc-outline" onclick="document.getElementById('detail-modal').classList.add('hidden')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/qc-agm-api.js"></script>
+  <script src="../js/qc-agm-all-tests.js"></script>
+</body>
+</html>

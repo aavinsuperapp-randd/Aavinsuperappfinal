@@ -1,4 +1,6 @@
-// worker-dashboard.js — Main Worker Dashboard Logic
+// worker-dashboard.js — Field Worker Dashboard Logic
+// BMC creation and independent trip creation are REMOVED.
+// Workers now receive trips assigned by the P&I AGM.
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Enforce worker role auth
@@ -13,10 +15,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   setupMobileMenu();
   setupSearchModal();
-  setupCreateBmcModal();
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
+  // Assigned trips refresh button
+  const refreshBtn = document.getElementById('refresh-assigned-btn');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadAssignedTrips);
+
+  // Nav scroll anchor
+  const navAssigned = document.getElementById('nav-assigned-trips');
+  if (navAssigned) {
+    navAssigned.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById('assigned-trips-section')?.scrollIntoView({ behavior: 'smooth' });
+    });
+  }
+
   await loadDashboardData();
+  await loadAssignedTrips();
 });
 
 function setupMobileMenu() {
@@ -59,58 +74,152 @@ function setupMobileMenu() {
 
 async function loadDashboardData() {
   try {
-    // 1. Fetch Stats
+    // 1. Fetch Stats (total/completed trips for this worker)
     const stats = await apiGetStats();
-    document.getElementById('stat-total-trips').textContent = stats.total_trips || 0;
-    document.getElementById('stat-completed-trips').textContent = stats.completed_trips || 0;
-    document.getElementById('stat-active-trips').textContent = (stats.active_trips > 0) ? 'Yes' : 'No';
+    if (document.getElementById('stat-total-trips'))
+      document.getElementById('stat-total-trips').textContent = stats.total_trips || 0;
+    if (document.getElementById('stat-completed-trips'))
+      document.getElementById('stat-completed-trips').textContent = stats.completed_trips || 0;
 
-    // 2. Fetch Active Trip
+    // 2. Fetch Active Trip (for the active trip banner)
     const activeTripData = await apiGetActiveTrip();
     renderActiveTrip(activeTripData.trip, activeTripData.visits);
 
   } catch (err) {
     console.error('Failed to load dashboard data:', err);
-    showToast(err.message || 'Error loading dashboard data', 'error');
+    if (typeof showToast === 'function') showToast(err.message || 'Error loading dashboard data', 'error');
   }
 }
 
-function renderActiveTrip(trip, visits = []) {
-  const container = document.getElementById('active-trip-container');
-  const startTripBtn = document.getElementById('qa-start-trip');
+// ── Assigned Trips (P&I AGM assigned TO trips) ────────────────────────────────
 
-  if (!trip) {
-    if (startTripBtn) startTripBtn.style.opacity = '1';
+async function loadAssignedTrips() {
+  const container = document.getElementById('assigned-trips-container');
+  const badge = document.getElementById('assigned-count-badge');
+  const statEl = document.getElementById('stat-assigned-trips');
+
+  if (container) {
     container.innerHTML = `
-      <div class="form-section text-center" style="padding: 28px;">
-        <div style="font-size: 2rem; margin-bottom: 8px;">🚚</div>
-        <h3 style="font-size: 1rem; font-weight: 700; color: var(--gray-800); margin-bottom: 4px;">No Active Trip</h3>
-        <p style="font-size: .84rem; color: var(--gray-500); margin-bottom: 16px;">You are currently not on a trip. Create a new trip to start visiting Bulk Milk Coolers.</p>
-        <a href="trip-create.html" class="btn btn-primary">
-          <span>+</span> Start New Trip
-        </a>
+      <div class="no-trips-info">
+        <div class="no-trips-icon">🔄</div>
+        <p>Loading your assigned trips...</p>
+      </div>
+    `;
+  }
+
+  try {
+    const { trips = [] } = await apiGetAssignedTrips();
+
+    if (badge) badge.textContent = trips.length;
+    if (statEl) statEl.textContent = trips.length;
+
+    renderAssignedTrips(trips, container);
+  } catch (err) {
+    console.error('Failed to load assigned trips:', err);
+    if (container) {
+      container.innerHTML = `
+        <div class="no-trips-info" style="border-color:#FCA5A5;">
+          <div class="no-trips-icon">⚠️</div>
+          <p style="color:#EF4444;">Failed to load assigned trips: ${esc(err.message)}</p>
+        </div>
+      `;
+    }
+  }
+}
+
+function renderAssignedTrips(trips, container) {
+  if (!container) return;
+
+  if (trips.length === 0) {
+    container.innerHTML = `
+      <div class="no-trips-info">
+        <div class="no-trips-icon">🚛</div>
+        <p><strong>No trips assigned yet.</strong><br>
+        The P&amp;I AGM will assign trips to you. Please check back later or contact your supervisor.</p>
       </div>
     `;
     return;
   }
 
-  // Active Trip exists
-  if (startTripBtn) {
-    startTripBtn.href = '#';
-    startTripBtn.onclick = (e) => {
-      e.preventDefault();
-      showToast('You already have an active trip. Complete it first.', 'warning');
-    };
+  container.innerHTML = trips.map(t => {
+    const statusPill = `<span class="assign-status-pill ${t.assignment_status || 'worker_assigned'}">${formatAssignStatusWorker(t.assignment_status)}</span>`;
+    const dateStr = t.assigned_at
+      ? new Date(t.assigned_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+      : (t.created_at ? new Date(t.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—');
+
+    const tripUrl = `trip.html?id=${t.id}`;
+    const isActive = t.status === 'active';
+    const visitsText = t.visits_total > 0
+      ? `${t.visits_completed}/${t.visits_total} BMCs done`
+      : 'No BMC visits yet';
+
+    return `
+      <div class="assigned-trip-card">
+        <div class="assigned-trip-card-header">
+          <div>
+            <div class="assigned-trip-card-title">🚛 ${esc(t.trip_name)}</div>
+            <div class="assigned-trip-card-id">${t.trip_number || t.id.slice(0, 8).toUpperCase()}</div>
+          </div>
+          <div>${statusPill}</div>
+        </div>
+        <div class="assigned-trip-meta">
+          <span>🚗 Driver: <strong>${esc(t.driver_name || '—')}</strong></span>
+          <span>🚛 Vehicle: <strong>${esc(t.tanker_number || '—')}</strong></span>
+          <span>📅 Assigned: <strong>${dateStr}</strong></span>
+          <span>👮 Assigned by: <strong>P&amp;I AGM</strong></span>
+          ${t.bmc ? `<span>🏭 Primary BMC: <strong>${esc(t.bmc.name)}</strong></span>` : ''}
+          ${t.route_description && t.route_description !== '—' ? `<span>📍 Route: <strong>${esc(t.route_description)}</strong></span>` : ''}
+          <span>📊 Progress: <strong>${visitsText}</strong></span>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          ${isActive
+            ? `<a href="${tripUrl}" class="btn-open-trip">Open Trip →</a>`
+            : t.status === 'completed'
+              ? `<a href="${tripUrl}" class="btn-open-trip" style="background:linear-gradient(135deg,#10B981,#059669);">View Completed Trip</a>`
+              : `<a href="${tripUrl}" class="btn-open-trip">Open Trip →</a>`
+          }
+          ${t.transport_officer_name ? `<span style="font-size:0.75rem;color:#94A3B8;">📋 Created by: ${esc(t.transport_officer_name)}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function formatAssignStatusWorker(status) {
+  const map = {
+    pending_assignment: 'Pending',
+    worker_assigned: 'Assigned to You',
+    in_progress: 'In Progress',
+    testing_completed: 'Testing Done',
+    report_submitted: 'Report Submitted',
+    completed: 'Completed'
+  };
+  return map[status] || (status || 'Assigned');
+}
+
+// ── Active Trip Banner (for legacy or currently active trips) ────────────────
+
+function renderActiveTrip(trip, visits = []) {
+  const container = document.getElementById('active-trip-container');
+  if (!container) return;
+
+  if (!trip) {
+    container.innerHTML = `
+      <div class="form-section text-center" style="padding: 24px 20px;">
+        <div style="font-size: 1.8rem; margin-bottom: 8px;">🚚</div>
+        <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--gray-800); margin-bottom: 4px;">No Active Trip</h3>
+        <p style="font-size: .84rem; color: var(--gray-500);">Open an assigned trip below to begin field operations.</p>
+      </div>
+    `;
+    return;
   }
 
   const completedVisits = visits.filter(v => v.status === 'completed').length;
   const totalVisits = visits.length;
   const progressPct = totalVisits > 0 ? Math.round((completedVisits / totalVisits) * 100) : 0;
-
   const driverName = trip.driver_name || (trip.driver ? trip.driver.name : 'Unassigned');
   const tankerBoard = trip.tanker_number || (trip.tanker ? trip.tanker.board_number : 'N/A');
   const startTimeStr = new Date(trip.out_time).toLocaleString();
-
 
   container.innerHTML = `
     <div class="active-trip-banner">
@@ -122,13 +231,11 @@ function renderActiveTrip(trip, visits = []) {
           Continue Trip →
         </a>
       </div>
-
       <div class="atb-meta">
         <div class="atb-meta-item">Driver: <strong>${esc(driverName)}</strong></div>
         <div class="atb-meta-item">Tanker: <strong>${esc(tankerBoard)}</strong></div>
         <div class="atb-meta-item">Out Time: <strong>${esc(startTimeStr)}</strong></div>
       </div>
-
       <div class="trip-progress">
         <div class="trip-progress-bar">
           <div class="trip-progress-fill" style="width: ${progressPct}%;"></div>
@@ -141,38 +248,41 @@ function renderActiveTrip(trip, visits = []) {
   `;
 }
 
+// ── BMC Search Modal (read-only search) ───────────────────────────────────────
+
 function setupSearchModal() {
   const searchBtn = document.getElementById('qa-search-bmc');
-  const modal = document.getElementById('bmc-search-modal');
-  const closeBtn = document.getElementById('modal-bmc-close');
-  const input = document.getElementById('modal-bmc-input');
-  const resultsDiv = document.getElementById('modal-bmc-results');
+  // Try new IDs first, then fall back to old IDs
+  const modal = document.getElementById('bmc-search-modal') || document.getElementById('modal-bmc');
+  const closeBtn = document.getElementById('bmc-search-close') || document.getElementById('modal-bmc-close');
+  const cancelBtn = document.getElementById('bmc-search-cancel');
+  const input = document.getElementById('bmc-search-input') || document.getElementById('modal-bmc-input');
+  const resultsDiv = document.getElementById('bmc-search-results') || document.getElementById('modal-bmc-results');
 
   if (!searchBtn || !modal) return;
 
   searchBtn.addEventListener('click', () => {
     modal.classList.remove('hidden');
-    input.focus();
+    if (input) input.focus();
     performSearch('');
   });
 
-  closeBtn.addEventListener('click', () => {
-    modal.classList.add('hidden');
-  });
-
+  if (closeBtn) closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
+  if (cancelBtn) cancelBtn.addEventListener('click', () => modal.classList.add('hidden'));
   modal.addEventListener('click', (e) => {
     if (e.target === modal) modal.classList.add('hidden');
   });
 
   let debounceTimer;
-  input.addEventListener('input', (e) => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      performSearch(e.target.value);
-    }, 300);
-  });
+  if (input) {
+    input.addEventListener('input', (e) => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => performSearch(e.target.value), 300);
+    });
+  }
 
   async function performSearch(q) {
+    if (!resultsDiv) return;
     resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-desc">Searching...</div></div>';
     try {
       const res = await apiSearchBmcs(q);
@@ -182,7 +292,7 @@ function setupSearchModal() {
         return;
       }
       resultsDiv.innerHTML = list.map(b => `
-        <div class="search-result-item" onclick="viewBmcDetail('${b.name}', '${b.district}', '${b.location}', '${b.contact_number}')">
+        <div class="search-result-item">
           <div class="search-result-img">
             ${b.profile_image_url ? `<img src="${esc(b.profile_image_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:6px;" alt="${esc(b.name)}">` : '🏭'}
           </div>
@@ -198,232 +308,7 @@ function setupSearchModal() {
   }
 }
 
-window.viewBmcDetail = function(name, district, location, contact) {
-  alert(`BMC Details:\n\nName: ${name}\nDistrict: ${district}\nLocation: ${location}\nContact: ${contact}`);
-};
-
-function setupCreateBmcModal() {
-  const openBtn = document.getElementById('qa-create-bmc');
-  const modal = document.getElementById('create-bmc-modal');
-  const closeBtn = document.getElementById('create-bmc-close');
-  const cancelBtn = document.getElementById('create-bmc-cancel');
-  const submitBtn = document.getElementById('create-bmc-submit');
-
-  const nameInput = document.getElementById('create-bmc-name');
-  const districtInput = document.getElementById('create-bmc-district');
-  const locationInput = document.getElementById('create-bmc-location');
-  const contactInput = document.getElementById('create-bmc-contact');
-  
-  const detectLocBtn = document.getElementById('create-detect-location-btn');
-  const locStatus = document.getElementById('create-location-status');
-  const coordsDisplay = document.getElementById('create-coords-display');
-  const latInput = document.getElementById('create-bmc-latitude');
-  const lngInput = document.getElementById('create-bmc-longitude');
-
-  const imageZone = document.getElementById('create-bmc-image-drop');
-  const imageInput = document.getElementById('create-bmc-image-input');
-  const previewImg = document.getElementById('create-bmc-preview-img');
-  const imagePlaceholder = document.getElementById('create-bmc-image-placeholder');
-
-  let selectedFile = null;
-  let detectedLat = null;
-  let detectedLng = null;
-
-  if (!openBtn || !modal) return;
-
-  function openModal() {
-    modal.classList.remove('hidden');
-    nameInput.value = '';
-    districtInput.value = '';
-    locationInput.value = '';
-    contactInput.value = '';
-    latInput.value = '';
-    lngInput.value = '';
-    locStatus.textContent = '';
-    detectLocBtn.textContent = '📡 Detect My Location';
-    detectLocBtn.disabled = false;
-    selectedFile = null;
-    detectedLat = null;
-    detectedLng = null;
-
-    // Reset image
-    previewImg.src = '';
-    previewImg.classList.add('hidden');
-    imagePlaceholder.style.display = '';
-    imageInput.value = '';
-
-    nameInput.focus();
-  }
-
-  function closeModal() {
-    modal.classList.add('hidden');
-  }
-
-  openBtn.addEventListener('click', openModal);
-  closeBtn.addEventListener('click', closeModal);
-  cancelBtn.addEventListener('click', closeModal);
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) closeModal();
-  });
-
-  // Geolocation detection
-  detectLocBtn.addEventListener('click', () => {
-    if (!navigator.geolocation) {
-      locStatus.textContent = '❌ Geolocation not supported by your browser.';
-      return;
-    }
-
-    detectLocBtn.disabled = true;
-    detectLocBtn.textContent = '📡 Detecting…';
-    locStatus.textContent = 'Requesting location permission…';
-
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        detectedLat = pos.coords.latitude;
-        detectedLng = pos.coords.longitude;
-
-        latInput.value = detectedLat;
-        lngInput.value = detectedLng;
-
-
-        locStatus.textContent = '✅ Location detected!';
-        detectLocBtn.disabled = false;
-        detectLocBtn.textContent = '📡 Re-detect Location';
-        showToast('Location detected successfully.', 'success');
-      },
-      err => {
-        detectLocBtn.disabled = false;
-        detectLocBtn.textContent = '📡 Detect My Location';
-        const msgs = {
-          1: 'Permission denied. Please allow location access in your browser.',
-          2: 'Position unavailable. Try again.',
-          3: 'Request timed out. Try again.'
-        };
-        locStatus.textContent = '❌ ' + (msgs[err.code] || 'Unknown error.');
-        showToast('Location detection failed: ' + (msgs[err.code] || 'Error'), 'error');
-      },
-      { timeout: 12000, maximumAge: 0 }
-    );
-  });
-
-  // Image Upload Logic
-  imageZone.addEventListener('click', () => imageInput.click());
-  imageInput.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    selectedFile = file;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      previewImg.src = ev.target.result;
-      previewImg.classList.remove('hidden');
-      imagePlaceholder.style.display = 'none';
-    };
-    reader.readAsDataURL(file);
-  });
-
-  // Save/Submit BMC
-  submitBtn.addEventListener('click', async () => {
-    const name = nameInput.value.trim();
-    const district = districtInput.value.trim();
-    const location = locationInput.value.trim();
-    const contact_number = contactInput.value.trim();
-    const lat = latInput.value;
-    const lng = lngInput.value;
-
-    if (!name || !district || !location || !contact_number) {
-      showToast('All fields are required.', 'error');
-      return;
-    }
-    if (!lat || !lng) {
-      showToast('GPS coordinates are required. Please click "Detect My Location".', 'error');
-      return;
-    }
-
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Registering...';
-
-    try {
-      let imageUrl = null;
-
-      // Upload image if selected (or convert to Base64)
-      if (selectedFile) {
-        const client = await initSupabase();
-        if (client) {
-          try {
-            const ext = selectedFile.name.split('.').pop();
-            const path = `bmcs/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-            const { error: uploadErr } = await client.storage
-              .from('profile_images')
-              .upload(path, selectedFile, { cacheControl: '3600', upsert: true });
-
-            if (!uploadErr) {
-              const { data: { publicUrl } } = client.storage.from('profile_images').getPublicUrl(path);
-              imageUrl = publicUrl;
-            } else {
-              console.warn('Storage bucket upload failed, using Data URL fallback:', uploadErr.message);
-              imageUrl = await getOptimizedBase64(selectedFile);
-            }
-          } catch (err) {
-            console.warn('Storage upload error, using Data URL fallback:', err);
-            imageUrl = await getOptimizedBase64(selectedFile);
-          }
-        } else {
-          imageUrl = await getOptimizedBase64(selectedFile);
-        }
-      }
-
-      await apiCreateBmc({
-        name,
-        district,
-        location,
-        contact_number,
-        latitude: parseFloat(lat),
-        longitude: parseFloat(lng),
-        profile_image_url: imageUrl
-      });
-
-      showToast(`BMC "${name}" registered successfully!`, 'success');
-      closeModal();
-    } catch (err) {
-      console.error('Create BMC error:', err);
-      showToast(err.message || 'Failed to create BMC.', 'error');
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Save BMC';
-    }
-  });
-}
-
-function getOptimizedBase64(file, maxWidth = 800, quality = 0.8) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-
-        const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        resolve(dataUrl);
-      };
-      img.onerror = () => resolve(e.target.result);
-      img.src = e.target.result;
-    };
-    reader.onerror = () => resolve(null);
-    reader.readAsDataURL(file);
-  });
-}
+// ── Utility ───────────────────────────────────────────────────────────────────
 
 function esc(str) {
   if (!str) return '';

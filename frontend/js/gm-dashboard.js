@@ -1,4 +1,4 @@
-// gm-dashboard.js — Executive Overview Page Logic
+// gm-dashboard.js — P&I AGM Executive Overview Page Logic
 
 let currentDashboardData = null;
 let selectedDate = '';
@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!profile) return;
 
   if (document.getElementById('header-gm-name')) {
-    document.getElementById('header-gm-name').textContent = profile.name || 'General Manager';
+    document.getElementById('header-gm-name').textContent = profile.name || 'P&I AGM';
   }
 
   function getLocalDateStr(d = new Date()) {
@@ -70,7 +70,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (statusFilter) statusFilter.addEventListener('change', () => { if(currentDashboardData) renderTripsTable(currentDashboardData.trips); });
 
   setupTripDetailModal();
+  setupAssignWorkerModal();
   await loadDashboardData();
+  await loadPendingTrips();
+
+  // Pending trips controls
+  const refreshPendingBtn = document.getElementById('refresh-pending-btn');
+  if (refreshPendingBtn) refreshPendingBtn.addEventListener('click', loadPendingTrips);
+
+  const pendingSearch = document.getElementById('pending-search-input');
+  if (pendingSearch) pendingSearch.addEventListener('input', () => {
+    if (window._allPendingTrips) renderPendingTripsTable(window._allPendingTrips);
+  });
+
+  const pendingStatusFilter = document.getElementById('pending-status-filter');
+  if (pendingStatusFilter) pendingStatusFilter.addEventListener('change', () => {
+    if (window._allPendingTrips) renderPendingTripsTable(window._allPendingTrips);
+  });
 });
 
 function updatePresetButtonUI(activeType) {
@@ -86,7 +102,7 @@ async function loadDashboardData() {
     currentDashboardData = data;
     renderOverview(data);
   } catch (err) {
-    console.error('Failed to load GM Overview:', err);
+    console.error('Failed to load P&I AGM Overview:', err);
     if (typeof showToast === 'function') {
       showToast(err.message || 'Failed to load operational overview.', 'error');
     }
@@ -189,7 +205,7 @@ function exportToExcel() {
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailedVisitRows), 'Detailed BMC Quality Tests');
 
-  XLSX.writeFile(wb, `AAVIN_GM_Comprehensive_Operational_Report_${selectedDate}.xlsx`);
+  XLSX.writeFile(wb, `AAVIN_PIAgm_Operational_Report_${selectedDate}.xlsx`);
   if (typeof showToast === 'function') showToast('Detailed Excel report generated!', 'success');
 }
 
@@ -312,11 +328,232 @@ function exportToPDF() {
     }
   });
 
-  doc.save(`AAVIN_GM_Comprehensive_Report_${selectedDate}.pdf`);
+  doc.save(`AAVIN_PIAgm_Report_${selectedDate}.pdf`);
   if (typeof showToast === 'function') showToast('Detailed PDF report downloaded!', 'success');
 }
 
-// ── Trips Table & Modal Logic ────────────────────────────────────────────────
+// ── Pending Trips (Transport Manager trips awaiting worker assignment) ─────────
+
+window._allPendingTrips = [];
+
+async function loadPendingTrips() {
+  const tbody = document.getElementById('pending-trips-table-body');
+  if (!tbody) return;
+
+  tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted" style="padding:20px;">Loading trip assignments...</td></tr>`;
+
+  try {
+    const { trips = [] } = await apiGetGmPendingTrips();
+    window._allPendingTrips = trips;
+
+    // Update badge count
+    const badge = document.getElementById('pending-count-badge');
+    const pendingCount = trips.filter(t => t.assignment_status === 'pending_assignment').length;
+    if (badge) badge.textContent = pendingCount;
+
+    renderPendingTripsTable(trips);
+  } catch (err) {
+    console.error('Failed to load pending trips:', err);
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="color:#EF4444; padding:20px;">Failed to load trips: ${err.message}</td></tr>`;
+  }
+}
+
+function renderPendingTripsTable(trips = []) {
+  const tbody = document.getElementById('pending-trips-table-body');
+  if (!tbody) return;
+
+  const searchVal = (document.getElementById('pending-search-input')?.value || '').toLowerCase().trim();
+  const statusVal = (document.getElementById('pending-status-filter')?.value || '');
+
+  let filtered = trips.filter(t => {
+    const matchSearch = !searchVal ||
+      (t.trip_name || '').toLowerCase().includes(searchVal) ||
+      (t.driver_name || '').toLowerCase().includes(searchVal) ||
+      (t.tanker_number || '').toLowerCase().includes(searchVal) ||
+      (t.route_description || '').toLowerCase().includes(searchVal) ||
+      (t.transport_officer_name || '').toLowerCase().includes(searchVal);
+    const matchStatus = !statusVal || t.assignment_status === statusVal;
+    return matchSearch && matchStatus;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted" style="padding:24px;">No trips found matching the filter.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(t => {
+    const statusBadge = `<span class="assign-status-badge ${t.assignment_status || 'pending_assignment'}">${formatAssignStatus(t.assignment_status)}</span>`;
+    const dateStr = t.created_at ? new Date(t.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—';
+    const timeStr = t.out_time ? new Date(t.out_time).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }) : '—';
+    const tripNum = t.trip_number || t.id.slice(0, 8).toUpperCase();
+    const bmcText = t.bmc ? `${esc(t.bmc.name)} (${esc(t.bmc.district)})` : esc(t.route_description) || '—';
+
+    const actionBtn = t.assignment_status === 'pending_assignment'
+      ? `<button class="btn-assign" onclick="openAssignWorkerModal('${t.id}')" id="assign-btn-${t.id}">Assign Worker</button>`
+      : `<button class="btn-reassign" onclick="openAssignWorkerModal('${t.id}')" id="assign-btn-${t.id}">Re-assign</button>`;
+
+    const workerCell = t.assigned_worker_name
+      ? `<strong>${esc(t.assigned_worker_name)}</strong>`
+      : `<span style="color:#94A3B8; font-style:italic;">Unassigned</span>`;
+
+    return `
+      <tr>
+        <td><strong>${esc(t.trip_name)}</strong><div class="text-xs text-muted">${tripNum}</div></td>
+        <td>${dateStr}<div class="text-xs text-muted">${timeStr}</div></td>
+        <td>${bmcText}</td>
+        <td>${esc(t.driver_name || '—')}<div class="text-xs text-muted">${esc(t.tanker_number || '—')}</div></td>
+        <td>${esc(t.transport_officer_name || 'Transport Manager')}</td>
+        <td>${workerCell}</td>
+        <td>${statusBadge}</td>
+        <td>${actionBtn}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function formatAssignStatus(status) {
+  const map = {
+    pending_assignment: 'Pending Assignment',
+    worker_assigned: 'Worker Assigned',
+    in_progress: 'In Progress',
+    testing_completed: 'Testing Done',
+    report_submitted: 'Report Submitted',
+    completed: 'Completed'
+  };
+  return map[status] || (status || 'Pending');
+}
+
+// ── Assign Worker Modal ────────────────────────────────────────────────────────
+
+let assigningTripId = null;
+let selectedWorkerId = null;
+let _availableWorkers = [];
+
+function setupAssignWorkerModal() {
+  const modal = document.getElementById('assign-worker-modal');
+  const closeBtn = document.getElementById('aw-modal-close');
+  const cancelBtn = document.getElementById('aw-cancel-btn');
+  const assignBtn = document.getElementById('aw-assign-btn');
+
+  function closeModal() {
+    if (modal) modal.classList.add('hidden');
+    assigningTripId = null;
+    selectedWorkerId = null;
+  }
+
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+  if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+  if (assignBtn) {
+    assignBtn.addEventListener('click', async () => {
+      if (!assigningTripId || !selectedWorkerId) return;
+
+      assignBtn.disabled = true;
+      assignBtn.textContent = 'Assigning...';
+
+      try {
+        const result = await apiAssignWorkerToTrip(assigningTripId, selectedWorkerId);
+        if (typeof showToast === 'function') {
+          showToast(result.message || 'Worker assigned successfully!', 'success');
+        }
+        closeModal();
+        await loadPendingTrips(); // Refresh the table
+      } catch (err) {
+        console.error('Assignment failed:', err);
+        if (typeof showToast === 'function') showToast(err.message || 'Assignment failed.', 'error');
+      } finally {
+        assignBtn.disabled = false;
+        assignBtn.textContent = 'Assign Worker';
+      }
+    });
+  }
+}
+
+window.openAssignWorkerModal = async function(tripId) {
+  const modal = document.getElementById('assign-worker-modal');
+  if (!modal) return;
+
+  assigningTripId = tripId;
+  selectedWorkerId = null;
+
+  // Find trip info from cached list
+  const trip = (window._allPendingTrips || []).find(t => t.id === tripId);
+
+  // Populate trip info
+  const infoEl = document.getElementById('aw-trip-info');
+  if (infoEl && trip) {
+    infoEl.innerHTML = `
+      <strong>Trip:</strong> ${esc(trip.trip_name)} (${trip.trip_number || tripId.slice(0, 8).toUpperCase()})<br>
+      <strong>Driver:</strong> ${esc(trip.driver_name || '—')} &nbsp;|&nbsp;
+      <strong>Vehicle:</strong> ${esc(trip.tanker_number || '—')}<br>
+      <strong>Created by:</strong> ${esc(trip.transport_officer_name || 'Transport Manager')}<br>
+      <strong>Route:</strong> ${esc(trip.route_description || 'Not specified')}
+    `;
+  }
+
+  // Reset assign button
+  const assignBtn = document.getElementById('aw-assign-btn');
+  if (assignBtn) { assignBtn.disabled = true; assignBtn.textContent = 'Assign Worker'; }
+
+  // Show modal with loading state
+  modal.classList.remove('hidden');
+  const workerList = document.getElementById('aw-worker-list');
+  if (workerList) workerList.innerHTML = '<div class="aw-empty">Loading field workers...</div>';
+
+  try {
+    const { workers = [] } = await apiGetGmAvailableWorkers();
+    _availableWorkers = workers;
+
+    if (workers.length === 0) {
+      if (workerList) workerList.innerHTML = '<div class="aw-empty">No approved Field Workers found.</div>';
+      return;
+    }
+
+    if (workerList) {
+      workerList.innerHTML = workers.map(w => {
+        const initials = (w.name || 'W').split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase();
+        const isBusy = w.active_trips > 0;
+        const availClass = isBusy ? 'busy' : 'free';
+        const alreadyAssigned = trip && trip.assigned_worker_id === w.id;
+
+        return `
+          <div class="aw-worker-item ${alreadyAssigned ? 'selected' : ''}" 
+               onclick="selectWorker('${w.id}', this)"
+               data-worker-id="${w.id}">
+            <div class="aw-worker-avatar">${initials}</div>
+            <div style="flex:1;">
+              <div class="aw-worker-name">${esc(w.name)} ${alreadyAssigned ? '✓ Currently Assigned' : ''}</div>
+              <div style="font-size:0.75rem; color:#64748B;">${esc(w.email)}</div>
+            </div>
+            <span class="aw-worker-avail ${availClass}">${w.availability}</span>
+          </div>
+        `;
+      }).join('');
+
+      // Pre-select if already assigned
+      if (trip && trip.assigned_worker_id) {
+        selectedWorkerId = trip.assigned_worker_id;
+        if (assignBtn) assignBtn.disabled = false;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load workers:', err);
+    if (workerList) workerList.innerHTML = `<div class="aw-empty" style="color:#EF4444;">Failed to load workers: ${esc(err.message)}</div>`;
+  }
+};
+
+window.selectWorker = function(workerId, el) {
+  selectedWorkerId = workerId;
+
+  // Highlight selection
+  document.querySelectorAll('.aw-worker-item').forEach(item => item.classList.remove('selected'));
+  el.classList.add('selected');
+
+  const assignBtn = document.getElementById('aw-assign-btn');
+  if (assignBtn) assignBtn.disabled = false;
+};
+
 function renderTripsTable(trips = []) {
   const tbody = document.getElementById('trips-table-body');
   if (!tbody) return;

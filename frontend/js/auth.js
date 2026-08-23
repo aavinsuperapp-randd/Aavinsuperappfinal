@@ -136,6 +136,32 @@ async function checkAuth(requiredRole) {
         showStatusScreen('rejected');
         return null;
       }
+    } else if (requiredRole === 'qc_worker') {
+      if (profile.role !== 'qc_worker' && profile.role !== 'admin') {
+        showToast("Access Denied: QC Worker role required.", "error");
+        window.location.href = getPath('login.html');
+        return null;
+      }
+      if (profile.status === 'pending') {
+        showStatusScreen('pending');
+        return null;
+      } else if (profile.status === 'rejected') {
+        showStatusScreen('rejected');
+        return null;
+      }
+    } else if (requiredRole === 'qc_agm') {
+      if (profile.role !== 'qc_agm' && profile.role !== 'admin') {
+        showToast("Access Denied: QC AGM role required.", "error");
+        window.location.href = getPath('login.html');
+        return null;
+      }
+      if (profile.status === 'pending') {
+        showStatusScreen('pending');
+        return null;
+      } else if (profile.status === 'rejected') {
+        showStatusScreen('rejected');
+        return null;
+      }
     }
     
     toggleLoading(false);
