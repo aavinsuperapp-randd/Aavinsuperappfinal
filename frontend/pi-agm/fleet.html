@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fleet & Staff Management — P&I AGM Portal</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/pi-agm-portal.css">
+  <link rel="stylesheet" href="../css/pi-agm-portal.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="pi-agm-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>P&amp;I AGM Portal</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Executive Overview</a>
+        
+        <a href="issues.html" class="admin-nav-item"><span>⚠️</span> Complaints</a>
+        <a href="fleet.html" class="admin-nav-item active"><span>👥</span> Fleet & Staff</a>
+        <a href="bmcs.html" class="admin-nav-item"><span>🏭</span> BMC Management</a>
+        <a href="analysis.html" class="admin-nav-item"><span>📈</span> Deep Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>Employees, Drivers & Tanker Fleet</h2>
+            <p>Comprehensive directory of workers, registered drivers, and tanker vehicles</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar">GM</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-pi-agm-name">P&amp;I AGM</div>
+              <div class="header-user-role">Executive Command</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-pi-agm-content">
+
+          <div class="table-card">
+            <div style="padding: 16px 20px 0;">
+              <div class="fleet-tabs-bar">
+                <button class="fleet-tab-btn active" data-tab="tab-workers">Workers / Staff (<span id="count-workers">0</span>)</button>
+                <button class="fleet-tab-btn" data-tab="tab-drivers">Drivers (<span id="count-drivers">0</span>)</button>
+                <button class="fleet-tab-btn" data-tab="tab-vehicles">Tanker Vehicles (<span id="count-vehicles">0</span>)</button>
+              </div>
+            </div>
+
+            <!-- Tab 1: Workers -->
+            <div id="tab-workers" class="fleet-tab-content">
+              <div class="table-responsive">
+                <table class="pi-agm-table-v2">
+                  <thead>
+                    <tr>
+                      <th>Worker Name</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Account Status</th>
+                      <th>Trips Today</th>
+                      <th>Current Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="workers-table-body">
+                    <tr><td colspan="6" class="text-center text-muted" style="padding:24px;">Loading workers...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Tab 2: Drivers -->
+            <div id="tab-drivers" class="fleet-tab-content hidden">
+              <div class="table-responsive">
+                <table class="pi-agm-table-v2">
+                  <thead>
+                    <tr>
+                      <th>Driver Name</th>
+                      <th>Phone Number</th>
+                      <th>License Number</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="drivers-table-body">
+                    <tr><td colspan="4" class="text-center text-muted" style="padding:24px;">Loading drivers...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Tab 3: Vehicles -->
+            <div id="tab-vehicles" class="fleet-tab-content hidden">
+              <div class="table-responsive">
+                <table class="pi-agm-table-v2">
+                  <thead>
+                    <tr>
+                      <th>Vehicle Board No.</th>
+                      <th>Capacity (Liters)</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="vehicles-table-body">
+                    <tr><td colspan="3" class="text-center text-muted" style="padding:24px;">Loading vehicles...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/pi-agm-api.js"></script>
+  <script src="../js/pi-agm-fleet.js"></script>
+</body>
+</html>

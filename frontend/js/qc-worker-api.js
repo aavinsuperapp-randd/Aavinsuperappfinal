@@ -34,11 +34,13 @@ async function qcWorkerFetch(path, options = {}) {
 async function apiQcGetProfile() {
   return qcWorkerFetch('/api/qc-worker/profile');
 }
-async function apiQcGetDashboardStats() {
-  return qcWorkerFetch('/api/qc-worker/dashboard-stats');
+async function apiQcGetDashboardStats(date = '') {
+  const url = date ? `/api/qc-worker/dashboard-stats?date=${date}` : '/api/qc-worker/dashboard-stats';
+  return qcWorkerFetch(url);
 }
-async function apiQcGetSamples() {
-  return qcWorkerFetch('/api/qc-worker/samples');
+async function apiQcGetSamples(date = '') {
+  const url = date ? `/api/qc-worker/samples?date=${date}` : '/api/qc-worker/samples';
+  return qcWorkerFetch(url);
 }
 async function apiQcGetSampleDetail(visitId) {
   return qcWorkerFetch(`/api/qc-worker/samples/${visitId}`);

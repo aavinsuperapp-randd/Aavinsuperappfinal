@@ -109,7 +109,9 @@ document.addEventListener('DOMContentLoaded', () => {
           setTimeout(() => {
             // Route based on role
             if (profile.role === 'gm') {
-              window.location.href = getPath('gm.html');
+              window.location.href = getPath('gm/dashboard.html');
+            } else if (profile.role === 'pi_agm') {
+              window.location.href = getPath('pi-agm/dashboard.html');
             } else if (profile.role === 'executive_officer') {
               window.location.href = getPath('eo/dashboard.html');
             } else if (profile.role === 'transport_officer' || profile.role === 'driver') {

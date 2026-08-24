@@ -81,12 +81,14 @@ function renderSamplesTable(samples) {
     const ftir = Array.isArray(s.ftir_tests) ? s.ftir_tests[0] : s.ftir_tests;
     const gerber = Array.isArray(s.gerber_tests) ? s.gerber_tests[0] : s.gerber_tests;
 
-    let bmcSummary = 'N/A';
+    let bmcSummary = [];
     if (ftir) {
-      bmcSummary = `Fat: ${ftir.fat ?? '--'}%, SNF: ${ftir.snf ?? '--'}%`;
-    } else if (gerber) {
-      bmcSummary = `Fat: ${gerber.fat_percentage ?? '--'}%, CLR: ${gerber.clr ?? '--'}`;
+      bmcSummary.push(`FTIR: Fat ${ftir.fat ?? '--'}%, SNF ${ftir.snf ?? '--'}%`);
     }
+    if (gerber) {
+      bmcSummary.push(`Gerber: Fat ${gerber.fat_percentage ?? '--'}%, CLR ${gerber.clr ?? '--'}`);
+    }
+    bmcSummary = bmcSummary.length > 0 ? bmcSummary.join('<br>') : 'N/A';
 
     const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
     let statusPill = `<span class="qc-pill pill-pending">Pending Test</span>`;
@@ -120,7 +122,7 @@ function renderSamplesTable(samples) {
         <td>${esc(collDate)}</td>
         <td>${esc(collTime)}</td>
         <td>${esc(workerName)}</td>
-        <td><span style="font-size:0.8rem; background:#F1F5F9; padding:2px 8px; border-radius:6px; font-weight:600;">${esc(bmcSummary)}</span></td>
+        <td><span style="font-size:0.8rem; background:#F1F5F9; padding:4px 8px; border-radius:6px; font-weight:600; display:inline-block; line-height:1.4;">${bmcSummary}</span></td>
         <td>${statusPill}</td>
         <td>
           <a href="test.html?visit_id=${s.id}" class="btn-qc btn-qc-primary btn-qc-sm">

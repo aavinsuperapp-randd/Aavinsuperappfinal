@@ -76,8 +76,22 @@ async function checkAuth(requiredRole) {
         return null;
       }
     } else if (requiredRole === 'gm') {
-      if (profile.role !== 'gm') {
+      if (profile.role !== 'gm' && profile.role !== 'admin') {
         showToast("Access Denied: GM role required.", "error");
+        window.location.href = getPath('login.html');
+        return null;
+      }
+      
+      if (profile.status === 'pending') {
+        showStatusScreen('pending');
+        return null;
+      } else if (profile.status === 'rejected') {
+        showStatusScreen('rejected');
+        return null;
+      }
+    } else if (requiredRole === 'pi_agm') {
+      if (profile.role !== 'pi_agm' && profile.role !== 'admin') {
+        showToast("Access Denied: P&I AGM role required.", "error");
         window.location.href = getPath('login.html');
         return null;
       }

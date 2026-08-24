@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BMC Management — P&amp;I AGM Portal</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/pi-agm-portal.css">
+  <link rel="stylesheet" href="../css/bmc-admin.css">
+  <!-- Leaflet CSS for Map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="pi-agm-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>P&amp;I AGM Portal</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Executive Overview</a>
+        <a href="issues.html" class="admin-nav-item"><span>⚠️</span> Complaints</a>
+        <a href="fleet.html" class="admin-nav-item"><span>👥</span> Fleet & Staff</a>
+        <a href="bmcs.html" class="admin-nav-item active"><span>🏭</span> BMC Management</a>
+        <a href="analysis.html" class="admin-nav-item"><span>📈</span> Deep Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>BMC Management</h2>
+            <p>Manage, inspect, and register BMC units across districts</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar">GM</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-pi-agm-name">P&amp;I AGM</div>
+              <div class="header-user-role">Executive Command</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-pi-agm-content">
+
+          <!-- Page Header -->
+          <div class="bmc-page-header mb-2">
+            <div>
+              <h2 class="bmc-page-title">Bulk Milk Coolers</h2>
+              <p class="text-muted text-sm">Manage all registered BMC units across districts.</p>
+            </div>
+            <div class="d-flex gap-2">
+
+              <button id="add-bmc-btn" class="btn btn-primary">
+                <span>+</span> Add New BMC
+              </button>
+            </div>
+          </div>
+
+          <!-- 1. SUMMARY CARDS -->
+          <div class="bmc-stats-row mb-2">
+            <div class="bmc-stat-card">
+              <div class="bmc-stat-number" id="stat-total">—</div>
+              <div class="bmc-stat-label">Total BMCs</div>
+            </div>
+            <div class="bmc-stat-card active">
+              <div class="bmc-stat-number" id="stat-active">—</div>
+              <div class="bmc-stat-label">Active</div>
+            </div>
+            <div class="bmc-stat-card inactive">
+              <div class="bmc-stat-number" id="stat-inactive">—</div>
+              <div class="bmc-stat-label">Inactive</div>
+            </div>
+          </div>
+
+          <!-- 2. LEAFLET MAP -->
+          <div class="bmc-map-card mb-2">
+            <div class="bmc-map-header">
+              <div class="bmc-map-title">📍 BMC Geographic Locations</div>
+            </div>
+            <div id="bmc-leaflet-map"></div>
+          </div>
+
+          <!-- 3. BMC DETAILS: Search & Status Filters -->
+          <div class="bmc-filter-row mb-2">
+            <input type="text" id="bmc-search" class="form-input bmc-search" placeholder="Search by name or district…">
+            <select id="bmc-filter-status" class="form-select bmc-filter-select">
+              <option value="all">All Status</option>
+              <option value="active">Active Only</option>
+              <option value="inactive">Inactive Only</option>
+            </select>
+          </div>
+
+          <!-- BMC Grid Cards -->
+          <div id="bmc-grid" class="bmc-grid">
+            <!-- populated dynamically by pi-agm-bmcs.js -->
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ADD / EDIT BMC MODAL -->
+  <div id="bmc-modal" class="bmc-modal-overlay hidden">
+    <div class="bmc-modal" style="max-width: 580px;">
+      <div class="bmc-modal-header">
+        <h3 id="bmc-modal-title">Add New BMC</h3>
+        <button id="bmc-modal-close" class="bmc-modal-close">✕</button>
+      </div>
+      <div class="bmc-modal-body">
+
+        <!-- Image Upload -->
+        <div class="form-group">
+          <label class="form-label">BMC Profile Picture (Optional)</label>
+          <div class="bmc-image-upload" id="bmc-image-drop">
+            <img id="bmc-preview-img" src="" alt="" class="hidden" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">
+            <div id="bmc-image-placeholder">
+              <div style="font-size:2rem;">🏭</div>
+              <div class="text-sm text-muted mt-1">Click to upload image</div>
+            </div>
+            <input type="file" id="bmc-image-input" accept="image/*" style="display:none;">
+          </div>
+        </div>
+
+        <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div class="form-group" style="flex:1; min-width:200px;">
+            <label class="form-label" for="bmc-name">BMC Name *</label>
+            <input type="text" id="bmc-name" class="form-input" placeholder="e.g. Erode Central BMC">
+          </div>
+          <div class="form-group" style="flex:1; min-width:200px;">
+            <label class="form-label" for="bmc-district">District *</label>
+            <input type="text" id="bmc-district" class="form-input" placeholder="e.g. Erode">
+          </div>
+        </div>
+
+        <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div class="form-group" style="flex:1; min-width:200px;">
+            <label class="form-label" for="bmc-contact">Contact Number *</label>
+            <input type="tel" id="bmc-contact" class="form-input" placeholder="e.g. 9876543210" maxlength="15">
+          </div>
+          <div class="form-group" style="flex:1; min-width:200px;">
+            <label class="form-label" for="bmc-capacity">Total BMC Capacity (KG) *</label>
+            <input type="number" id="bmc-capacity" class="form-input" placeholder="e.g. 5000" min="1" step="any">
+          </div>
+        </div>
+
+        <!-- Address & Coordinates Section -->
+        <div class="form-group">
+          <label class="form-label" for="bmc-location-text">Address Reference *</label>
+          <input type="text" id="bmc-location-text" class="form-input" placeholder="e.g. Sakkimangalam Road, KK Nagar, Madurai">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="flex:1; min-width:180px;">
+            <label class="form-label" for="bmc-latitude">Latitude *</label>
+            <input type="number" id="bmc-latitude" class="form-input" placeholder="e.g. 9.9142" step="any">
+          </div>
+          <div class="form-group" style="flex:1; min-width:180px;">
+            <label class="form-label" for="bmc-longitude">Longitude *</label>
+            <input type="number" id="bmc-longitude" class="form-input" placeholder="e.g. 78.1631" step="any">
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:8px;">
+          <button type="button" id="detect-location-btn" class="btn btn-outline btn-sm" style="border-color:#cbd5e1; font-weight:600;">
+            📡 Detect My Location
+          </button>
+          <span id="location-status" class="text-sm text-muted"></span>
+        </div>
+
+        <!-- Silo Management Section -->
+        <div class="form-group mt-3" style="border-top:1px solid var(--gray-200, #e2e8f0); padding-top:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+            <div>
+              <label class="form-label" style="margin-bottom:0; font-weight:700; color:var(--gray-900);">Silo Management</label>
+              <div class="text-xs text-muted" id="total-silos-count-label">Total Silos: 0 (Max 10)</div>
+            </div>
+            <button type="button" id="add-silo-btn" class="btn btn-primary btn-sm" style="font-weight:600;">
+              + Add Silo
+            </button>
+          </div>
+
+          <div id="silo-list-container" style="display:flex; flex-direction:column; gap:10px;">
+            <!-- Dynamic Silo Cards -->
+          </div>
+        </div>
+
+      </div>
+      <div class="bmc-modal-footer">
+        <button id="bmc-cancel-btn" class="btn btn-outline">Cancel</button>
+        <button id="bmc-save-btn" class="btn btn-primary">Save BMC</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/pi-agm-api.js"></script>
+  <script src="../js/pi-agm-bmcs.js"></script>
+</body>
+</html>

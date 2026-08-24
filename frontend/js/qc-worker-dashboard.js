@@ -14,21 +14,61 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
-  await loadDashboardData();
+  setupDateFilters();
+
+  await loadDashboardData(selectedDate);
 });
 
-async function loadDashboardData() {
+let selectedDate = new Date().toISOString().split('T')[0];
+
+function setupDateFilters() {
+  const dateInput = document.getElementById('qc-date-picker');
+  const btnToday = document.getElementById('btn-preset-today');
+  const btnYesterday = document.getElementById('btn-preset-yesterday');
+
+  if (dateInput) {
+    dateInput.value = selectedDate;
+    dateInput.addEventListener('change', (e) => {
+      selectedDate = e.target.value;
+      if (btnToday) btnToday.classList.remove('active');
+      if (btnYesterday) btnYesterday.classList.remove('active');
+      loadDashboardData(selectedDate);
+    });
+  }
+
+  if (btnToday) {
+    btnToday.addEventListener('click', () => {
+      btnToday.classList.add('active');
+      if (btnYesterday) btnYesterday.classList.remove('active');
+      selectedDate = new Date().toISOString().split('T')[0];
+      if (dateInput) dateInput.value = selectedDate;
+      loadDashboardData(selectedDate);
+    });
+  }
+
+  if (btnYesterday) {
+    btnYesterday.addEventListener('click', () => {
+      btnYesterday.classList.add('active');
+      if (btnToday) btnToday.classList.remove('active');
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      selectedDate = d.toISOString().split('T')[0];
+      if (dateInput) dateInput.value = selectedDate;
+      loadDashboardData(selectedDate);
+    });
+  }
+}
+
+async function loadDashboardData(date = '') {
   try {
     // Fetch Stats
-    const statsRes = await apiQcGetDashboardStats();
-    document.getElementById('stat-samples-pending').textContent = statsRes.samples_pending ?? 0;
-    document.getElementById('stat-tested-today').textContent = statsRes.tested_today ?? 0;
-    document.getElementById('stat-reports-submitted').textContent = statsRes.reports_submitted ?? 0;
-    document.getElementById('stat-pending-submission').textContent = statsRes.pending_submission ?? 0;
-    document.getElementById('stat-total-samples').textContent = statsRes.total_samples ?? 0;
+    const statsRes = await apiQcGetDashboardStats(date);
+    if (document.getElementById('stat-samples-pending')) document.getElementById('stat-samples-pending').textContent = statsRes.samples_pending ?? 0;
+    if (document.getElementById('stat-reports-submitted')) document.getElementById('stat-reports-submitted').textContent = statsRes.reports_submitted ?? 0;
+    if (document.getElementById('stat-total-samples')) document.getElementById('stat-total-samples').textContent = statsRes.total_samples ?? 0;
 
     // Fetch Pending Samples Queue
-    const samplesRes = await apiQcGetSamples();
+    const samplesRes = await apiQcGetSamples(date);
     renderPendingQueue(samplesRes.samples || []);
   } catch (err) {
     console.error('Error loading dashboard data:', err);
@@ -71,12 +111,14 @@ function renderPendingQueue(samples) {
     const ftir = Array.isArray(s.ftir_tests) ? s.ftir_tests[0] : s.ftir_tests;
     const gerber = Array.isArray(s.gerber_tests) ? s.gerber_tests[0] : s.gerber_tests;
 
-    let bmcSummary = 'N/A';
+    let bmcSummary = [];
     if (ftir) {
-      bmcSummary = `Fat: ${ftir.fat ?? '--'}%, SNF: ${ftir.snf ?? '--'}%`;
-    } else if (gerber) {
-      bmcSummary = `Fat: ${gerber.fat_percentage ?? '--'}%, CLR: ${gerber.clr ?? '--'}`;
+      bmcSummary.push(`FTIR: Fat ${ftir.fat ?? '--'}%, SNF ${ftir.snf ?? '--'}%`);
     }
+    if (gerber) {
+      bmcSummary.push(`Gerber: Fat ${gerber.fat_percentage ?? '--'}%, CLR ${gerber.clr ?? '--'}`);
+    }
+    bmcSummary = bmcSummary.length > 0 ? bmcSummary.join('<br>') : 'N/A';
 
     const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
     let statusPill = `<span class="qc-pill pill-pending">Pending Test</span>`;
@@ -97,7 +139,7 @@ function renderPendingQueue(samples) {
         <td>${esc(collDate)}</td>
         <td>${esc(collTime)}</td>
         <td>${esc(workerName)}</td>
-        <td><span style="font-size:0.8rem; background:#F1F5F9; padding:2px 8px; border-radius:6px; font-weight:600;">${esc(bmcSummary)}</span></td>
+        <td><span style="font-size:0.8rem; background:#F1F5F9; padding:4px 8px; border-radius:6px; font-weight:600; display:inline-block; line-height:1.4;">${bmcSummary}</span></td>
         <td>${statusPill}</td>
         <td>
           <a href="test.html?visit_id=${s.id}" class="btn-qc btn-qc-primary btn-qc-sm">

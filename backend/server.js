@@ -72,8 +72,8 @@ app.post('/api/register', async (req, res) => {
   if (!name || !dob || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
-  if (!['user', 'gm', 'driver', 'transport_officer', 'executive_officer', 'qc_worker', 'qc_agm'].includes(role)) {
-    return res.status(400).json({ error: 'Invalid role. Must be user, gm, driver, transport_officer, executive_officer, qc_worker, or qc_agm.' });
+  if (!['user', 'gm', 'pi_agm', 'driver', 'transport_officer', 'executive_officer', 'qc_worker', 'qc_agm'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid role. Must be user, gm, pi_agm, driver, transport_officer, executive_officer, qc_worker, or qc_agm.' });
   }
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
@@ -513,6 +513,33 @@ async function requireGm(req, res, next) {
   next();
 }
 
+// ─── P&I AGM JWT Middleware ───────────────────────────────────────────────────
+async function requirePiAgm(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
+
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+
+  const { data: profile } = await adminClient
+    .from('profiles').select('*').eq('id', user.id).single();
+
+  if (!profile) return res.status(404).json({ error: 'Profile not found.' });
+  if (profile.role !== 'pi_agm' && profile.role !== 'admin') {
+    return res.status(403).json({ error: 'P&I AGM access required.' });
+  }
+  if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
+
+  req.user = user;
+  req.profile = profile;
+  req.adminClient = adminClient;
+  next();
+}
+
+
 // ─── Transport Officer JWT Middleware ─────────────────────────────────────────
 async function requireTransportOfficer(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
@@ -603,7 +630,7 @@ function formatDurationMs(ms) {
 }
 
 // ─── GET /api/gm/dashboard (LAST 7 DAYS FIXED) ───────────────────────────────
-app.get('/api/gm/dashboard', requireGm, async (req, res) => {
+app.get('/api/gm/dashboard', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
 
   // Calculate Last 7 Days Range (Today - 6 previous days = 7 calendar days)
@@ -795,7 +822,7 @@ app.get('/api/gm/dashboard', requireGm, async (req, res) => {
 });
 
 // ─── GET /api/gm/dashboard-v2 (SINGLE-DATE COMPREHENSIVE DASHBOARD) ──────────
-app.get('/api/gm/dashboard-v2', requireGm, async (req, res) => {
+app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const dateParam = req.query.date; // YYYY-MM-DD or empty for today
 
@@ -843,7 +870,8 @@ app.get('/api/gm/dashboard-v2', requireGm, async (req, res) => {
 
     const tripList = tripsRes.data || [];
     const trendTripList = trendTripsRes.data || [];
-    const visitList = visitsRes.data || [];
+    const tripIds = tripList.map(t => t.id);
+    const visitList = (visitsRes.data || []).filter(v => tripIds.includes(v.trip_id));
     const profilesList = profilesRes.data || [];
     const driversList = driversRes.data || [];
     const tankersList = tankersRes.data || [];
@@ -1057,7 +1085,7 @@ app.get('/api/gm/dashboard-v2', requireGm, async (req, res) => {
 });
 
 // ─── POST /api/gm/create-bmc (GM BMC CREATION) ───────────────────────────────
-app.post('/api/gm/create-bmc', requireGm, async (req, res) => {
+app.post('/api/gm/create-bmc', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const { name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos } = req.body;
 
@@ -1142,7 +1170,7 @@ app.post('/api/gm/create-bmc', requireGm, async (req, res) => {
 
 
 // ─── GET /api/gm/analysis (VEHICLE / DRIVER / WORKER DEEP ANALYSIS) ─────────
-app.get('/api/gm/analysis', requireGm, async (req, res) => {
+app.get('/api/gm/analysis', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const { type = 'vehicle', entityId = '', startDate, endDate } = req.query;
 
@@ -1447,7 +1475,7 @@ app.get('/api/gm/analysis', requireGm, async (req, res) => {
 
 
 // ─── GET /api/gm/requirements (LIST ALL BMC REQUIREMENTS) ────────────────────
-app.get('/api/gm/requirements', requireGm, async (req, res) => {
+app.get('/api/gm/requirements', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const { bmcId = '', status = 'all', search = '' } = req.query;
 
@@ -1524,7 +1552,7 @@ app.get('/api/gm/requirements', requireGm, async (req, res) => {
 });
 
 // ─── PATCH /api/gm/requirements/:id/complete (TICK REQUIREMENT AS COMPLETED) ──
-app.patch('/api/gm/requirements/:id/complete', requireGm, async (req, res) => {
+app.patch('/api/gm/requirements/:id/complete', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const reqId = req.params.id;
 
@@ -1561,7 +1589,7 @@ app.patch('/api/gm/requirements/:id/complete', requireGm, async (req, res) => {
 });
 
 // ─── GET /api/gm/issues (LIST ALL BMC ISSUES) ────────────────────────────────
-app.get('/api/gm/issues', requireGm, async (req, res) => {
+app.get('/api/gm/issues', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const { bmcId = '', status = 'all', category = '', severity = '', search = '' } = req.query;
 
@@ -1638,7 +1666,7 @@ app.get('/api/gm/issues', requireGm, async (req, res) => {
 });
 
 // ─── PATCH /api/gm/issues/:id/complete (TICK ISSUE AS COMPLETED/RESOLVED) ───
-app.patch('/api/gm/issues/:id/complete', requireGm, async (req, res) => {
+app.patch('/api/gm/issues/:id/complete', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const issueId = req.params.id;
 
@@ -1673,7 +1701,7 @@ app.patch('/api/gm/issues/:id/complete', requireGm, async (req, res) => {
 });
 
 // ─── GET /api/gm/bmcs (LIST ALL BMCS WITH FULL DATA FOR GM) ───────────────────
-app.get('/api/gm/bmcs', requireGm, async (req, res) => {
+app.get('/api/gm/bmcs', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   try {
     const { data: bmcs, error } = await adminClient
@@ -1711,7 +1739,7 @@ app.get('/api/gm/bmcs', requireGm, async (req, res) => {
 });
 
 // ─── PUT /api/gm/bmcs/:id (UPDATE BMC DETAILS) ─────────────────────────────────
-app.put('/api/gm/bmcs/:id', requireGm, async (req, res) => {
+app.put('/api/gm/bmcs/:id', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const bmcId = req.params.id;
   const { name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos } = req.body;
@@ -1825,7 +1853,7 @@ app.put('/api/gm/bmcs/:id', requireGm, async (req, res) => {
 });
 
 // ─── PUT /api/gm/bmcs/:id/toggle (TOGGLE BMC ACTIVE STATUS) ────────────────────
-app.put('/api/gm/bmcs/:id/toggle', requireGm, async (req, res) => {
+app.put('/api/gm/bmcs/:id/toggle', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const bmcId = req.params.id;
   const { is_active } = req.body;
@@ -1847,7 +1875,7 @@ app.put('/api/gm/bmcs/:id/toggle', requireGm, async (req, res) => {
 });
 
 // ─── GET /api/gm/bmcs/:bmcId/profile (DETAILED BMC PROFILE SEARCH & SUMMARY) ──
-app.get('/api/gm/bmcs/:bmcId/profile', requireGm, async (req, res) => {
+app.get('/api/gm/bmcs/:bmcId/profile', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const bmcId = req.params.bmcId;
 
@@ -5098,7 +5126,7 @@ app.post('/api/transport/create-trip', requireTransportOfficer, async (req, res)
 
 // ─── GET /api/gm/pending-trips ────────────────────────────────────────────────
 // P&I AGM sees all Transport Manager-created trips with assignment status
-app.get('/api/gm/pending-trips', requireGm, async (req, res) => {
+app.get('/api/gm/pending-trips', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   try {
     const { data: trips, error } = await adminClient
@@ -5173,7 +5201,7 @@ app.get('/api/gm/pending-trips', requireGm, async (req, res) => {
 
 // ─── POST /api/gm/trips/:id/assign-worker ────────────────────────────────────
 // P&I AGM assigns a Field Worker to a Transport Manager trip
-app.post('/api/gm/trips/:id/assign-worker', requireGm, async (req, res) => {
+app.post('/api/gm/trips/:id/assign-worker', requirePiAgm, async (req, res) => {
   const { adminClient, profile } = req;
   const tripId = req.params.id;
   const { worker_id } = req.body;
@@ -5344,7 +5372,7 @@ app.get('/api/worker/assigned-trips', requireWorker, async (req, res) => {
 
 // ─── GET /api/gm/available-workers ───────────────────────────────────────────
 // P&I AGM fetches list of available approved Field Workers for assignment modal
-app.get('/api/gm/available-workers', requireGm, async (req, res) => {
+app.get('/api/gm/available-workers', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   try {
     const { data: workers, error } = await adminClient
@@ -5396,39 +5424,40 @@ app.get('/api/qc-worker/profile', requireQcWorker, (req, res) => {
 // GET /api/qc-worker/dashboard-stats
 app.get('/api/qc-worker/dashboard-stats', requireQcWorker, async (req, res) => {
   const { adminClient, profile } = req;
+  const { date } = req.query;
   try {
-    const { count: totalVisits } = await adminClient
-      .from('trip_bmc_visits')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'completed');
+    let startIso, endIso;
+    if (date) {
+      const d = new Date(date + 'T00:00:00.000Z');
+      startIso = d.toISOString();
+      const endD = new Date(date + 'T23:59:59.999Z');
+      endIso = endD.toISOString();
+    }
 
-    const { data: myTests } = await adminClient
-      .from('qc_lab_tests')
-      .select('id, status, created_at, submitted_at')
-      .eq('qc_worker_id', profile.id);
+    let visitsQuery = adminClient.from('trip_bmc_visits').select('id').eq('status', 'completed');
+    if (startIso && endIso) {
+      visitsQuery = visitsQuery.gte('visit_end_time', startIso).lte('visit_end_time', endIso);
+    }
+    const { data: visits } = await visitsQuery;
+    const totalVisits = visits ? visits.length : 0;
+    const visitIds = visits ? visits.map(v => v.id) : [];
 
-    const tests = myTests || [];
-    const today = new Date().toISOString().split('T')[0];
+    let testsQuery = adminClient.from('qc_lab_tests').select('id, status, created_at, visit_id').eq('qc_worker_id', profile.id);
+    if (visitIds.length > 0) {
+      testsQuery = testsQuery.in('visit_id', visitIds);
+    } else if (startIso && endIso) {
+      testsQuery = testsQuery.gte('created_at', startIso).lte('created_at', endIso);
+    }
+    const { data: tests } = await testsQuery;
 
-    const testedToday = tests.filter(t => t.created_at && t.created_at.startsWith(today)).length;
-    const submittedCount = tests.filter(t => t.status === 'submitted' || t.status === 'approved').length;
-    const pendingSubmissionCount = tests.filter(t => t.status === 'testing' || t.status === 'in_progress' || t.status === 'returned').length;
-
-    const { data: allQcTests } = await adminClient.from('qc_lab_tests').select('visit_id');
-    const testedVisitIds = new Set((allQcTests || []).map(t => t.visit_id));
-
-    const { data: visits } = await adminClient
-      .from('trip_bmc_visits')
-      .select('id')
-      .eq('status', 'completed');
-
-    const pendingSamplesCount = (visits || []).filter(v => !testedVisitIds.has(v.id)).length;
-
+    const testedVisits = new Set((tests || []).map(t => t.visit_id));
+    const pendingSamplesCount = (visits || []).filter(v => !testedVisits.has(v.id)).length;
+    const submittedCount = (tests || []).filter(t => t.status === 'submitted' || t.status === 'approved').length;
+    
+    // The user requested only Pending, Tested Report, and Total Samples.
     res.json({
       samples_pending: pendingSamplesCount,
-      tested_today: testedToday,
       reports_submitted: submittedCount,
-      pending_submission: pendingSubmissionCount,
       total_samples: totalVisits || 0
     });
   } catch (err) {
@@ -5440,8 +5469,9 @@ app.get('/api/qc-worker/dashboard-stats', requireQcWorker, async (req, res) => {
 // GET /api/qc-worker/samples
 app.get('/api/qc-worker/samples', requireQcWorker, async (req, res) => {
   const { adminClient } = req;
+  const { date } = req.query;
   try {
-    const { data: rawVisits, error } = await adminClient
+    let query = adminClient
       .from('trip_bmc_visits')
       .select(`
         *,
@@ -5451,8 +5481,15 @@ app.get('/api/qc-worker/samples', requireQcWorker, async (req, res) => {
         gerber_tests(*),
         qc_test:qc_lab_tests(*)
       `)
-      .eq('status', 'completed')
-      .order('visit_end_time', { ascending: false });
+      .eq('status', 'completed');
+
+    if (date) {
+      const d = new Date(date + 'T00:00:00.000Z');
+      const endD = new Date(date + 'T23:59:59.999Z');
+      query = query.gte('visit_end_time', d.toISOString()).lte('visit_end_time', endD.toISOString());
+    }
+
+    const { data: rawVisits, error } = await query.order('visit_end_time', { ascending: false });
 
     if (error) throw error;
     res.json({ samples: rawVisits || [] });

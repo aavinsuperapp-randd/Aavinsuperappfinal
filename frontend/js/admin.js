@@ -148,7 +148,8 @@ function renderUserRegistrations() {
     const row = document.createElement('tr');
     
     const roleBadge = user.role === 'admin' ? '<span class="badge badge-purple">Admin</span>' :
-                      user.role === 'gm' ? '<span class="badge badge-primary">GM Executive</span>' :
+                      user.role === 'pi_agm' ? '<span class="badge badge-primary">P&I AGM</span>' :
+                      user.role === 'gm' ? '<span class="badge badge-primary">General Manager</span>' :
                       user.role === 'transport_officer' ? '<span class="badge badge-info">Transport Manager</span>' :
                       user.role === 'driver' ? '<span class="badge badge-warning">Driver</span>' :
                       user.role === 'executive_officer' ? '<span class="badge badge-secondary">Executive Officer</span>' :

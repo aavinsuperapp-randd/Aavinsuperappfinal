@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BMC Center Profile — GM Command Portal</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/pi-agm-portal.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    .item-card {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      transition: all 0.2s ease;
+    }
+    .item-card:hover {
+      border-color: #CBD5E1;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    .profile-tab-btn.active {
+      background: #2563EB !important;
+      color: #FFFFFF !important;
+      border-color: #2563EB !important;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient Background Canvas -->
+  <div class="bg-ambient-canvas">
+    <div class="blob blob-blue-1"></div>
+    <div class="blob blob-green-1"></div>
+  </div>
+
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="pi-agm-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>P&amp;I AGM Portal</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Executive Overview</a>
+        <a href="issues.html" class="admin-nav-item"><span>⚠️</span> Complaints</a>
+        <a href="fleet.html" class="admin-nav-item"><span>👥</span> Fleet & Staff</a>
+        <a href="bmcs.html" class="admin-nav-item active"><span>🏭</span> BMC Management</a>
+        <a href="analysis.html" class="admin-nav-item"><span>📈</span> Deep Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>BMC Center Profile Inspection</h2>
+            <p>Inspect requirements, reported anomalies, and worker performance ratings</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar">GM</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-pi-agm-name">P&I AGM</div>
+              <div class="header-user-role">Executive Command</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-pi-agm-content" class="hidden">
+
+          <!-- BMC Selection Search Bar -->
+          <div class="table-card mb-4" style="padding:16px;">
+            <div class="d-flex align-items-center gap-3" style="gap:12px; flex-wrap:wrap;">
+              <div style="flex:1; min-width:260px;">
+                <label class="form-label" style="margin-bottom:4px; font-weight:700;">Select BMC Center to Inspect:</label>
+                <select id="bmc-search-select" class="form-select" style="width:100%;">
+                  <option value="">-- Choose a BMC Center --</option>
+                </select>
+              </div>
+              <div style="margin-top:22px;">
+                <button id="inspect-bmc-btn" class="btn btn-primary">
+                  🔍 Inspect Profile
+                </button>
+                <a href="bmcs.html" class="btn btn-outline" style="margin-left:8px;">
+                  ← Back to BMC List
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div id="bmc-empty-state" class="table-card text-center py-5">
+            <div style="font-size:3rem; margin-bottom:8px;">🏭</div>
+            <h3 style="font-weight:700; color:#0F172A;">No BMC Center Selected</h3>
+            <p class="text-muted text-sm">Select a BMC from the dropdown above or click "View Profile" from the BMC list page.</p>
+          </div>
+
+          <!-- Profile Main Content -->
+          <div id="bmc-profile-content" class="hidden">
+            
+            <!-- BMC Profile Banner Header -->
+            <div class="table-card mb-4" style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); color:#fff; padding:24px; border-radius:14px;">
+              <div class="d-flex justify-content-between align-items-center flex-wrap" style="gap:16px;">
+                <div>
+                  <h2 id="prof-bmc-name" style="font-size:1.6rem; font-weight:800; color:#fff; margin:0;">BMC Center</h2>
+                  <p id="prof-bmc-meta" style="color:#94A3B8; margin-top:4px; font-size:0.95rem;">📍 Location</p>
+                </div>
+                <div class="d-flex gap-4" style="gap:24px;">
+                  <div style="text-align:center; background:rgba(255,255,255,0.06); padding:10px 16px; border-radius:10px;">
+                    <div style="font-size:1.4rem; font-weight:800; color:#38BDF8;" id="prof-total-visits">0</div>
+                    <div style="font-size:0.75rem; color:#94A3B8; text-transform:uppercase; font-weight:600;">Total Trips</div>
+                  </div>
+                  <div style="text-align:center; background:rgba(255,255,255,0.06); padding:10px 16px; border-radius:10px;">
+                    <div style="font-size:1.4rem; font-weight:800; color:#F59E0B;" id="prof-avg-rating">—</div>
+                    <div style="font-size:0.75rem; color:#94A3B8; text-transform:uppercase; font-weight:600;">Avg Rating</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Profile Tabs Navigation -->
+            <div class="d-flex gap-2 mb-3" style="gap:8px; border-bottom:2px solid #E2E8F0; padding-bottom:8px;">
+              <button class="btn btn-outline profile-tab-btn active" data-tab="tab-issues">
+                ⚠️ Issues & Anomalies (<span id="count-issues">0</span>)
+              </button>
+              <button class="btn btn-outline profile-tab-btn" data-tab="tab-ratings">
+                ⭐ Worker Reviews (<span id="count-ratings">0</span>)
+              </button>
+            </div>
+
+            <!-- Tab Panels -->
+            <div id="tab-issues" class="profile-tab-panel">
+              <div class="table-card p-4">
+                <h4 style="font-weight:700; color:#0F172A; margin-bottom:16px;">Reported Issues & Anomalies</h4>
+                <div id="prof-issues-container">
+                  <div class="text-center text-muted py-4">Loading issues...</div>
+                </div>
+              </div>
+            </div>
+
+            <div id="tab-ratings" class="profile-tab-panel hidden">
+              <div class="table-card p-4">
+                <h4 style="font-weight:700; color:#0F172A; margin-bottom:16px;">Worker Inspections & Ratings</h4>
+                <div id="prof-ratings-container">
+                  <div class="text-center text-muted py-4">Loading ratings...</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/pi-agm-api.js"></script>
+  <script src="../js/pi-agm-bmc-profile.js"></script>
+</body>
+</html>

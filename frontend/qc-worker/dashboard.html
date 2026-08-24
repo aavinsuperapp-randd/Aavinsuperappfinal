@@ -70,27 +70,27 @@
             <p>Welcome to the AAVIN Milk Quality Testing Laboratory portal. Test and verify BMC milk samples below.</p>
           </div>
 
+          <!-- Date Filter -->
+          <div class="top-controls-bar" style="display: flex; gap: 15px; margin-bottom: 24px; align-items: center; background: white; padding: 12px 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); border: 1px solid #E2E8F0;">
+            <span class="date-selector-label" style="font-weight: 600; color: #475569;">📅 Filter Date:</span>
+            <input type="date" id="qc-date-picker" class="date-picker-input" style="padding: 6px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-family: inherit;">
+            <button class="date-preset-btn active" id="btn-preset-today" style="padding: 6px 12px; border: 1px solid #3B82F6; background: #3B82F6; color: white; border-radius: 6px; cursor: pointer; font-weight: 500;">Today</button>
+            <button class="date-preset-btn" id="btn-preset-yesterday" style="padding: 6px 12px; border: 1px solid #CBD5E1; background: white; color: #475569; border-radius: 6px; cursor: pointer; font-weight: 500;">Yesterday</button>
+          </div>
+
           <!-- KPI Cards Grid -->
           <div class="qc-stats-grid">
-            <div class="qc-stat-card accent-amber">
-              <div class="qc-stat-num" id="stat-samples-pending">0</div>
-              <div class="qc-stat-lbl">Samples Pending</div>
-            </div>
-            <div class="qc-stat-card accent-teal">
-              <div class="qc-stat-num" id="stat-tested-today">0</div>
-              <div class="qc-stat-lbl">Tested Today</div>
-            </div>
-            <div class="qc-stat-card accent-green">
-              <div class="qc-stat-num" id="stat-reports-submitted">0</div>
-              <div class="qc-stat-lbl">Reports Submitted</div>
-            </div>
-            <div class="qc-stat-card accent-blue">
-              <div class="qc-stat-num" id="stat-pending-submission">0</div>
-              <div class="qc-stat-lbl">Pending Submission</div>
-            </div>
             <div class="qc-stat-card">
               <div class="qc-stat-num" id="stat-total-samples">0</div>
               <div class="qc-stat-lbl">Total Samples</div>
+            </div>
+            <div class="qc-stat-card accent-amber">
+              <div class="qc-stat-num" id="stat-samples-pending">0</div>
+              <div class="qc-stat-lbl">Pending Samples</div>
+            </div>
+            <div class="qc-stat-card accent-green">
+              <div class="qc-stat-num" id="stat-reports-submitted">0</div>
+              <div class="qc-stat-lbl">Tested Report</div>
             </div>
           </div>
 
