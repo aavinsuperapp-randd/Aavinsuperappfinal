@@ -197,11 +197,11 @@ function renderGrid(list) {
         </div>
       </div>
       <div class="bmc-card-actions">
-        <button class="btn btn-outline btn-sm" onclick="openEditModal('${bmc.id}')" style="flex:1;">✏️ Edit</button>
-        <button class="btn btn-sm ${bmc.is_active !== false ? 'btn-danger' : 'btn-primary'}" onclick="toggleBmcStatus('${bmc.id}', ${bmc.is_active !== false})" style="flex:1;">
+        <button class="btn btn-outline btn-sm" onclick="openEditModal('${bmc.bmc_code}')" style="flex:1;">✏️ Edit</button>
+        <button class="btn btn-sm ${bmc.is_active !== false ? 'btn-danger' : 'btn-primary'}" onclick="toggleBmcStatus('${bmc.bmc_code}', ${bmc.is_active !== false})" style="flex:1;">
           ${bmc.is_active !== false ? '⏹ Deactivate' : '▶ Activate'}
         </button>
-        <button class="btn btn-danger btn-sm" onclick="deleteBmc('${bmc.id}')" title="Delete BMC" style="padding: 0 10px;">🗑️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteBmc('${bmc.bmc_code}')" title="Delete BMC" style="padding: 0 10px;">🗑️</button>
       </div>
     </div>
   `;
@@ -487,6 +487,7 @@ function openAddModal() {
   ];
 
   document.getElementById('bmc-modal-title').textContent = 'Add New BMC';
+  document.getElementById('bmc-code').value = '';
   document.getElementById('bmc-name').value = '';
   document.getElementById('bmc-district').value = '';
   document.getElementById('bmc-contact').value = '';
@@ -520,11 +521,11 @@ function openAddModal() {
 }
 
 // ── Open Edit Modal ───────────────────────────────────────────────────────────
-window.openEditModal = function(id) {
-  const bmc = allBmcs.find(b => b.id === id);
+window.openEditModal = function(code) {
+  const bmc = allBmcs.find(b => String(b.bmc_code) === String(code));
   if (!bmc) return;
 
-  editingBmcId = id;
+  editingBmcId = code;
   selectedFile = null;
   detectedLat = bmc.latitude || null;
   detectedLng = bmc.longitude || null;
@@ -542,6 +543,7 @@ window.openEditModal = function(id) {
   }
 
   document.getElementById('bmc-modal-title').textContent = 'Edit BMC';
+  document.getElementById('bmc-code').value = bmc.bmc_code || '';
   document.getElementById('bmc-name').value = bmc.name || '';
   document.getElementById('bmc-district').value = bmc.district || '';
   document.getElementById('bmc-contact').value = bmc.contact_number || '';
@@ -585,6 +587,7 @@ function closeModal() {
 // ── Save BMC ──────────────────────────────────────────────────────────────────
 async function saveBmc() {
   const saveBtn = document.getElementById('bmc-save-btn');
+  const bmc_code = document.getElementById('bmc-code').value.trim();
   const name = document.getElementById('bmc-name').value.trim();
   const district = document.getElementById('bmc-district').value.trim();
   const contact = document.getElementById('bmc-contact').value.trim();
@@ -597,6 +600,10 @@ async function saveBmc() {
   console.log('[saveBmc] currentSilos:', JSON.stringify(currentSilos));
 
   // Validation
+  if (!bmc_code || !name || !district || !contact || !latStr || !lngStr) {
+    if (typeof showToast === 'function') showToast('Please fill all required fields, including BMC Code and location.', 'error');
+    return;
+  }
   if (!name) { if (typeof showToast === 'function') showToast('BMC Name is required.', 'error'); return; }
   if (!district) { if (typeof showToast === 'function') showToast('District is required.', 'error'); return; }
   if (!contact) { if (typeof showToast === 'function') showToast('Contact number is required.', 'error'); return; }
@@ -647,6 +654,7 @@ async function saveBmc() {
     }
 
     const payload = {
+      bmc_code,
       name,
       district,
       location,
@@ -675,6 +683,7 @@ async function saveBmc() {
         if (!client) throw apiErr;
 
         const bmcUpdatePayload = {
+          bmc_code: payload.bmc_code,
           name: payload.name,
           district: payload.district,
           location: payload.location,
@@ -726,6 +735,7 @@ async function saveBmc() {
         if (!client) throw apiErr;
 
         const bmcInsertPayload = {
+          bmc_code: payload.bmc_code,
           name: payload.name,
           district: payload.district,
           location: payload.location,

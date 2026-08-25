@@ -34,11 +34,15 @@ async function qcAgmFetch(path, options = {}) {
 async function apiQcAgmGetProfile() {
   return qcAgmFetch('/api/qc-agm/profile');
 }
-async function apiQcAgmGetDashboard() {
-  return qcAgmFetch('/api/qc-agm/dashboard');
+async function apiQcAgmGetDashboard(date = '') {
+  let url = '/api/qc-agm/dashboard';
+  if (date) url += `?date=${encodeURIComponent(date)}`;
+  return qcAgmFetch(url);
 }
-async function apiQcAgmGetAllTests() {
-  return qcAgmFetch('/api/qc-agm/tests');
+async function apiQcAgmGetAllTests(date = '') {
+  let url = '/api/qc-agm/tests';
+  if (date) url += `?date=${encodeURIComponent(date)}`;
+  return qcAgmFetch(url);
 }
 async function apiQcAgmGetTestDetail(id) {
   return qcAgmFetch(`/api/qc-agm/tests/${id}`);
@@ -54,6 +58,20 @@ async function apiQcAgmGetBmcs() {
 }
 async function apiQcAgmGetBmcTests(bmcId) {
   return qcAgmFetch(`/api/qc-agm/bmcs/${bmcId}/tests`);
+}
+async function apiQcAgmGetMacsDates() {
+  return qcAgmFetch('/api/qc-agm/macs/dates');
+}
+async function apiQcAgmGetMacsReadings(date = '') {
+  let url = '/api/qc-agm/macs/readings';
+  if (date) url += `?date=${encodeURIComponent(date)}`;
+  return qcAgmFetch(url);
+}
+async function apiQcAgmImportMacsReadings(file_name, readings, notes) {
+  return qcAgmFetch('/api/qc-agm/macs/import', {
+    method: 'POST',
+    body: JSON.stringify({ file_name, readings, notes })
+  });
 }
 async function apiQcAgmImportExcel(fileName, rows, notes) {
   return qcAgmFetch('/api/qc-agm/import/excel', {

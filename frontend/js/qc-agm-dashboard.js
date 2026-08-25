@@ -1,4 +1,8 @@
-// qc-agm-dashboard.js — QC AGM Dashboard Logic
+// qc-agm-dashboard.js — MACS Readings Dashboard Logic
+
+let currentMacsReadings = [];
+let availableDates = [];
+let selectedDate = '';
 
 document.addEventListener('DOMContentLoaded', async () => {
   const profile = await checkAuth('qc_agm');
@@ -8,106 +12,253 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('header-agm-name').textContent = profile.name;
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
-  await loadDashboardStats();
-  await loadRecentTests();
+  setupControls();
+  await loadAvailableDates();
 });
 
-async function loadDashboardStats() {
-  try {
-    const res = await apiQcAgmGetDashboard();
-    document.getElementById('stat-total-samples').textContent = res.total_samples ?? 0;
-    document.getElementById('stat-bmc-tests').textContent = res.bmc_tests ?? 0;
-    document.getElementById('stat-qc-tests').textContent = res.qc_lab_tests ?? 0;
-    document.getElementById('stat-imported-records').textContent = res.imported_records ?? 0;
-    document.getElementById('stat-pending-qc').textContent = res.pending_qc_tests ?? 0;
-    document.getElementById('stat-submitted-reports').textContent = res.reports_submitted ?? 0;
-    document.getElementById('stat-reviewed-reports').textContent = res.reviewed ?? 0;
-    document.getElementById('stat-variance-detected').textContent = res.variance_detected ?? 0;
-  } catch (err) {
-    console.error('Error loading AGM stats:', err);
-    showToast(err.message || 'Failed to load QC AGM dashboard stats.', 'error');
+function setupControls() {
+  const dateSelect = document.getElementById('macs-date-select');
+  const searchInput = document.getElementById('macs-search-input');
+  const closeModalBtn = document.getElementById('close-detail-modal');
+
+  if (dateSelect) {
+    dateSelect.addEventListener('change', (e) => {
+      selectedDate = e.target.value;
+      loadReadingsForDate(selectedDate);
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', () => renderFilteredReadings());
+  }
+
+  if (closeModalBtn) {
+    closeModalBtn.addEventListener('click', closeDetailModal);
+  }
+
+  const modal = document.getElementById('macs-detail-modal');
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeDetailModal();
+    });
   }
 }
 
-async function loadRecentTests() {
+async function loadAvailableDates() {
+  const dateSelect = document.getElementById('macs-date-select');
+  if (!dateSelect) return;
+
   try {
-    const res = await apiQcAgmGetAllTests();
-    const tests = res.tests || [];
-    renderRecentTestsTable(tests.slice(0, 10));
+    const res = await apiQcAgmGetMacsDates();
+    availableDates = res.dates || [];
+
+    if (availableDates.length === 0) {
+      dateSelect.innerHTML = `<option value="">No MACS Data Found</option>`;
+      document.getElementById('macs-readings-tbody').innerHTML = `
+        <tr>
+          <td colspan="8" style="text-align:center; padding:30px; color:#64748B;">
+            <div style="font-size:2rem; margin-bottom:8px;">📥</div>
+            <div>No MACS Readings imported yet.</div>
+            <div style="font-size:0.83rem; margin-top:4px;">Upload an Excel report using the <strong>Import MACS Excel</strong> button.</div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    dateSelect.innerHTML = availableDates.map(d => {
+      const formatted = new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      return `<option value="${d}">${formatted}</option>`;
+    }).join('');
+
+    // Default to latest date
+    selectedDate = availableDates[0];
+    dateSelect.value = selectedDate;
+
+    await loadReadingsForDate(selectedDate);
   } catch (err) {
-    console.error('Error loading recent tests:', err);
+    console.error('Error loading MACS dates:', err);
+    showToast('Failed to load available MACS reading dates.', 'error');
   }
 }
 
-function renderRecentTestsTable(tests) {
-  const tbody = document.getElementById('recent-tests-tbody');
+async function loadReadingsForDate(dateStr) {
+  if (!dateStr) return;
+
+  try {
+    const res = await apiQcAgmGetMacsReadings(dateStr);
+    currentMacsReadings = res.readings || [];
+
+    updateSummaryCards(currentMacsReadings);
+    renderFilteredReadings();
+  } catch (err) {
+    console.error('Error loading MACS readings:', err);
+    showToast('Failed to load MACS readings for selected date.', 'error');
+  }
+}
+
+function updateSummaryCards(readings) {
+  let totalBmcs = readings.length;
+  let workerReadings = 0;
+  let qcReadings = 0;
+
+  readings.forEach(r => {
+    if (r.worker && (r.worker.fat !== null || r.worker.snf !== null)) workerReadings++;
+    if (r.qc && (r.qc.fat !== null || r.qc.snf !== null)) qcReadings++;
+  });
+
+  if (document.getElementById('stat-total-bmcs')) document.getElementById('stat-total-bmcs').textContent = totalBmcs;
+  if (document.getElementById('stat-worker-readings')) document.getElementById('stat-worker-readings').textContent = workerReadings;
+  if (document.getElementById('stat-qc-readings')) document.getElementById('stat-qc-readings').textContent = qcReadings;
+}
+
+function renderFilteredReadings() {
+  const tbody = document.getElementById('macs-readings-tbody');
   if (!tbody) return;
 
-  if (tests.length === 0) {
+  const query = (document.getElementById('macs-search-input').value || '').trim().toLowerCase();
+
+  const filtered = currentMacsReadings.filter(item => {
+    const codeMatch = String(item.bmc_code || '').toLowerCase().includes(query);
+    const nameMatch = String(item.bmc_name || '').toLowerCase().includes(query);
+    return !query || codeMatch || nameMatch;
+  });
+
+  if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="9">
-          <div class="qc-empty">
-            <div class="qc-empty-icon">📊</div>
-            <div class="qc-empty-title">No Recent Test Records</div>
-            <div class="qc-empty-desc">No test results are currently available in the system.</div>
-          </div>
+        <td colspan="8" style="text-align:center; padding:24px; color:#64748B;">
+          No MACS readings match your current search and filter criteria.
         </td>
       </tr>
     `;
     return;
   }
 
-  tbody.innerHTML = tests.map(s => {
-    const bmcName = s.bmc ? s.bmc.name : 'Unknown BMC';
-    const workerName = s.trip && s.trip.worker ? s.trip.worker.name : 'Field Worker';
-    const collDate = s.visit_end_time ? new Date(s.visit_end_time).toLocaleDateString() : 'Today';
+  tbody.innerHTML = filtered.map((item, idx) => {
+    const w = item.worker || {};
+    const q = item.qc || {};
 
-    const ftir = Array.isArray(s.ftir_tests) ? s.ftir_tests[0] : s.ftir_tests;
-    const gerber = Array.isArray(s.gerber_tests) ? s.gerber_tests[0] : s.gerber_tests;
-    const bmcFat = (ftir && ftir.fat) ?? (gerber && gerber.fat_percentage) ?? 'N/A';
-    const bmcSnf = (ftir && ftir.snf) ?? (gerber && gerber.snf) ?? 'N/A';
+    const wFatStr = w.fat !== null && w.fat !== undefined ? `${w.fat}%` : '--';
+    const wSnfStr = w.snf !== null && w.snf !== undefined ? `${w.snf}%` : '--';
+    const qFatStr = q.fat !== null && q.fat !== undefined ? `${q.fat}%` : '--';
+    const qSnfStr = q.snf !== null && q.snf !== undefined ? `${q.snf}%` : '--';
 
-    const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
-    const qcFat = qcTest && qcTest.fat !== null ? `${qcTest.fat}%` : 'Pending';
-    const qcSnf = qcTest && qcTest.snf !== null ? `${qcTest.snf}%` : 'Pending';
-    const qcWorkerName = qcTest && qcTest.qc_worker ? qcTest.qc_worker.name : '--';
-
-    let hasVariance = false;
-    if (qcTest && qcTest.fat !== null && bmcFat !== 'N/A') {
-      if (Math.abs(parseFloat(qcTest.fat) - parseFloat(bmcFat)) >= 0.3) hasVariance = true;
+    let diffDisplay = '--';
+    if (item.fat_diff !== null && item.snf_diff !== null) {
+      const fDiffSign = item.fat_diff > 0 ? `+${item.fat_diff}` : item.fat_diff;
+      const sDiffSign = item.snf_diff > 0 ? `+${item.snf_diff}` : item.snf_diff;
+      diffDisplay = `<span style="font-size:0.8rem; background:#F1F5F9; padding:3px 8px; border-radius:4px; font-weight:600;">FAT: ${fDiffSign} | SNF: ${sDiffSign}</span>`;
     }
-
-    let statusPill = `<span class="qc-pill pill-pending">Pending QC</span>`;
-    if (qcTest) {
-      if (qcTest.status === 'submitted') statusPill = `<span class="qc-pill pill-submitted">Submitted</span>`;
-      else if (qcTest.status === 'approved') statusPill = `<span class="qc-pill pill-approved">Approved</span>`;
-      else if (qcTest.status === 'returned') statusPill = `<span class="qc-pill pill-returned">Returned</span>`;
-    }
-
-    const sampleId = `SMP-${s.id.slice(0, 6).toUpperCase()}`;
 
     return `
-      <tr style="${hasVariance ? 'background:#FEF2F2;' : ''}">
+      <tr style="cursor:pointer;" onclick="openDetailModal(${idx})">
+        <td><strong>${esc(item.bmc_code)}</strong></td>
+        <td><strong style="color:#0F172A;">${esc(item.bmc_name || 'N/A')}</strong></td>
+        <td><strong style="color:#2563EB;">${esc(wFatStr)}</strong></td>
+        <td><strong style="color:#2563EB;">${esc(wSnfStr)}</strong></td>
+        <td><strong style="color:#059669;">${esc(qFatStr)}</strong></td>
+        <td><strong style="color:#059669;">${esc(qSnfStr)}</strong></td>
+        <td>${diffDisplay}</td>
         <td>
-          <strong>${esc(sampleId)}</strong>
-          ${hasVariance ? '<div class="qc-variance-alert" style="margin-top:2px;">⚠️ Variance</div>' : ''}
-        </td>
-        <td><strong>${esc(bmcName)}</strong></td>
-        <td>${esc(collDate)}</td>
-        <td>${esc(workerName)}</td>
-        <td><span style="color:#1D4ED8; font-weight:700;">${esc(bmcFat)}${bmcFat !== 'N/A' ? '%' : ''}</span></td>
-        <td><span style="color:#0F766E; font-weight:700;">${esc(qcFat)}</span></td>
-        <td>${esc(qcWorkerName)}</td>
-        <td>${statusPill}</td>
-        <td>
-          <button class="btn-qc btn-qc-outline btn-qc-sm" onclick="openTestModal('${s.id}')">
-            🔍 Compare &amp; Review
+          <button class="btn-qc btn-qc-outline btn-qc-sm" onclick="event.stopPropagation(); openDetailModal(${idx});">
+            👁️ View Details
           </button>
         </td>
       </tr>
     `;
   }).join('');
+
+  window._filteredMacsReadings = filtered;
+}
+
+window.openDetailModal = function(idx) {
+  const item = (window._filteredMacsReadings || currentMacsReadings)[idx];
+  if (!item) return;
+
+  const modal = document.getElementById('macs-detail-modal');
+  const container = document.getElementById('macs-detail-content');
+  if (!modal || !container) return;
+
+  const w = item.worker || {};
+  const q = item.qc || {};
+
+  const dateFormatted = new Date(item.reading_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  container.innerHTML = `
+    <div style="background:#F8FAFC; padding:16px; border-radius:12px; border:1px solid #E2E8F0; margin-bottom:16px;">
+      <div style="font-size:1.2rem; font-weight:800; color:#0F172A;">${esc(item.bmc_name || 'BMC Center')}</div>
+      <div style="font-size:0.85rem; color:#64748B; margin-top:2px;">
+        BMC Code: <strong>${esc(item.bmc_code)}</strong> &nbsp;|&nbsp; Date: <strong>${esc(dateFormatted)}</strong>
+      </div>
+    </div>
+
+    <!-- Worker MACS Reading -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:0.8rem; font-weight:700; color:#2563EB; text-transform:uppercase; margin-bottom:8px;">
+        👷 WORKER MACS READING
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div style="background:#EFF6FF; padding:10px; border-radius:8px; border:1px solid #BFDBFE;">
+          <div style="font-size:0.7rem; color:#1E40AF; font-weight:700;">FAT %</div>
+          <div style="font-size:1.2rem; font-weight:800; color:#1E3A8A;">${w.fat !== null && w.fat !== undefined ? w.fat + '%' : 'N/A'}</div>
+        </div>
+        <div style="background:#EFF6FF; padding:10px; border-radius:8px; border:1px solid #BFDBFE;">
+          <div style="font-size:0.7rem; color:#1E40AF; font-weight:700;">SNF %</div>
+          <div style="font-size:1.2rem; font-weight:800; color:#1E3A8A;">${w.snf !== null && w.snf !== undefined ? w.snf + '%' : 'N/A'}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- QC MACS Reading -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:0.8rem; font-weight:700; color:#059669; text-transform:uppercase; margin-bottom:8px;">
+        🔬 QC MACS READING
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div style="background:#ECFDF5; padding:10px; border-radius:8px; border:1px solid #A7F3D0;">
+          <div style="font-size:0.7rem; color:#065F46; font-weight:700;">FAT %</div>
+          <div style="font-size:1.2rem; font-weight:800; color:#064E3B;">${q.fat !== null && q.fat !== undefined ? q.fat + '%' : 'N/A'}</div>
+        </div>
+        <div style="background:#ECFDF5; padding:10px; border-radius:8px; border:1px solid #A7F3D0;">
+          <div style="font-size:0.7rem; color:#065F46; font-weight:700;">SNF %</div>
+          <div style="font-size:1.2rem; font-weight:800; color:#064E3B;">${q.snf !== null && q.snf !== undefined ? q.snf + '%' : 'N/A'}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comparison -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:0.8rem; font-weight:700; color:#475569; text-transform:uppercase; margin-bottom:8px;">
+        📊 COMPARISON DIFFERENCES (QC - WORKER)
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
+          <div style="font-size:0.7rem; color:#64748B; font-weight:700;">FAT DIFFERENCE</div>
+          <div style="font-size:1.1rem; font-weight:800; color:${item.fat_diff === 0 ? '#16A34A' : '#DC2626'};">
+            ${item.fat_diff !== null ? (item.fat_diff > 0 ? `+${item.fat_diff}` : item.fat_diff) : 'N/A'}
+          </div>
+        </div>
+        <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
+          <div style="font-size:0.7rem; color:#64748B; font-weight:700;">SNF DIFFERENCE</div>
+          <div style="font-size:1.1rem; font-weight:800; color:${item.snf_diff === 0 ? '#16A34A' : '#DC2626'};">
+            ${item.snf_diff !== null ? (item.snf_diff > 0 ? `+${item.snf_diff}` : item.snf_diff) : 'N/A'}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  modal.style.display = 'flex';
+  modal.classList.remove('hidden');
+};
+
+function closeDetailModal() {
+  const modal = document.getElementById('macs-detail-modal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.add('hidden');
+  }
 }
 
 function esc(str) {

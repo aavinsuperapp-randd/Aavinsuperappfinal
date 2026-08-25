@@ -108,6 +108,10 @@ function renderAllTestsTable(tests) {
     const qcSnf = qcTest && qcTest.snf !== null ? `${qcTest.snf}%` : 'Pending';
     const qcWorkerName = qcTest && qcTest.qc_worker ? qcTest.qc_worker.name : '--';
 
+    const macs = s.macs_qc || s.macs_worker || null;
+    const macsFatStr = macs && macs.fat !== null && macs.fat !== undefined ? `${macs.fat}%` : 'N/A';
+    const macsSnfStr = macs && macs.snf !== null && macs.snf !== undefined ? `${macs.snf}%` : 'N/A';
+
     let hasVariance = false;
     let fatDiff = '';
     if (qcTest && qcTest.fat !== null && bmcFat !== 'N/A') {
@@ -136,6 +140,7 @@ function renderAllTestsTable(tests) {
         <td>${esc(workerName)}</td>
         <td><span style="color:#1D4ED8; font-weight:700;">${esc(bmcFat)}${bmcFat !== 'N/A' ? '%' : ''} / ${esc(bmcSnf)}${bmcSnf !== 'N/A' ? '%' : ''}</span></td>
         <td><span style="color:#0F766E; font-weight:700;">${esc(qcFat)} / ${esc(qcSnf)}</span></td>
+        <td><span style="color:#D97706; font-weight:700;">${esc(macsFatStr)} / ${esc(macsSnfStr)}</span></td>
         <td>${esc(qcWorkerName)}</td>
         <td>${statusPill}</td>
         <td>

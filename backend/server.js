@@ -1087,10 +1087,10 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
 // ─── POST /api/gm/create-bmc (GM BMC CREATION) ───────────────────────────────
 app.post('/api/gm/create-bmc', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
-  const { name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos } = req.body;
+  const { bmc_code, name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos } = req.body;
 
-  if (!name || !district || !location || !contact_number) {
-    return res.status(400).json({ error: 'Name, district, location, and contact number are required.' });
+  if (!bmc_code || !name || !district || !location || !contact_number) {
+    return res.status(400).json({ error: 'BMC Code, Name, district, location, and contact number are required.' });
   }
   if (latitude === undefined || latitude === null || longitude === undefined || longitude === null || latitude === '' || longitude === '') {
     return res.status(400).json({ error: 'GPS coordinates (latitude and longitude) are required.' });
@@ -1100,14 +1100,15 @@ app.post('/api/gm/create-bmc', requirePiAgm, async (req, res) => {
     const { data: existing } = await adminClient
       .from('bmcs')
       .select('id')
-      .ilike('name', name.trim())
+      .eq('bmc_code', String(bmc_code).trim())
       .limit(1);
 
     if (existing && existing.length > 0) {
-      return res.status(409).json({ error: 'A BMC with this name already exists.' });
+      return res.status(409).json({ error: `A BMC with code ${bmc_code} already exists.` });
     }
 
     const bmcPayload = {
+      bmc_code: String(bmc_code).trim(),
       name: name.trim(),
       district: district.trim(),
       location: location.trim(),
@@ -1739,19 +1740,33 @@ app.get('/api/gm/bmcs', requirePiAgm, async (req, res) => {
 });
 
 // ─── PUT /api/gm/bmcs/:id (UPDATE BMC DETAILS) ─────────────────────────────────
-app.put('/api/gm/bmcs/:id', requirePiAgm, async (req, res) => {
+app.put('/api/gm/bmcs/:bmcCode', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
-  const bmcId = req.params.id;
-  const { name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos } = req.body;
+  const { data: bmcData } = await adminClient.from('bmcs').select('id').eq('bmc_code', req.params.bmcCode).single();
+  if (!bmcData) return res.status(404).json({ error: 'BMC not found' });
+  const bmcId = bmcData.id;
+  const { bmc_code, name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos } = req.body;
 
-  console.log(`[GM BMC UPDATE] id=${bmcId} total_capacity=${total_capacity} silos_count=${Array.isArray(silos) ? silos.length : 'none'}`);
+  console.log(`[GM BMC UPDATE] id=${bmcId} code=${bmc_code} total_capacity=${total_capacity} silos_count=${Array.isArray(silos) ? silos.length : 'none'}`);
 
-  if (!name || !district || !location || !contact_number) {
-    return res.status(400).json({ error: 'Name, district, location, and contact number are required.' });
+  if (!bmc_code || !name || !district || !location || !contact_number) {
+    return res.status(400).json({ error: 'BMC Code, Name, district, location, and contact number are required.' });
   }
 
   try {
+    const { data: existing } = await adminClient
+      .from('bmcs')
+      .select('id')
+      .eq('bmc_code', String(bmc_code).trim())
+      .neq('id', bmcId)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return res.status(409).json({ error: `Another BMC with code ${bmc_code} already exists.` });
+    }
+
     const payload = {
+      bmc_code: String(bmc_code).trim(),
       name: name.trim(),
       district: district.trim(),
       location: location.trim(),
@@ -1853,9 +1868,11 @@ app.put('/api/gm/bmcs/:id', requirePiAgm, async (req, res) => {
 });
 
 // ─── PUT /api/gm/bmcs/:id/toggle (TOGGLE BMC ACTIVE STATUS) ────────────────────
-app.put('/api/gm/bmcs/:id/toggle', requirePiAgm, async (req, res) => {
+app.put('/api/gm/bmcs/:bmcCode/toggle', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
-  const bmcId = req.params.id;
+  const { data: bmcData } = await adminClient.from('bmcs').select('id').eq('bmc_code', req.params.bmcCode).single();
+  if (!bmcData) return res.status(404).json({ error: 'BMC not found' });
+  const bmcId = bmcData.id;
   const { is_active } = req.body;
 
   try {
@@ -1875,9 +1892,11 @@ app.put('/api/gm/bmcs/:id/toggle', requirePiAgm, async (req, res) => {
 });
 
 // ─── GET /api/gm/bmcs/:bmcId/profile (DETAILED BMC PROFILE SEARCH & SUMMARY) ──
-app.get('/api/gm/bmcs/:bmcId/profile', requirePiAgm, async (req, res) => {
+app.get('/api/gm/bmcs/:bmcCode/profile', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
-  const bmcId = req.params.bmcId;
+  const { data: bmcData } = await adminClient.from('bmcs').select('id').eq('bmc_code', req.params.bmcCode).single();
+  if (!bmcData) return res.status(404).json({ error: 'BMC not found' });
+  const bmcId = bmcData.id;
 
   try {
     const { data: bmc, error: bmcErr } = await adminClient
@@ -4474,9 +4493,11 @@ app.get('/api/eo/bmcs', requireExecutiveOfficer, async (req, res) => {
 });
 
 // GET /api/eo/bmcs/:id — Get single assigned BMC details
-app.get('/api/eo/bmcs/:id', requireExecutiveOfficer, async (req, res) => {
+app.get('/api/eo/bmcs/:bmcCode', requireExecutiveOfficer, async (req, res) => {
   const { adminClient, profile } = req;
-  const bmcId = req.params.id;
+  const { data: bmcData } = await adminClient.from('bmcs').select('id').eq('bmc_code', req.params.bmcCode).single();
+  if (!bmcData) return res.status(404).json({ error: 'BMC not found' });
+  const bmcId = bmcData.id;
 
   try {
     const assignedBmcIds = await getEoAssignedBmcIds(adminClient, profile.id);
@@ -5692,27 +5713,33 @@ app.get('/api/qc-agm/profile', requireQcAgm, (req, res) => {
 // GET /api/qc-agm/dashboard
 app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
   const { adminClient } = req;
+  const date = req.query.date;
   try {
-    const { count: totalSamples } = await adminClient
-      .from('trip_bmc_visits')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'completed');
+    let fromIso, toIso;
+    if (date) {
+      fromIso = new Date(date + 'T00:00:00.000Z').toISOString();
+      toIso = new Date(date + 'T23:59:59.999Z').toISOString();
+    }
 
-    const { count: bmcTestsCount } = await adminClient
-      .from('ftir_tests')
-      .select('id', { count: 'exact', head: true });
+    let q1 = adminClient.from('trip_bmc_visits').select('id', { count: 'exact', head: true }).eq('status', 'completed');
+    if (date) q1 = q1.gte('visit_end_time', fromIso).lte('visit_end_time', toIso);
+    const { count: totalSamples } = await q1;
 
-    const { count: qcLabTestsCount } = await adminClient
-      .from('qc_lab_tests')
-      .select('id', { count: 'exact', head: true });
+    let q2 = adminClient.from('ftir_tests').select('id', { count: 'exact', head: true });
+    if (date) q2 = q2.gte('created_at', fromIso).lte('created_at', toIso);
+    const { count: bmcTestsCount } = await q2;
 
-    const { count: importedRecordsCount } = await adminClient
-      .from('qc_excel_import_rows')
-      .select('id', { count: 'exact', head: true });
+    let q3 = adminClient.from('qc_lab_tests').select('id', { count: 'exact', head: true });
+    if (date) q3 = q3.gte('created_at', fromIso).lte('created_at', toIso);
+    const { count: qcLabTestsCount } = await q3;
 
-    const { data: qcTests } = await adminClient
-      .from('qc_lab_tests')
-      .select('id, status, visit_id, fat, snf, clr, visit:trip_bmc_visits(ftir_tests(*), gerber_tests(*))');
+    let q4 = adminClient.from('qc_excel_import_rows').select('id', { count: 'exact', head: true });
+    if (date) q4 = q4.gte('created_at', fromIso).lte('created_at', toIso);
+    const { count: importedRecordsCount } = await q4;
+
+    let q5 = adminClient.from('qc_lab_tests').select('id, status, visit_id, fat, snf, clr, visit:trip_bmc_visits(ftir_tests(*), gerber_tests(*))');
+    if (date) q5 = q5.gte('created_at', fromIso).lte('created_at', toIso);
+    const { data: qcTests } = await q5;
 
     const tests = qcTests || [];
     const submittedCount = tests.filter(t => t.status === 'submitted').length;
@@ -5754,8 +5781,9 @@ app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
 // GET /api/qc-agm/tests
 app.get('/api/qc-agm/tests', requireQcAgm, async (req, res) => {
   const { adminClient } = req;
+  const date = req.query.date;
   try {
-    const { data: visits, error } = await adminClient
+    let query = adminClient
       .from('trip_bmc_visits')
       .select(`
         *,
@@ -5767,8 +5795,32 @@ app.get('/api/qc-agm/tests', requireQcAgm, async (req, res) => {
       `)
       .eq('status', 'completed')
       .order('visit_end_time', { ascending: false });
+      
+    if (date) {
+      const fromIso = new Date(date + 'T00:00:00.000Z').toISOString();
+      const toIso = new Date(date + 'T23:59:59.999Z').toISOString();
+      query = query.gte('visit_end_time', fromIso).lte('visit_end_time', toIso);
+    }
 
+    const { data: visits, error } = await query;
     if (error) throw error;
+
+    const bmcIds = [...new Set((visits || []).map(v => v.bmc_id).filter(Boolean))];
+    let excelRows = [];
+    if (bmcIds.length > 0) {
+      const { data: xRows } = await adminClient
+        .from('qc_excel_import_rows')
+        .select('*')
+        .in('bmc_id', bmcIds);
+      excelRows = xRows || [];
+    }
+    
+    (visits || []).forEach(v => {
+      const vDate = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : null;
+      v.macs_qc = excelRows.find(x => x.bmc_id === v.bmc_id && x.test_date === vDate && x.overall_result === 'qc') || null;
+      v.macs_worker = excelRows.find(x => x.bmc_id === v.bmc_id && x.test_date === vDate && x.overall_result === 'worker') || null;
+    });
+
     res.json({ tests: visits || [] });
   } catch (err) {
     console.error('❌ QC AGM All Tests error:', err);
@@ -5882,9 +5934,12 @@ app.get('/api/qc-agm/bmcs', requireQcAgm, async (req, res) => {
 });
 
 // GET /api/qc-agm/bmcs/:id/tests
-app.get('/api/qc-agm/bmcs/:id/tests', requireQcAgm, async (req, res) => {
+app.get('/api/qc-agm/bmcs/:bmcCode/tests', requireQcAgm, async (req, res) => {
   const { adminClient } = req;
   try {
+    const { data: bmcData } = await adminClient.from('bmcs').select('id').eq('bmc_code', req.params.bmcCode).single();
+    if (!bmcData) return res.status(404).json({ error: 'BMC not found' });
+    const bmcId = bmcData.id;
     const { data: visits, error } = await adminClient
       .from('trip_bmc_visits')
       .select(`
@@ -5895,7 +5950,7 @@ app.get('/api/qc-agm/bmcs/:id/tests', requireQcAgm, async (req, res) => {
         gerber_tests(*),
         qc_test:qc_lab_tests(*, qc_worker:profiles(*))
       `)
-      .eq('bmc_id', req.params.id)
+      .eq('bmc_id', bmcId)
       .eq('status', 'completed')
       .order('visit_end_time', { ascending: false });
 
@@ -5904,7 +5959,7 @@ app.get('/api/qc-agm/bmcs/:id/tests', requireQcAgm, async (req, res) => {
     const { data: excelRows } = await adminClient
       .from('qc_excel_import_rows')
       .select('*, batch:qc_excel_imports(*)')
-      .eq('bmc_id', req.params.id)
+      .eq('bmc_id', bmcId)
       .order('test_date', { ascending: false });
 
     res.json({ visits: visits || [], excel_rows: excelRows || [] });
@@ -6056,6 +6111,230 @@ app.get('/api/qc-agm/excel-data', requireQcAgm, async (req, res) => {
     if (error) throw error;
     res.json({ rows: rows || [] });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── MACS READING API ENDPOINTS ─────────────────────────────────────────────
+
+// GET /api/qc-agm/macs/dates
+app.get('/api/qc-agm/macs/dates', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: rows, error } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('test_date')
+      .order('test_date', { ascending: false });
+
+    if (error) throw error;
+    const dates = Array.from(new Set((rows || []).map(r => r.test_date).filter(Boolean)));
+    res.json({ dates });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-agm/macs/readings
+app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  const date = req.query.date;
+
+  try {
+    let query = adminClient
+      .from('qc_excel_import_rows')
+      .select('*, bmc:bmcs(*), batch:qc_excel_imports(*)');
+
+    if (date) {
+      query = query.eq('test_date', date);
+    }
+
+    const { data: rows, error } = await query;
+    if (error) throw error;
+
+    const bmcMap = {};
+
+    (rows || []).forEach(r => {
+      const bmcCode = r.sample_ref || (r.raw_data && r.raw_data.bmc_code) || r.bmc_name;
+      const key = `${bmcCode}_${r.test_date}`;
+
+      if (!bmcMap[key]) {
+        bmcMap[key] = {
+          bmc_code: bmcCode,
+          bmc_name: r.bmc_name,
+          bmc_id: r.bmc_id,
+          reading_date: r.test_date,
+          worker: null,
+          qc: null,
+          fat_diff: null,
+          snf_diff: null,
+          status: 'NO_DATA'
+        };
+      }
+
+      const src = r.overall_result || (r.raw_data && r.raw_data.source) || 'worker';
+      if (src === 'worker') {
+        bmcMap[key].worker = { fat: r.fat, snf: r.snf, id: r.id, raw: r.raw_data };
+      } else if (src === 'qc') {
+        bmcMap[key].qc = { fat: r.fat, snf: r.snf, id: r.id, raw: r.raw_data };
+      }
+    });
+
+    const macsComparisons = Object.values(bmcMap).map(item => {
+      const w = item.worker;
+      const q = item.qc;
+
+      const hasWorker = w && (w.fat !== null || w.snf !== null);
+      const hasQc = q && (q.fat !== null || q.snf !== null);
+
+      if (!hasWorker && hasQc) {
+        item.status = 'WORKER READING MISSING';
+      } else if (hasWorker && !hasQc) {
+        item.status = 'QC READING MISSING';
+      } else if (!hasWorker && !hasQc) {
+        item.status = 'NO_DATA';
+      } else {
+        const wFat = parseFloat(w.fat || 0);
+        const qFat = parseFloat(q.fat || 0);
+        const wSnf = parseFloat(w.snf || 0);
+        const qSnf = parseFloat(q.snf || 0);
+
+        const fatDiff = parseFloat((qFat - wFat).toFixed(2));
+        const snfDiff = parseFloat((qSnf - wSnf).toFixed(2));
+
+        item.fat_diff = fatDiff;
+        item.snf_diff = snfDiff;
+
+        if (fatDiff === 0 && snfDiff === 0) {
+          item.status = 'MATCHED';
+        } else {
+          item.status = 'MISMATCH';
+        }
+      }
+
+      return item;
+    });
+
+    res.json({ readings: macsComparisons });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/qc-agm/macs/import
+app.post('/api/qc-agm/macs/import', requireQcAgm, async (req, res) => {
+  const { adminClient, profile } = req;
+  const { file_name, readings, notes } = req.body;
+
+  if (!file_name || !Array.isArray(readings)) {
+    return res.status(400).json({ error: 'file_name and readings array are required.' });
+  }
+
+  try {
+    const { data: bmcMaster } = await adminClient.from('bmcs').select('id, name, bmc_code');
+    const bmcCodeToIdMap = {};
+    (bmcMaster || []).forEach(b => {
+      if (b.bmc_code) bmcCodeToIdMap[String(b.bmc_code).trim()] = b.id;
+    });
+
+    const { data: importBatch, error: batchErr } = await adminClient
+      .from('qc_excel_imports')
+      .insert({
+        file_name,
+        imported_by: profile.id,
+        total_rows: readings.length,
+        notes: notes || 'MACS Reading Import',
+        status: 'completed'
+      })
+      .select()
+      .single();
+
+    if (batchErr) throw batchErr;
+
+    const uniqueDates = Array.from(new Set(readings.map(r => r.reading_date).filter(Boolean)));
+    const { data: existingRows } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('id, sample_ref, test_date, overall_result')
+      .in('test_date', uniqueDates);
+
+    const existingMap = {};
+    (existingRows || []).forEach(er => {
+      existingMap[`${er.sample_ref}_${er.test_date}_${er.overall_result}`] = er.id;
+    });
+
+    let workerRowsCount = 0;
+    let qcRowsCount = 0;
+    let successCount = 0;
+    let errorCount = 0;
+    let updatedCount = 0;
+
+    const toInsert = [];
+    const toUpdate = [];
+
+    for (const r of readings) {
+      const bmcCodeStr = String(r.bmc_code || '').trim();
+      const matchedBmcId = bmcCodeToIdMap[bmcCodeStr] || null;
+      
+      if (!matchedBmcId) {
+        console.warn(`[MACS Import] BMC Code ${bmcCodeStr} not found in master list. Row will not be linked to a BMC.`);
+      }
+      const source = r.source === 'qc' ? 'qc' : 'worker';
+      if (source === 'worker') workerRowsCount++; else qcRowsCount++;
+
+      const key = `${bmcCodeStr}_${r.reading_date}_${source}`;
+      const existingId = existingMap[key];
+
+      const rowPayload = {
+        import_id: importBatch.id,
+        bmc_id: matchedBmcId || null,
+        bmc_name: r.bmc_name || null,
+        sample_ref: bmcCodeStr,
+        test_date: r.reading_date,
+        fat: r.fat !== undefined && r.fat !== '' && r.fat !== null ? parseFloat(r.fat) : null,
+        snf: r.snf !== undefined && r.snf !== '' && r.snf !== null ? parseFloat(r.snf) : null,
+        overall_result: source,
+        raw_data: r,
+        row_status: 'imported',
+        error_message: null
+      };
+
+      if (existingId) {
+        toUpdate.push({ id: existingId, ...rowPayload });
+        updatedCount++;
+        successCount++;
+      } else {
+        toInsert.push(rowPayload);
+        successCount++;
+      }
+    }
+
+    if (toInsert.length > 0) {
+      const { error: insErr } = await adminClient.from('qc_excel_import_rows').insert(toInsert);
+      if (insErr) throw insErr;
+    }
+    if (toUpdate.length > 0) {
+      const { error: upErr } = await adminClient.from('qc_excel_import_rows').upsert(toUpdate);
+      if (upErr) throw upErr;
+    }
+
+    await adminClient.from('qc_excel_imports').update({
+      successful_rows: successCount,
+      failed_rows: errorCount,
+      duplicate_rows: updatedCount
+    }).eq('id', importBatch.id);
+
+    res.json({
+      success: true,
+      message: `MACS Readings imported successfully! (${successCount} processed, ${updatedCount} updated).`,
+      import_id: importBatch.id,
+      stats: {
+        total: readings.length,
+        worker: workerRowsCount,
+        qc: qcRowsCount,
+        updated: updatedCount
+      }
+    });
+  } catch (err) {
+    console.error('❌ MACS Import error:', err);
     res.status(500).json({ error: err.message });
   }
 });

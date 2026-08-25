@@ -75,8 +75,8 @@
         <div id="main-qc-agm-content" class="hidden">
 
           <div class="qc-page-top">
-            <h1>Excel Data Import 📥</h1>
-            <p>Upload external milk laboratory spreadsheets (.xlsx / .xls), map column fields, preview validation, and import into the database.</p>
+            <h1>MACS Reading Excel Import 📥</h1>
+            <p>Upload MACS milk laboratory reports (.xlsx / .xls). System automatically extracts BMC codes, normalizes date groups, pairs Worker vs QC MACS readings (FAT &amp; SNF only), and saves to Supabase.</p>
           </div>
 
           <!-- Step 1: Upload File Zone -->
@@ -102,24 +102,28 @@
             <div id="column-mapping-container"></div>
           </div>
 
-          <!-- Step 3: Preview & Validation -->
+          <!-- Step 2: Preview & Validation -->
           <div class="qc-form-card hidden" id="import-step-preview">
             <div class="qc-form-title">
-              <span>🔍</span> Step 3: Validate &amp; Preview Import Records
+              <span>🔍</span> Step 2: Validate &amp; Preview MACS Readings
             </div>
 
-            <div class="qc-stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom:16px;">
+            <div class="qc-stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom:16px;">
               <div class="qc-stat-card">
                 <div class="qc-stat-num" id="stat-preview-total">0</div>
-                <div class="qc-stat-lbl">Total Rows</div>
+                <div class="qc-stat-lbl">Total Readings</div>
+              </div>
+              <div class="qc-stat-card accent-blue">
+                <div class="qc-stat-num" id="stat-preview-bmcs">0</div>
+                <div class="qc-stat-lbl">Unique BMCs</div>
               </div>
               <div class="qc-stat-card accent-green">
                 <div class="qc-stat-num" id="stat-preview-valid">0</div>
-                <div class="qc-stat-lbl">Valid Rows</div>
+                <div class="qc-stat-lbl">Valid Readings</div>
               </div>
               <div class="qc-stat-card accent-red">
                 <div class="qc-stat-num" id="stat-preview-invalid">0</div>
-                <div class="qc-stat-lbl">Invalid Rows</div>
+                <div class="qc-stat-lbl">Errors / Unknown BMCs</div>
               </div>
             </div>
 
@@ -127,20 +131,19 @@
               <table class="qc-table">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>Sample ID</th>
-                    <th>BMC Center</th>
-                    <th>Test Date</th>
-                    <th>Fat %</th>
-                    <th>SNF %</th>
-                    <th>CLR</th>
-                    <th>Temp</th>
-                    <th>Row Status</th>
+                    <th>BMC Code</th>
+                    <th>BMC Name</th>
+                    <th>Reading Date</th>
+                    <th>Worker FAT</th>
+                    <th>Worker SNF</th>
+                    <th>QC FAT</th>
+                    <th>QC SNF</th>
+                    <th>MACS Status</th>
                   </tr>
                 </thead>
                 <tbody id="preview-tbody">
                   <tr>
-                    <td colspan="9" style="text-align:center; padding:20px; color:#64748B;">No preview rows generated.</td>
+                    <td colspan="8" style="text-align:center; padding:20px; color:#64748B;">No preview rows generated.</td>
                   </tr>
                 </tbody>
               </table>
@@ -148,7 +151,7 @@
 
             <div style="display:flex; justify-content:flex-end; gap:12px;">
               <button id="btn-reset-import" class="btn-qc btn-qc-outline">Reset &amp; Start Over</button>
-              <button id="btn-confirm-import" class="btn-qc btn-qc-primary">🚀 Confirm &amp; Save to Database</button>
+              <button id="btn-confirm-import" class="btn-qc btn-qc-primary">🚀 Import MACS Readings</button>
             </div>
           </div>
 

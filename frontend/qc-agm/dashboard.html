@@ -72,87 +72,75 @@
       <main class="qc-content">
         <div id="main-qc-agm-content" class="hidden">
 
-          <div class="qc-page-top">
-            <h1>Executive Quality Assurance Dashboard 📊</h1>
-            <p>Comprehensive monitoring of Field BMC tests, QC Laboratory tests, Excel import batches, and quality variances.</p>
+          <div class="qc-page-top" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+            <div>
+              <h1 style="font-size:1.8rem; font-weight:800; color:#0F172A; margin:0;">MACS READINGS 📊</h1>
+              <p style="color:#64748B; margin:4px 0 0 0;">Compare Worker MACS readings with QC MACS readings date-wise</p>
+            </div>
+            
+            <!-- Date Selector -->
+            <div style="display:flex; align-items:center; gap:10px; background:white; padding:8px 16px; border-radius:10px; border:1px solid #CBD5E1; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+              <span style="font-weight:700; color:#334155; font-size:0.9rem;">Select Date:</span>
+              <select id="macs-date-select" class="qc-form-input" style="padding:6px 12px; border-radius:6px; font-weight:600; min-width:160px;">
+                <option value="">Loading dates...</option>
+              </select>
+            </div>
           </div>
 
-          <!-- KPI Grid -->
-          <div class="qc-stats-grid">
-            <div class="qc-stat-card accent-teal">
-              <div class="qc-stat-num" id="stat-total-samples">0</div>
-              <div class="qc-stat-lbl">Total Samples</div>
-            </div>
-            <div class="qc-stat-card accent-blue">
-              <div class="qc-stat-num" id="stat-bmc-tests">0</div>
-              <div class="qc-stat-lbl">BMC Field Tests</div>
-            </div>
-            <div class="qc-stat-card accent-green">
-              <div class="qc-stat-num" id="stat-qc-tests">0</div>
-              <div class="qc-stat-lbl">QC Lab Tests</div>
-            </div>
-            <div class="qc-stat-card accent-amber">
-              <div class="qc-stat-num" id="stat-imported-records">0</div>
-              <div class="qc-stat-lbl">Imported Excel Records</div>
-            </div>
+          <!-- KPI Summary Cards -->
+          <div class="qc-stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:24px;">
             <div class="qc-stat-card">
-              <div class="qc-stat-num" id="stat-pending-qc">0</div>
-              <div class="qc-stat-lbl">Pending QC Tests</div>
+              <div class="qc-stat-num" id="stat-total-bmcs">0</div>
+              <div class="qc-stat-lbl">Total BMCs</div>
             </div>
             <div class="qc-stat-card accent-blue">
-              <div class="qc-stat-num" id="stat-submitted-reports">0</div>
-              <div class="qc-stat-lbl">Submitted Reports</div>
+              <div class="qc-stat-num" id="stat-worker-readings">0</div>
+              <div class="qc-stat-lbl">Worker Readings</div>
             </div>
-            <div class="qc-stat-card accent-green">
-              <div class="qc-stat-num" id="stat-reviewed-reports">0</div>
-              <div class="qc-stat-lbl">Reports Reviewed</div>
-            </div>
-            <div class="qc-stat-card accent-red">
-              <div class="qc-stat-num" id="stat-variance-detected">0</div>
-              <div class="qc-stat-lbl">Variance Detected</div>
+            <div class="qc-stat-card accent-teal">
+              <div class="qc-stat-num" id="stat-qc-readings">0</div>
+              <div class="qc-stat-lbl">QC Readings</div>
             </div>
           </div>
 
-          <!-- Quick Actions -->
-          <div style="display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
-            <a href="excel-import.html" class="btn-qc btn-qc-primary">
-              📥 Import Excel Data
-            </a>
-            <a href="variance.html" class="btn-qc btn-qc-outline">
-              ⚠️ View Variance Analysis
-            </a>
-            <a href="all-tests.html" class="btn-qc btn-qc-outline">
-              🔬 Compare All Test Results
-            </a>
+          <!-- Filter & Search Controls -->
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+            <div style="display:flex; gap:12px; flex:1; max-width:500px;">
+              <input type="text" id="macs-search-input" class="qc-form-input" placeholder="🔍 Search BMC Code or BMC Name..." style="flex:1;">
+            </div>
+
+            <div style="display:flex; gap:10px;">
+              <a href="excel-import.html" class="btn-qc btn-qc-primary">
+                📥 Import MACS Excel
+              </a>
+            </div>
           </div>
 
-          <!-- Recent Test Results Table -->
+          <!-- MACS Comparison Table -->
           <div class="qc-section">
             <div class="qc-section-header">
               <div class="qc-section-title">
-                <span>🔬</span> Recent Sample Testing &amp; Comparison
+                <span>📋</span> MACS Quality Readings Comparison
               </div>
-              <a href="all-tests.html" class="btn-qc btn-qc-outline btn-qc-sm">View All Results →</a>
             </div>
 
             <div class="qc-table-wrap">
               <table class="qc-table">
                 <thead>
                   <tr>
-                    <th>Sample ID</th>
-                    <th>BMC Center</th>
-                    <th>Date</th>
-                    <th>Field Worker</th>
-                    <th>BMC Fat</th>
-                    <th>QC Lab Fat</th>
-                    <th>QC Analyst</th>
-                    <th>Status</th>
+                    <th>BMC Code</th>
+                    <th>BMC Name</th>
+                    <th>Worker FAT</th>
+                    <th>Worker SNF</th>
+                    <th>QC FAT</th>
+                    <th>QC SNF</th>
+                    <th>Difference (QC - Worker)</th>
                     <th>Action</th>
                   </tr>
                 </thead>
-                <tbody id="recent-tests-tbody">
+                <tbody id="macs-readings-tbody">
                   <tr>
-                    <td colspan="9" style="text-align:center; padding:20px; color:#64748B;">Loading test records...</td>
+                    <td colspan="8" style="text-align:center; padding:20px; color:#64748B;">Select a date to view MACS Readings...</td>
                   </tr>
                 </tbody>
               </table>
@@ -161,6 +149,18 @@
 
         </div>
       </main>
+
+      <!-- Detailed BMC View Modal -->
+      <div id="macs-detail-modal" class="qc-modal-backdrop hidden" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:999; justify-content:center; align-items:center;">
+        <div class="qc-modal" style="background:white; border-radius:16px; padding:24px; max-width:550px; width:90%; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);">
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #E2E8F0; padding-bottom:12px; margin-bottom:16px;">
+            <h3 style="margin:0; font-size:1.2rem; color:#0F172A;">MACS READING DETAILS</h3>
+            <button id="close-detail-modal" style="border:none; background:none; font-size:1.4rem; cursor:pointer;">✕</button>
+          </div>
+          
+          <div id="macs-detail-content"></div>
+        </div>
+      </div>
     </div>
   </div>
 

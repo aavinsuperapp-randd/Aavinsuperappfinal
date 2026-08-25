@@ -78,6 +78,7 @@ function renderGrid(list) {
           <div class="bmc-card-meta-item"><span>🗺️</span>${escHtml(bmc.district)}</div>
           <div class="bmc-card-meta-item"><span>📍</span>${escHtml(bmc.location)}</div>
           <div class="bmc-card-meta-item"><span>📞</span>${escHtml(bmc.contact_number)}</div>
+          ${bmc.bmc_code ? `<div class="bmc-card-meta-item"><span>🔖</span>Code: ${escHtml(bmc.bmc_code)}</div>` : ''}
           ${bmc.latitude ? `<div class="bmc-card-meta-item"><span>🛰️</span>${Number(bmc.latitude).toFixed(5)}, ${Number(bmc.longitude).toFixed(5)}</div>` : ''}
         </div>
         <div class="bmc-card-status">
@@ -228,6 +229,7 @@ function openAddModal() {
   document.getElementById('bmc-name').value = '';
   document.getElementById('bmc-district').value = '';
   document.getElementById('bmc-contact').value = '';
+  document.getElementById('bmc-code').value = '';
   document.getElementById('bmc-location-text').value = '';
   document.getElementById('bmc-latitude').value = '';
   document.getElementById('bmc-longitude').value = '';
@@ -259,6 +261,7 @@ function openEditModal(id) {
   document.getElementById('bmc-name').value = bmc.name;
   document.getElementById('bmc-district').value = bmc.district;
   document.getElementById('bmc-contact').value = bmc.contact_number;
+  document.getElementById('bmc-code').value = bmc.bmc_code || '';
   document.getElementById('bmc-location-text').value = bmc.location;
   document.getElementById('bmc-latitude').value = bmc.latitude || '';
   document.getElementById('bmc-longitude').value = bmc.longitude || '';
@@ -291,6 +294,7 @@ async function saveBmc() {
   const name = document.getElementById('bmc-name').value.trim();
   const district = document.getElementById('bmc-district').value.trim();
   const contact = document.getElementById('bmc-contact').value.trim();
+  const bmcCode = document.getElementById('bmc-code').value.trim();
   const location = document.getElementById('bmc-location-text').value.trim();
   const lat = document.getElementById('bmc-latitude').value;
   const lng = document.getElementById('bmc-longitude').value;
@@ -338,6 +342,7 @@ async function saveBmc() {
       name,
       district,
       contact_number: contact,
+      bmc_code: bmcCode,
       location,
       latitude: parseFloat(lat),
       longitude: parseFloat(lng),

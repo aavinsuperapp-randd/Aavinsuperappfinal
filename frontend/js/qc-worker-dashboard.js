@@ -70,6 +70,7 @@ async function loadDashboardData(date = '') {
     // Fetch Pending Samples Queue
     const samplesRes = await apiQcGetSamples(date);
     renderPendingQueue(samplesRes.samples || []);
+    renderCompletedQueue(samplesRes.samples || []);
   } catch (err) {
     console.error('Error loading dashboard data:', err);
     showToast(err.message || 'Failed to load dashboard data', 'error');
@@ -159,4 +160,68 @@ function esc(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function renderCompletedQueue(samples) {
+  const tbody = document.getElementById('completed-tests-tbody');
+  if (!tbody) return;
+
+  const completedSamples = samples.filter(s => {
+    const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
+    return qcTest && qcTest.status === 'submitted';
+  });
+
+  if (completedSamples.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="9">
+          <div class="qc-empty">
+            <div class="qc-empty-icon">✅</div>
+            <div class="qc-empty-title">No Completed Tests</div>
+            <div class="qc-empty-desc">There are no completed tests to display.</div>
+          </div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = completedSamples.slice(0, 10).map(s => {
+    const bmcName = s.bmc ? s.bmc.name : 'Unknown BMC';
+    const bmcLoc = s.bmc ? `${s.bmc.location}, ${s.bmc.district}` : 'N/A';
+    
+    const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
+    
+    const testTime = qcTest && qcTest.tested_at ? new Date(qcTest.tested_at).toLocaleString() : 'N/A';
+    const analystName = qcTest && qcTest.tester ? qcTest.tester.name : 'QC Analyst';
+    
+    const fat = qcTest && qcTest.fat_percentage ? qcTest.fat_percentage + '%' : '--';
+    const snf = qcTest && qcTest.snf_percentage ? qcTest.snf_percentage + '%' : '--';
+    const addedWater = qcTest && qcTest.added_water_percentage ? qcTest.added_water_percentage + '%' : '--';
+    const temp = qcTest && qcTest.temperature ? qcTest.temperature + '°C' : '--';
+    
+    const organoleptic = qcTest && qcTest.organoleptic_status ? qcTest.organoleptic_status.toUpperCase() : '--';
+    const cob = qcTest && qcTest.cob_status ? qcTest.cob_status.toUpperCase() : '--';
+
+    const statusPill = `<span class="qc-pill" style="background:#DCFCE7; color:#166534; font-weight:600; padding:4px 8px; border-radius:6px;">✅ Completed</span>`;
+
+    const sampleId = `SMP-${s.id.slice(0, 6).toUpperCase()}`;
+
+    return `
+      <tr>
+        <td><strong>${esc(sampleId)}</strong></td>
+        <td>
+          <div style="font-weight:700;">${esc(bmcName)}</div>
+          <div style="font-size:0.75rem; color:#64748B;">📍 ${esc(bmcLoc)}</div>
+        </td>
+        <td>${esc(testTime)}</td>
+        <td>${esc(analystName)}</td>
+        <td><span style="font-size:0.8rem; background:#F1F5F9; padding:2px 6px; border-radius:4px;">Fat: ${esc(fat)}<br>SNF: ${esc(snf)}</span></td>
+        <td><span style="font-size:0.8rem; background:#F1F5F9; padding:2px 6px; border-radius:4px;">Water: ${esc(addedWater)}<br>Temp: ${esc(temp)}</span></td>
+        <td>${esc(organoleptic)}</td>
+        <td>${esc(cob)}</td>
+        <td>${statusPill}</td>
+      </tr>
+    `;
+  }).join('');
 }

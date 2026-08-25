@@ -73,47 +73,48 @@ function renderBmcTestResult() {
     return;
   }
 
-  let html = `<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:12px; font-size:0.83rem;">`;
+  let html = '';
 
-  const fatVal = (ftir && ftir.fat) ?? (gerber && gerber.fat_percentage) ?? 'N/A';
-  const snfVal = (ftir && ftir.snf) ?? (gerber && gerber.snf) ?? 'N/A';
-  const clrVal = (gerber && gerber.clr) ?? 'N/A';
-  const tempVal = (ftir && ftir.temperature) ?? (gerber && gerber.sample_temp) ?? 'N/A';
-  const proteinVal = (ftir && ftir.protein) ?? 'N/A';
-  const lactoseVal = (ftir && ftir.lactose) ?? 'N/A';
-  const waterVal = (ftir && ftir.water_percentage) ?? 'N/A';
+  if (gerber) {
+    html += `
+      <div style="margin-bottom: 16px;">
+        <h4 style="font-size: 0.9rem; color: #1E40AF; margin-bottom: 8px;">Gerber Test Results</h4>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:12px; font-size:0.83rem;">
+          <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
+            <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">Fat %</div>
+            <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${gerber.fat_percentage ?? 'N/A'}%</div>
+          </div>
+          <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
+            <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">SNF %</div>
+            <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${gerber.snf ?? 'N/A'}%</div>
+          </div>
+          <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
+            <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">CLR</div>
+            <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${gerber.clr ?? 'N/A'}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
-  html += `
-    <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
-      <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">Fat %</div>
-      <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${fatVal}%</div>
-    </div>
-    <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
-      <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">SNF %</div>
-      <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${snfVal}%</div>
-    </div>
-    <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
-      <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">CLR</div>
-      <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${clrVal}</div>
-    </div>
-    <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
-      <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">Temp (°C)</div>
-      <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${tempVal}°C</div>
-    </div>
-    <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
-      <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">Protein %</div>
-      <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${proteinVal}%</div>
-    </div>
-    <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
-      <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">Lactose %</div>
-      <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${lactoseVal}%</div>
-    </div>
-    <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
-      <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">Water %</div>
-      <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${waterVal}%</div>
-    </div>
-  `;
-  html += `</div>`;
+  if (ftir) {
+    html += `
+      <div>
+        <h4 style="font-size: 0.9rem; color: #1E40AF; margin-bottom: 8px;">FTIR Test Results</h4>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:12px; font-size:0.83rem;">
+          <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
+            <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">Fat %</div>
+            <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${ftir.fat ?? 'N/A'}%</div>
+          </div>
+          <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
+            <div style="font-size:0.7rem; color:#64748B; font-weight:700; text-transform:uppercase;">SNF %</div>
+            <div style="font-size:1.1rem; font-weight:800; color:#1D4ED8;">${ftir.snf ?? 'N/A'}%</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   container.innerHTML = html;
 }
 
@@ -134,8 +135,6 @@ function populateQcForm() {
     document.getElementById('qc-density').value = qcTest.density ?? '';
     document.getElementById('qc-water').value = qcTest.water_percentage ?? '';
     document.getElementById('qc-condition').value = qcTest.sample_condition || 'good';
-    document.getElementById('qc-equipment').value = qcTest.equipment_used || '';
-    document.getElementById('qc-instrument-id').value = qcTest.instrument_id || '';
     document.getElementById('qc-overall-result').value = qcTest.overall_result || 'pass';
     document.getElementById('qc-remarks').value = qcTest.remarks || '';
     document.getElementById('qc-observations').value = qcTest.additional_observations || '';
@@ -195,8 +194,6 @@ async function handleSaveDraft(e) {
     lactose: document.getElementById('qc-lactose').value,
     density: document.getElementById('qc-density').value,
     water_percentage: document.getElementById('qc-water').value,
-    equipment_used: document.getElementById('qc-equipment').value,
-    instrument_id: document.getElementById('qc-instrument-id').value,
     overall_result: document.getElementById('qc-overall-result').value,
     remarks: document.getElementById('qc-remarks').value,
     additional_observations: document.getElementById('qc-observations').value
