@@ -450,17 +450,78 @@ app.delete('/api/admin/trips/:id', requireAdminRole, async (req, res) => {
 });
 
 // ─── ADMIN / GM BMCS DELETE ENDPOINTS ───────────────────────────────────────
+async function findBmcByIdOrCode(adminClient, idOrCode) {
+  if (!idOrCode) return null;
+  const strVal = String(idOrCode).trim();
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(strVal);
+  
+  if (isUuid) {
+    const { data } = await adminClient.from('bmcs').select('*').eq('id', strVal).maybeSingle();
+    if (data) return data;
+  }
+  
+  const { data: byCode } = await adminClient.from('bmcs').select('*').eq('bmc_code', strVal).maybeSingle();
+  if (byCode) return byCode;
+
+  if (!isNaN(strVal)) {
+    const { data: byNumCode } = await adminClient.from('bmcs').select('*').eq('bmc_code', String(Number(strVal))).maybeSingle();
+    if (byNumCode) return byNumCode;
+  }
+  
+  return null;
+}
+
+const safeDeleteBmcHandler = async (req, res) => {
+  const adminClient = req.adminClient || getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
+
+  const paramId = req.params.id || req.params.bmcCode;
+  const target = await findBmcByIdOrCode(adminClient, paramId);
+  if (!target) return res.status(404).json({ error: 'BMC record not found.' });
+
+  try {
+    const bmcId = target.id;
+    // 1. Delete silos referencing this BMC
+    await adminClient.from('bmc_silos').delete().eq('bmc_id', bmcId);
+    // 2. Delete EO assignments referencing this BMC
+    await adminClient.from('eo_bmc_assignments').delete().eq('bmc_id', bmcId);
+    
+    // 3. Delete trip visits and their dependencies referencing this BMC
+    try {
+      const { data: visits } = await adminClient.from('trip_bmc_visits').select('id').eq('bmc_id', bmcId);
+      if (visits && visits.length > 0) {
+        const visitIds = visits.map(v => v.id);
+        await adminClient.from('bmc_issues').delete().in('visit_id', visitIds);
+        await adminClient.from('bmc_ratings').delete().in('visit_id', visitIds);
+        await adminClient.from('requirement_checks').delete().in('visit_id', visitIds);
+        await adminClient.from('ftir_tests').delete().in('visit_id', visitIds);
+        await adminClient.from('gerber_tests').delete().in('visit_id', visitIds);
+        await adminClient.from('trip_bmc_visits').delete().in('id', visitIds);
+      }
+    } catch (vErr) {
+      console.warn('Warning deleting trip_bmc_visits dependencies:', vErr.message);
+    }
+    
+    // 4. Delete BMC main record
+    const { error } = await adminClient.from('bmcs').delete().eq('id', bmcId);
+    if (error) throw error;
+
+    res.json({ success: true, message: 'BMC deleted successfully.' });
+  } catch (err) {
+    console.error('❌ Delete BMC Error:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete BMC.' });
+  }
+};
+
 app.delete('/api/admin/bmcs/all', requireGm, async (req, res) => {
   const { error } = await req.adminClient.from('bmcs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true, message: 'All BMC records deleted successfully.' });
 });
 
-app.delete('/api/admin/bmcs/:id', requireGm, async (req, res) => {
-  const { error } = await req.adminClient.from('bmcs').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true, message: 'BMC deleted successfully.' });
-});
+app.delete('/api/admin/bmcs/:id', requireGm, safeDeleteBmcHandler);
+app.delete('/api/gm/bmcs/:id', requirePiAgm, safeDeleteBmcHandler);
+
 
 // ─── JWT Auth Middleware ──────────────────────────────────────────────────────
 // Verifies Supabase JWT and attaches user + profile to req
@@ -528,8 +589,8 @@ async function requirePiAgm(req, res, next) {
     .from('profiles').select('*').eq('id', user.id).single();
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
-  if (profile.role !== 'pi_agm' && profile.role !== 'admin') {
-    return res.status(403).json({ error: 'P&I AGM access required.' });
+  if (profile.role !== 'pi_agm' && profile.role !== 'gm' && profile.role !== 'admin') {
+    return res.status(403).json({ error: 'P&I AGM or GM access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
 
@@ -848,9 +909,11 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
 
   try {
     // ── Parallel fetch: all entity lists + day-specific data ──
+    const targetDateStr = targetDate.toISOString().split('T')[0];
+
     const [
       tripsRes, trendTripsRes, visitsRes,
-      profilesRes, driversRes, tankersRes, bmcsRes
+      profilesRes, driversRes, tankersRes, bmcsRes, macsRes
     ] = await Promise.all([
       // Trips for selected date
       adminClient.from('trips').select('*').neq('status', 'deleted').gte('created_at', dayStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
@@ -865,7 +928,9 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
       // All tankers
       adminClient.from('tankers').select('*').order('board_number'),
       // All BMCs
-      adminClient.from('bmcs').select('*').order('name')
+      adminClient.from('bmcs').select('*').order('name'),
+      // All MACS data for the selected date
+      adminClient.from('qc_excel_import_rows').select('*').eq('test_date', targetDateStr)
     ]);
 
     const tripList = tripsRes.data || [];
@@ -876,6 +941,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
     const driversList = driversRes.data || [];
     const tankersList = tankersRes.data || [];
     const bmcsList = bmcsRes.data || [];
+    const macsList = macsRes.data || [];
 
     // Build lookup maps
     const profileMap = {};
@@ -986,6 +1052,20 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
             gerber_result = 'Pending';
           }
 
+          const bmcCode = bmcMap[v.bmc_id]?.bmc_code || '';
+          const macsData = macsList.find(m => m.bmc_id === v.bmc_id || (bmcCode && m.sample_ref === bmcCode));
+          let macs_result = '—';
+          if (macsData) {
+            const liters = macsData.raw_data?.macs_quantity_liters ?? macsData.raw_data?.liters ?? macsData.raw_data?.quantity ?? macsData.liters ?? macsData.quantity ?? '—';
+            const fat = macsData.fat !== null && macsData.fat !== undefined ? macsData.fat : (macsData.raw_data?.fat || '—');
+            macs_result = `Qty: ${liters} | FAT: ${fat}%`;
+          }
+
+          let diary_result = '—';
+          if (t.status === 'completed' && t.in_weight) {
+            diary_result = `${t.in_weight} kg`;
+          }
+
           return {
             id: v.id,
             visit_sequence: v.visit_sequence || (idx + 1),
@@ -995,7 +1075,9 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
             milk_quantity_formatted: v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—',
             status: v.status || 'pending',
             ftir_result,
-            gerber_result
+            gerber_result,
+            macs_result,
+            diary_result
           };
         });
 
@@ -1087,7 +1169,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
 // ─── POST /api/gm/create-bmc (GM BMC CREATION) ───────────────────────────────
 app.post('/api/gm/create-bmc', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
-  const { bmc_code, name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos } = req.body;
+  const { bmc_code, name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos, route_id } = req.body;
 
   if (!bmc_code || !name || !district || !location || !contact_number) {
     return res.status(400).json({ error: 'BMC Code, Name, district, location, and contact number are required.' });
@@ -1118,6 +1200,7 @@ app.post('/api/gm/create-bmc', requirePiAgm, async (req, res) => {
       profile_image_url: profile_image_url || null,
       is_active: true
     };
+    if (route_id) bmcPayload.route_id = route_id;
     if (total_capacity !== undefined && total_capacity !== null) {
       bmcPayload.total_capacity = parseFloat(total_capacity) || 0;
     }
@@ -1128,9 +1211,10 @@ app.post('/api/gm/create-bmc', requirePiAgm, async (req, res) => {
     const result = await adminClient.from('bmcs').insert(bmcPayload).select();
 
     if (result.error) {
-      if (result.error.code === '42703' || (result.error.message && result.error.message.includes('total_capacity'))) {
+      if (result.error.code === '42703' || (result.error.message && (result.error.message.includes('total_capacity') || result.error.message.includes('route_id')))) {
         const retryPayload = { ...bmcPayload };
         delete retryPayload.total_capacity;
+        delete retryPayload.route_id;
         const retryResult = await adminClient.from('bmcs').insert(retryPayload).select();
         data = retryResult.data ? retryResult.data[0] : null;
         error = retryResult.error;
@@ -1618,6 +1702,13 @@ app.get('/api/gm/issues', requirePiAgm, async (req, res) => {
       const trip = visit.trip || {};
       const workerName = profileMap[trip.worker_id] || 'Unknown Worker';
 
+      const isPrioritized = (item.remarks || '').includes('[PRIORITIZED_BY:');
+      let prioritizedBy = '';
+      if (isPrioritized) {
+        const m = (item.remarks || '').match(/\[PRIORITIZED_BY:\s*([^\]]+)\]/);
+        if (m) prioritizedBy = m[1].trim();
+      }
+
       return {
         id: item.id,
         visit_id: item.visit_id,
@@ -1633,6 +1724,8 @@ app.get('/api/gm/issues', requirePiAgm, async (req, res) => {
         image_url: item.image_url,
         remarks: item.remarks || '',
         status: item.status || 'pending',
+        is_prioritized: isPrioritized,
+        prioritized_by: prioritizedBy,
         created_at: item.created_at
       };
     });
@@ -1701,13 +1794,67 @@ app.patch('/api/gm/issues/:id/complete', requirePiAgm, async (req, res) => {
   }
 });
 
+// ─── PATCH /api/gm/issues/:id/prioritize (MARK ISSUE AS PRIORITIZED) ─────────
+app.patch('/api/gm/issues/:id/prioritize', requirePiAgm, async (req, res) => {
+  const { adminClient } = req;
+  const issueId = req.params.id;
+  const profileName = req.profile?.name || req.body?.username || 'P&I AGM';
+
+  try {
+    const { data: existing, error: getErr } = await adminClient
+      .from('bmc_issues')
+      .select('remarks')
+      .eq('id', issueId)
+      .maybeSingle();
+
+    if (getErr) throw getErr;
+
+    const existingRemarks = existing?.remarks || '';
+    let newRemarks = existingRemarks;
+    if (newRemarks.includes('[PRIORITIZED_BY:')) {
+      newRemarks = newRemarks.replace(/\[PRIORITIZED_BY:\s*[^\]]+\]/g, `[PRIORITIZED_BY: ${profileName}]`);
+    } else {
+      newRemarks = (newRemarks ? newRemarks + ' ' : '') + `[PRIORITIZED_BY: ${profileName}]`;
+    }
+
+    const { data, error } = await adminClient
+      .from('bmc_issues')
+      .update({ remarks: newRemarks })
+      .eq('id', issueId)
+      .select();
+
+    if (error) throw error;
+    const updatedRecord = (data && data.length > 0) ? data[0] : null;
+    res.json({ success: true, issue: updatedRecord });
+  } catch (err) {
+    console.error('❌ Error prioritizing issue:', err);
+    res.status(500).json({ error: err.message || 'Failed to prioritize issue.' });
+  }
+});
+
+// ─── GET /api/gm/routes (LIST ALL BMC ROUTES) ──────────────────────────────────
+app.get('/api/gm/routes', requirePiAgm, async (req, res) => {
+  const { data, error } = await req.adminClient.from('bmc_routes').select('*').order('name');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ routes: data });
+});
+
+// ─── POST /api/gm/routes (CREATE NEW BMC ROUTE) ──────────────────────────────
+app.post('/api/gm/routes', requirePiAgm, async (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Route name is required' });
+  const { data, error } = await req.adminClient.from('bmc_routes').insert({ name: name.trim() }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ route: data });
+});
+
 // ─── GET /api/gm/bmcs (LIST ALL BMCS WITH FULL DATA FOR GM) ───────────────────
 app.get('/api/gm/bmcs', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   try {
     const { data: bmcs, error } = await adminClient
       .from('bmcs')
-      .select('*')
+      .select('*, bmc_routes(name)')
       .order('created_at', { ascending: false });
     if (error) throw error;
 
@@ -1742,12 +1889,12 @@ app.get('/api/gm/bmcs', requirePiAgm, async (req, res) => {
 // ─── PUT /api/gm/bmcs/:id (UPDATE BMC DETAILS) ─────────────────────────────────
 app.put('/api/gm/bmcs/:bmcCode', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
-  const { data: bmcData } = await adminClient.from('bmcs').select('id').eq('bmc_code', req.params.bmcCode).single();
-  if (!bmcData) return res.status(404).json({ error: 'BMC not found' });
-  const bmcId = bmcData.id;
-  const { bmc_code, name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos } = req.body;
+  const target = await findBmcByIdOrCode(adminClient, req.params.bmcCode);
+  if (!target) return res.status(404).json({ error: 'BMC not found' });
+  const bmcId = target.id;
+  const { bmc_code, name, district, location, contact_number, latitude, longitude, profile_image_url, total_capacity, silos, route_id } = req.body;
 
-  console.log(`[GM BMC UPDATE] id=${bmcId} code=${bmc_code} total_capacity=${total_capacity} silos_count=${Array.isArray(silos) ? silos.length : 'none'}`);
+  console.log(`[GM BMC UPDATE] id=${bmcId} code=${bmc_code} total_capacity=${total_capacity} route_id=${route_id}`);
 
   if (!bmc_code || !name || !district || !location || !contact_number) {
     return res.status(400).json({ error: 'BMC Code, Name, district, location, and contact number are required.' });
@@ -1772,7 +1919,8 @@ app.put('/api/gm/bmcs/:bmcCode', requirePiAgm, async (req, res) => {
       location: location.trim(),
       contact_number: contact_number.trim(),
       latitude: latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null,
-      longitude: longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null
+      longitude: longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null,
+      route_id: route_id || null
     };
     if (profile_image_url !== undefined) payload.profile_image_url = profile_image_url;
     if (total_capacity !== undefined && total_capacity !== null) {
@@ -1791,10 +1939,11 @@ app.put('/api/gm/bmcs/:bmcCode', requirePiAgm, async (req, res) => {
 
     if (result.error) {
       console.warn('[GM BMC UPDATE] Initial update error:', result.error.message);
-      if (result.error.code === '42703' || (result.error.message && result.error.message.includes('total_capacity'))) {
-        console.warn('[GM BMC UPDATE] Retrying update without total_capacity...');
+      if (result.error.code === '42703' || (result.error.message && (result.error.message.includes('total_capacity') || result.error.message.includes('route_id')))) {
+        console.warn('[GM BMC UPDATE] Retrying update without total_capacity/route_id...');
         const retryPayload = { ...payload };
         delete retryPayload.total_capacity;
+        delete retryPayload.route_id;
         const retryResult = await adminClient
           .from('bmcs')
           .update(retryPayload)
@@ -1870,9 +2019,9 @@ app.put('/api/gm/bmcs/:bmcCode', requirePiAgm, async (req, res) => {
 // ─── PUT /api/gm/bmcs/:id/toggle (TOGGLE BMC ACTIVE STATUS) ────────────────────
 app.put('/api/gm/bmcs/:bmcCode/toggle', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
-  const { data: bmcData } = await adminClient.from('bmcs').select('id').eq('bmc_code', req.params.bmcCode).single();
-  if (!bmcData) return res.status(404).json({ error: 'BMC not found' });
-  const bmcId = bmcData.id;
+  const target = await findBmcByIdOrCode(adminClient, req.params.bmcCode);
+  if (!target) return res.status(404).json({ error: 'BMC not found' });
+  const bmcId = target.id;
   const { is_active } = req.body;
 
   try {
@@ -1894,9 +2043,10 @@ app.put('/api/gm/bmcs/:bmcCode/toggle', requirePiAgm, async (req, res) => {
 // ─── GET /api/gm/bmcs/:bmcId/profile (DETAILED BMC PROFILE SEARCH & SUMMARY) ──
 app.get('/api/gm/bmcs/:bmcCode/profile', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
-  const { data: bmcData } = await adminClient.from('bmcs').select('id').eq('bmc_code', req.params.bmcCode).single();
-  if (!bmcData) return res.status(404).json({ error: 'BMC not found' });
-  const bmcId = bmcData.id;
+  const target = await findBmcByIdOrCode(adminClient, req.params.bmcCode);
+  if (!target) return res.status(404).json({ error: 'BMC not found' });
+  const bmcId = target.id;
+
 
   try {
     const { data: bmc, error: bmcErr } = await adminClient
@@ -2976,6 +3126,7 @@ app.get('/api/transport/drivers/:id/performance', requireTransportOfficer, async
 // ─── TRANSPORT VEHICLE ENDPOINTS ──────────────────────────────────────────────
 app.get('/api/transport/vehicles', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
   try {
     const { data: vehicles } = await adminClient.from('tankers').select('*').order('board_number');
@@ -2984,9 +3135,12 @@ app.get('/api/transport/vehicles', requireTransportOfficer, async (req, res) => 
     const vehiclesWithStats = (vehicles || []).map(vehicle => {
       const vehicleTrips = (trips || []).filter(t => t.tanker_number === vehicle.board_number);
       const lastTrip = vehicleTrips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+      const capacityVal = vehicle.capacity_liters ?? vehicle.capacity ?? 5000;
 
       return {
         ...vehicle,
+        capacity_liters: capacityVal,
+        capacity: capacityVal,
         total_trips: vehicleTrips.length,
         assigned_driver: lastTrip?.driver_name || null,
         last_used: lastTrip?.created_at || null
@@ -3001,26 +3155,43 @@ app.get('/api/transport/vehicles', requireTransportOfficer, async (req, res) => 
 
 app.post('/api/transport/vehicles', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
-  const { board_number, capacity_liters, compartments, is_active } = req.body;
+  const { board_number, capacity_liters, capacity, compartments, is_active } = req.body;
 
   if (!board_number) {
     return res.status(400).json({ error: 'Vehicle board number is required' });
   }
 
+  const rawCap = capacity_liters !== undefined ? capacity_liters : capacity;
+  const capVal = rawCap ? parseInt(rawCap) : 5000;
+
   try {
-    const { data, error } = await adminClient
+    const insertData = {
+      board_number,
+      capacity_liters: capVal,
+      capacity: capVal,
+      compartments: compartments || 2,
+      is_active: is_active !== false
+    };
+
+    let { data, error } = await adminClient
       .from('tankers')
-      .insert({
-        board_number,
-        capacity_liters: capacity_liters || 5000,
-        compartments: compartments || 2,
-        is_active: is_active !== false
-      })
-      .select()
-      .single();
+      .insert(insertData)
+      .select();
+
+    if (error && error.message && (error.message.includes('capacity_liters') || error.message.includes('capacity'))) {
+      delete insertData.capacity;
+      let res1 = await adminClient.from('tankers').insert(insertData).select();
+      if (res1.error) {
+        delete insertData.capacity_liters;
+        insertData.capacity = capVal;
+        res1 = await adminClient.from('tankers').insert(insertData).select();
+      }
+      data = res1.data;
+      error = res1.error;
+    }
 
     if (error) throw error;
-    res.status(201).json({ vehicle: data });
+    res.status(201).json({ vehicle: data && data.length > 0 ? data[0] : null });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to create vehicle' });
   }
@@ -3028,19 +3199,71 @@ app.post('/api/transport/vehicles', requireTransportOfficer, async (req, res) =>
 
 app.put('/api/transport/vehicles/:id', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
-  const { board_number, capacity_liters, compartments, is_active } = req.body;
+  const vehicleId = req.params.id;
+  const body = req.body;
+
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('[VEHICLE UPDATE] ID:', vehicleId);
+  console.log('[VEHICLE UPDATE] Body:', JSON.stringify(body));
+
+  const capValue = body.capacity_liters !== undefined ? parseInt(body.capacity_liters) :
+                    body.capacity !== undefined ? parseInt(body.capacity) : undefined;
+
+  const updateData = {};
+  if (body.board_number !== undefined) updateData.board_number = body.board_number;
+  if (capValue !== undefined) {
+    updateData.capacity_liters = capValue;
+    updateData.capacity = capValue;
+  }
+  if (body.compartments !== undefined) updateData.compartments = parseInt(body.compartments);
+  if (body.is_active !== undefined) updateData.is_active = body.is_active;
+
+  console.log('[VEHICLE UPDATE] Update payload:', JSON.stringify(updateData));
 
   try {
-    const { data, error } = await adminClient
+    // Attempt 1: send both capacity columns
+    let { data, error } = await adminClient
       .from('tankers')
-      .update({ board_number, capacity_liters, compartments, is_active, updated_at: new Date() })
-      .eq('id', req.params.id)
-      .select()
-      .single();
+      .update(updateData)
+      .eq('id', vehicleId)
+      .select();
+
+    console.log('[VEHICLE UPDATE] Attempt 1 - error:', error ? error.message : 'none');
+    console.log('[VEHICLE UPDATE] Attempt 1 - data:', JSON.stringify(data));
+
+    // Attempt 2: remove 'capacity' if it caused the error
+    if (error) {
+      console.log('[VEHICLE UPDATE] Attempt 2 - removing capacity column...');
+      delete updateData.capacity;
+      const r2 = await adminClient.from('tankers').update(updateData).eq('id', vehicleId).select();
+      console.log('[VEHICLE UPDATE] Attempt 2 - error:', r2.error ? r2.error.message : 'none');
+      console.log('[VEHICLE UPDATE] Attempt 2 - data:', JSON.stringify(r2.data));
+      data = r2.data;
+      error = r2.error;
+    }
+
+    // Attempt 3: remove 'capacity_liters', use 'capacity' only
+    if (error) {
+      console.log('[VEHICLE UPDATE] Attempt 3 - using capacity only...');
+      delete updateData.capacity_liters;
+      updateData.capacity = capValue;
+      const r3 = await adminClient.from('tankers').update(updateData).eq('id', vehicleId).select();
+      console.log('[VEHICLE UPDATE] Attempt 3 - error:', r3.error ? r3.error.message : 'none');
+      console.log('[VEHICLE UPDATE] Attempt 3 - data:', JSON.stringify(r3.data));
+      data = r3.data;
+      error = r3.error;
+    }
 
     if (error) throw error;
-    res.json({ vehicle: data });
+
+    const vehicle = data && data.length > 0 ? data[0] : null;
+    console.log('[VEHICLE UPDATE] SUCCESS. Returned capacity_liters:', vehicle?.capacity_liters, 'capacity:', vehicle?.capacity);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    res.json({ vehicle });
   } catch (err) {
+    console.error('[VEHICLE UPDATE] EXCEPTION:', err.message);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     res.status(500).json({ error: err.message || 'Failed to update vehicle' });
   }
 });
@@ -4294,18 +4517,192 @@ app.get('/api/transport/drivers-list', requireTransportOfficer, async (req, res)
 });
 
 // GET /api/transport/bmcs-list — Get list of active BMCs for assignment dropdown
+// Query params: ?date=YYYY-MM-DD&period=morning|evening|both
 app.get('/api/transport/bmcs-list', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
   try {
     const { data: bmcs, error } = await adminClient
       .from('bmcs')
-      .select('id, name, location, is_active')
+      .select('id, name, location, is_active, total_capacity, bmc_code')
       .eq('is_active', true)
       .order('name');
     if (error) throw error;
-    res.json({ bmcs: bmcs || [] });
+
+    // Use query param date or default to today
+    let dateStr = req.query.date || new Date().toISOString().split('T')[0];
+    const period = (req.query.period || 'both').toLowerCase();
+
+    let { data: macsRows } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('sample_ref, raw_data, bmc_id, bmc_name, test_date')
+      .eq('test_date', dateStr);
+
+    // Fallback: If no MACS rows for selected date, fetch the latest date available
+    if (!macsRows || macsRows.length === 0) {
+      const { data: latestRow } = await adminClient
+        .from('qc_excel_import_rows')
+        .select('test_date')
+        .order('test_date', { ascending: false })
+        .limit(1);
+
+      if (latestRow && latestRow.length > 0) {
+        dateStr = latestRow[0].test_date;
+        const { data: fallbackRows } = await adminClient
+          .from('qc_excel_import_rows')
+          .select('sample_ref, raw_data, bmc_id, bmc_name, test_date')
+          .eq('test_date', dateStr);
+        macsRows = fallbackRows || [];
+      }
+    }
+
+    // Build MACS KG Map keyed by bmc_id, bmc_code, sample_ref, and lowercase bmc_name
+    const bmcKgMap = {};
+    (macsRows || []).forEach(r => {
+      const raw = r.raw_data || {};
+      const rowPeriod = (raw.period || '').toLowerCase();
+      if (period === 'morning' && !(rowPeriod === 'morning' || rowPeriod === 'both')) return;
+      if (period === 'evening' && !(rowPeriod === 'evening' || rowPeriod === 'both')) return;
+
+      let kg = raw.macs_quantity_kg ?? (raw.macs_quantity_liters ? Number(raw.macs_quantity_liters) * 1.03 : null);
+      if (kg !== null && !isNaN(kg) && Number(kg) > 0) {
+        const val = parseFloat(Number(kg).toFixed(2));
+        if (r.bmc_id) bmcKgMap[r.bmc_id] = Math.max(bmcKgMap[r.bmc_id] || 0, val);
+        if (raw.bmc_id) bmcKgMap[raw.bmc_id] = Math.max(bmcKgMap[raw.bmc_id] || 0, val);
+        const code = String(r.sample_ref || raw.bmc_code || '').trim();
+        if (code) bmcKgMap[code] = Math.max(bmcKgMap[code] || 0, val);
+        const nameKey = String(r.bmc_name || raw.bmc_name || '').trim().toLowerCase();
+        if (nameKey) bmcKgMap[nameKey] = Math.max(bmcKgMap[nameKey] || 0, val);
+      }
+    });
+
+    const enrichedBmcs = (bmcs || []).map(b => {
+      const nameKey = String(b.name || '').trim().toLowerCase();
+      const bmcCodeStr = String(b.bmc_code || '').trim();
+      const totalKg = bmcKgMap[b.id] ?? bmcKgMap[bmcCodeStr] ?? bmcKgMap[nameKey] ?? null;
+
+      return {
+        ...b,
+        macs_quantity_today: totalKg !== null ? parseFloat((totalKg / 1.03).toFixed(2)) : null,
+        macs_quantity_kg: totalKg
+      };
+    });
+
+    res.json({ bmcs: enrichedBmcs, date: dateStr, period });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to fetch BMCs list.' });
+  }
+});
+
+// GET /api/transport/macs-summary — Detailed MACS data table for Transport Officer
+// Query params: ?date=YYYY-MM-DD&period=morning|evening|both|all
+app.get('/api/transport/macs-summary', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: bmcs, error } = await adminClient
+      .from('bmcs')
+      .select('id, name, bmc_code, location, is_active, total_capacity')
+      .eq('is_active', true)
+      .order('name');
+    if (error) throw error;
+
+    let dateStr = req.query.date || new Date().toISOString().split('T')[0];
+    const period = (req.query.period || 'all').toLowerCase();
+
+    let { data: macsRows } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('sample_ref, raw_data, bmc_id, bmc_name, test_date')
+      .eq('test_date', dateStr);
+
+    // Fallback: If no MACS rows for selected date, fetch the latest date available
+    if (!macsRows || macsRows.length === 0) {
+      const { data: latestRow } = await adminClient
+        .from('qc_excel_import_rows')
+        .select('test_date')
+        .order('test_date', { ascending: false })
+        .limit(1);
+
+      if (latestRow && latestRow.length > 0) {
+        dateStr = latestRow[0].test_date;
+        const { data: fallbackRows } = await adminClient
+          .from('qc_excel_import_rows')
+          .select('sample_ref, raw_data, bmc_id, bmc_name, test_date')
+          .eq('test_date', dateStr);
+        macsRows = fallbackRows || [];
+      }
+    }
+
+    const bmcDataMap = {};
+    (macsRows || []).forEach(r => {
+      const raw = r.raw_data || {};
+      const rowPeriod = (raw.period || '').toLowerCase();
+      if (period === 'morning' && !(rowPeriod === 'morning' || rowPeriod === 'both')) return;
+      if (period === 'evening' && !(rowPeriod === 'evening' || rowPeriod === 'both')) return;
+
+      const kgVal = raw.macs_quantity_kg ?? (raw.macs_quantity_liters ? Number(raw.macs_quantity_liters) * 1.03 : null);
+      const litersVal = raw.macs_quantity_liters ?? (raw.macs_quantity_kg ? Number(raw.macs_quantity_kg) / 1.03 : null);
+
+      if ((kgVal !== null && kgVal !== undefined && Number(kgVal) > 0) || (litersVal !== null && litersVal !== undefined && Number(litersVal) > 0)) {
+        const kg = kgVal ? parseFloat(Number(kgVal).toFixed(2)) : null;
+        const liters = litersVal ? parseFloat(Number(litersVal).toFixed(2)) : null;
+        const displayBatch = rowPeriod ? (rowPeriod.charAt(0).toUpperCase() + rowPeriod.slice(1)) : 'Both';
+
+        const item = {
+          kg,
+          liters,
+          batch: displayBatch,
+          test_date: r.test_date || dateStr
+        };
+
+        if (r.bmc_id) bmcDataMap[r.bmc_id] = item;
+        if (raw.bmc_id) bmcDataMap[raw.bmc_id] = item;
+        const code = String(r.sample_ref || raw.bmc_code || '').trim();
+        if (code) bmcDataMap[code] = item;
+        const nameKey = String(r.bmc_name || raw.bmc_name || '').trim().toLowerCase();
+        if (nameKey) bmcDataMap[nameKey] = item;
+      }
+    });
+
+    let totalKgSum = 0;
+    let totalLitersSum = 0;
+    let matchedCount = 0;
+
+    const list = (bmcs || []).map(b => {
+      const nameKey = String(b.name || '').trim().toLowerCase();
+      const codeKey = String(b.bmc_code || '').trim();
+      const match = bmcDataMap[b.id] || bmcDataMap[codeKey] || bmcDataMap[nameKey] || null;
+
+      if (match) {
+        matchedCount++;
+        if (match.kg) totalKgSum += match.kg;
+        if (match.liters) totalLitersSum += match.liters;
+      }
+
+      return {
+        id: b.id,
+        bmc_code: b.bmc_code || '-',
+        bmc_name: b.name,
+        location: b.location || '',
+        date: dateStr,
+        batch: match ? match.batch : '-',
+        capacity_kg: match && match.kg !== null ? match.kg : null,
+        capacity_litre: match && match.liters !== null ? match.liters : null,
+        has_macs_data: !!match
+      };
+    });
+
+    res.json({
+      date: dateStr,
+      period,
+      summary: {
+        total_bmcs: list.length,
+        matched_bmcs: matchedCount,
+        total_kg: parseFloat(totalKgSum.toFixed(2)),
+        total_liters: parseFloat(totalLitersSum.toFixed(2))
+      },
+      bmcs: list
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch MACS summary.' });
   }
 });
 
@@ -5703,6 +6100,86 @@ app.get('/api/qc-worker/history', requireQcWorker, async (req, res) => {
   }
 });
 
+// GET /api/qc-worker/reports-testing
+app.get('/api/qc-worker/reports-testing', requireQcWorker, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: issues, error } = await adminClient
+      .from('bmc_issues')
+      .select('*')
+      .eq('category', 'other')
+      .ilike('description', '%"type":"qc_lab_issue"%')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const formattedIssues = (issues || []).map((iss, index) => {
+      let meta = {};
+      try {
+        meta = typeof iss.description === 'string' ? JSON.parse(iss.description) : (iss.description || {});
+      } catch (e) {}
+
+      return {
+        id: iss.id,
+        bmc_code: meta.bmc_code || 'N/A',
+        bmc_name: meta.bmc_name || 'N/A',
+        district: meta.district || 'N/A',
+        date: meta.date || iss.created_at?.slice(0, 10),
+        rejected_item: meta.rejected_item || null,
+        agm_remarks: iss.remarks || 'No remarks provided',
+        worker_remarks: meta.worker_remarks || null,
+        status: iss.status || 'rejected',
+        created_at: iss.created_at
+      };
+    });
+
+    res.json({ reports: formattedIssues });
+  } catch (err) {
+    console.error('❌ GET QC Worker Reports error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/qc-worker/reports-testing/:id/done
+app.patch('/api/qc-worker/reports-testing/:id/done', requireQcWorker, async (req, res) => {
+  const { adminClient } = req;
+  const { id } = req.params;
+  const { remarks } = req.body;
+
+  if (!remarks) {
+    return res.status(400).json({ error: 'Remarks are required.' });
+  }
+
+  try {
+    const { data: issue } = await adminClient.from('bmc_issues').select('*').eq('id', id).single();
+    if (!issue) return res.status(404).json({ error: 'Report not found.' });
+
+    let meta = {};
+    try {
+      meta = typeof issue.description === 'string' ? JSON.parse(issue.description) : (issue.description || {});
+    } catch (e) {}
+
+    meta.worker_remarks = remarks;
+
+    const { data: updated, error } = await adminClient
+      .from('bmc_issues')
+      .update({
+        status: 'report_done',
+        description: JSON.stringify(meta)
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({ success: true, message: 'Report marked as done.', report: updated });
+  } catch (err) {
+    console.error('❌ QC Worker Report Done error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── QC AGM APIs ─────────────────────────────────────────────────────────────
 
 // GET /api/qc-agm/profile
@@ -5710,70 +6187,364 @@ app.get('/api/qc-agm/profile', requireQcAgm, (req, res) => {
   res.json({ profile: req.profile });
 });
 
-// GET /api/qc-agm/dashboard
+// PUT /api/qc-agm/profile — Update QC Manager Name and DOB
+app.put('/api/qc-agm/profile', requireQcAgm, async (req, res) => {
+  const { adminClient, user } = req;
+  const { name, dob } = req.body;
+  if (!name || !dob) {
+    return res.status(400).json({ error: 'Name and Date of Birth are required.' });
+  }
+  try {
+    const { data: updatedProfile, error } = await adminClient
+      .from('profiles')
+      .update({ name, dob, updated_at: new Date() })
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, profile: updatedProfile });
+  } catch (err) {
+    console.error('❌ QC AGM Profile update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-agm/dashboard — Metrics for QC Manager Dashboard Overview
 app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
   const { adminClient } = req;
   const date = req.query.date;
+  const period = (req.query.period || 'both').toLowerCase();
   try {
-    let fromIso, toIso;
+    // 1. Total BMC count (master BMCs in website/database)
+    const { count: totalBmcs } = await adminClient
+      .from('bmcs')
+      .select('id', { count: 'exact', head: true });
+
+    // 2. Total Quantity Collected (KG) — calculated using completed Spot Analyzer values, NOT MACS values
+    let visitsQuery = adminClient
+      .from('trip_bmc_visits')
+      .select('milk_quantity_liters, visit_end_time, remarks, created_at')
+      .eq('status', 'completed');
+
     if (date) {
-      fromIso = new Date(date + 'T00:00:00.000Z').toISOString();
-      toIso = new Date(date + 'T23:59:59.999Z').toISOString();
+      const fromIso = new Date(date + 'T00:00:00.000Z').toISOString();
+      const toIso = new Date(date + 'T23:59:59.999Z').toISOString();
+      visitsQuery = visitsQuery.gte('visit_end_time', fromIso).lte('visit_end_time', toIso);
     }
 
-    let q1 = adminClient.from('trip_bmc_visits').select('id', { count: 'exact', head: true }).eq('status', 'completed');
-    if (date) q1 = q1.gte('visit_end_time', fromIso).lte('visit_end_time', toIso);
-    const { count: totalSamples } = await q1;
+    const { data: spotVisits } = await visitsQuery;
+    let spotVisitsFiltered = spotVisits || [];
 
-    let q2 = adminClient.from('ftir_tests').select('id', { count: 'exact', head: true });
-    if (date) q2 = q2.gte('created_at', fromIso).lte('created_at', toIso);
-    const { count: bmcTestsCount } = await q2;
+    if (period !== 'both') {
+      spotVisitsFiltered = spotVisitsFiltered.filter(v => {
+        const r = (v.remarks || '').toLowerCase();
+        if (period === 'morning') return r.includes('morning') || !r.includes('evening');
+        if (period === 'evening') return r.includes('evening');
+        return true;
+      });
+    }
 
-    let q3 = adminClient.from('qc_lab_tests').select('id', { count: 'exact', head: true });
-    if (date) q3 = q3.gte('created_at', fromIso).lte('created_at', toIso);
-    const { count: qcLabTestsCount } = await q3;
-
-    let q4 = adminClient.from('qc_excel_import_rows').select('id', { count: 'exact', head: true });
-    if (date) q4 = q4.gte('created_at', fromIso).lte('created_at', toIso);
-    const { count: importedRecordsCount } = await q4;
-
-    let q5 = adminClient.from('qc_lab_tests').select('id, status, visit_id, fat, snf, clr, visit:trip_bmc_visits(ftir_tests(*), gerber_tests(*))');
-    if (date) q5 = q5.gte('created_at', fromIso).lte('created_at', toIso);
-    const { data: qcTests } = await q5;
-
-    const tests = qcTests || [];
-    const submittedCount = tests.filter(t => t.status === 'submitted').length;
-    const reviewedCount = tests.filter(t => t.status === 'approved' || t.status === 'returned').length;
-
-    let varianceCount = 0;
-    tests.forEach(t => {
-      if (t.visit) {
-        const ftir = Array.isArray(t.visit.ftir_tests) ? t.visit.ftir_tests[0] : t.visit.ftir_tests;
-        const gerber = Array.isArray(t.visit.gerber_tests) ? t.visit.gerber_tests[0] : t.visit.gerber_tests;
-        const bmcFat = (ftir && ftir.fat) || (gerber && gerber.fat_percentage);
-        const bmcSnf = (ftir && ftir.snf) || (gerber && gerber.snf);
-        if (t.fat !== null && bmcFat !== null && bmcFat !== undefined) {
-          if (Math.abs(t.fat - bmcFat) >= 0.3) varianceCount++;
-        } else if (t.snf !== null && bmcSnf !== null && bmcSnf !== undefined) {
-          if (Math.abs(t.snf - bmcSnf) >= 0.3) varianceCount++;
-        }
+    let totalQuantityKg = 0;
+    spotVisitsFiltered.forEach(v => {
+      const lit = parseFloat(v.milk_quantity_liters || 0);
+      if (lit > 0) {
+        totalQuantityKg += (lit * 1.03);
       }
     });
 
-    const pendingQcTests = (totalSamples || 0) - (qcLabTestsCount || 0);
+    // 3. MACS Total BMC count for selected date & period
+    const { data: masterBmcsList } = await adminClient
+      .from('bmcs')
+      .select('bmc_code');
+    const masterCodesSet = new Set((masterBmcsList || []).map(b => String(b.bmc_code || '').trim().toLowerCase()).filter(Boolean));
+
+    let macsQuery = adminClient.from('qc_excel_import_rows').select('sample_ref, bmc_name, raw_data, bmc_id, fat, snf');
+    if (date) macsQuery = macsQuery.eq('test_date', date);
+
+    const { data: macsRows } = await macsQuery;
+    let macsRowsFiltered = macsRows || [];
+
+    if (period !== 'both') {
+      macsRowsFiltered = macsRowsFiltered.filter(r => {
+        const p = (r.raw_data?.period || 'morning').toLowerCase();
+        return p === period;
+      });
+    }
+
+    const validMatchedBmcs = new Set();
+    macsRowsFiltered.forEach(r => {
+      const code = String(r.sample_ref || r.raw_data?.bmc_code || '').trim().toLowerCase();
+      const lit = parseFloat(r.raw_data?.macs_quantity_liters || r.raw_data?.liters || r.raw_data?.quantity || 0);
+      const kg = parseFloat(r.raw_data?.macs_quantity_kg || 0);
+      const fat = parseFloat(r.fat || r.raw_data?.macs_fat || 0);
+      const snf = parseFloat(r.snf || r.raw_data?.macs_snf || 0);
+
+      const hasValue = (lit > 0 || kg > 0 || fat > 0 || snf > 0);
+      const matchesMaster = masterCodesSet.has(code);
+
+      if (code && matchesMaster && hasValue) {
+        validMatchedBmcs.add(code);
+      }
+    });
 
     res.json({
-      total_samples: totalSamples || 0,
-      bmc_tests: bmcTestsCount || 0,
-      qc_lab_tests: qcLabTestsCount || 0,
-      imported_records: importedRecordsCount || 0,
-      pending_qc_tests: pendingQcTests < 0 ? 0 : pendingQcTests,
-      reports_submitted: submittedCount,
-      reviewed: reviewedCount,
-      variance_detected: varianceCount
+      total_bmcs: totalBmcs || 0,
+      total_quantity_kg: parseFloat(totalQuantityKg.toFixed(2)),
+      macs_total_bmcs: validMatchedBmcs.size
     });
   } catch (err) {
     console.error('❌ QC AGM Dashboard error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// GET /api/qc-agm/bmcs/:bmcCode/details — BMC Info & readings table for BMC Details page
+app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  const bmcCode = req.params.bmcCode;
+
+  try {
+    // 1. Fetch BMC info safely
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bmcCode);
+    let bmcQuery = adminClient.from('bmcs').select('*');
+    if (isUuid) {
+      bmcQuery = bmcQuery.or(`bmc_code.eq.${bmcCode},id.eq.${bmcCode}`);
+    } else {
+      bmcQuery = bmcQuery.eq('bmc_code', bmcCode);
+    }
+
+    let { data: bmc } = await bmcQuery.maybeSingle();
+
+    if (!bmc) {
+      const { data: bmcList } = await adminClient.from('bmcs').select('*');
+      bmc = (bmcList || []).find(b => String(b.bmc_code || '').trim().toLowerCase() === String(bmcCode).trim().toLowerCase());
+    }
+
+    if (!bmc) {
+      bmc = { bmc_code: bmcCode, name: `BMC ${bmcCode}`, district: 'Coimbatore', rating: 4.5 };
+    } else {
+      const { data: ratings } = await adminClient
+        .from('bmc_ratings')
+        .select('overall_rating')
+        .eq('bmc_id', bmc.id);
+
+      if (ratings && ratings.length > 0) {
+        const sum = ratings.reduce((acc, r) => acc + (parseFloat(r.overall_rating) || 5), 0);
+        bmc.rating = parseFloat((sum / ratings.length).toFixed(1));
+      } else {
+        bmc.rating = 4.5;
+      }
+    }
+
+    // 2. Fetch MACS import rows for this BMC
+    const { data: excelRows } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('*')
+      .or(`bmc_id.eq.${bmc.id || '00000000-0000-0000-0000-000000000000'},sample_ref.eq.${bmcCode},bmc_name.eq.${bmc.name}`)
+      .order('test_date', { ascending: false });
+
+    // 3. Fetch Spot Analyzer visits for this BMC
+    let visitsQuery = adminClient
+      .from('trip_bmc_visits')
+      .select('*, ftir_tests(*), gerber_tests(*)')
+      .eq('status', 'completed');
+      
+    if (bmc.id) {
+      visitsQuery = visitsQuery.eq('bmc_id', bmc.id);
+    }
+    const { data: visits } = await visitsQuery;
+
+    // 4. Fetch rejected issues for this BMC
+    const { data: rejectedIssues } = await adminClient
+      .from('bmc_issues')
+      .select('*')
+      .eq('category', 'other')
+      .ilike('description', '%"type":"qc_lab_issue"%');
+
+    const bmcIssuesMap = {};
+    (rejectedIssues || []).forEach(iss => {
+      try {
+        const meta = typeof iss.description === 'string' ? JSON.parse(iss.description) : (iss.description || {});
+        if (String(meta.bmc_code || '').trim().toLowerCase() === String(bmcCode).trim().toLowerCase()) {
+          bmcIssuesMap[meta.date || iss.created_at?.slice(0,10)] = iss;
+        }
+      } catch (e) {}
+    });
+
+    // Group records date-wise
+    const recordsMap = {};
+
+    (excelRows || []).forEach(r => {
+      const d = r.test_date || new Date(r.created_at).toISOString().split('T')[0];
+      if (!recordsMap[d]) {
+        recordsMap[d] = { date: d, macs: null, spot: null, diary: null };
+      }
+      const lit = r.raw_data?.macs_quantity_liters ?? r.raw_data?.liters ?? (r.fat ? r.raw_data?.quantity : null);
+      const kg = r.raw_data?.macs_quantity_kg ?? (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
+      recordsMap[d].macs = {
+        liters: lit,
+        kg: kg,
+        fat: r.fat,
+        snf: r.snf
+      };
+    });
+
+    (visits || []).forEach(v => {
+      const d = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : new Date(v.created_at).toISOString().split('T')[0];
+      if (!recordsMap[d]) {
+        recordsMap[d] = { date: d, macs: null, spot: null, diary: null };
+      }
+      const ftir = (v.ftir_tests && v.ftir_tests[0]) || {};
+      const lit = v.sample_liters || v.milk_quantity_liters || null;
+      const kg = lit ? parseFloat((lit * 1.03).toFixed(2)) : null;
+      recordsMap[d].spot = {
+        liters: lit,
+        kg: kg,
+        fat: ftir.fat ?? null,
+        snf: ftir.snf ?? null
+      };
+    });
+
+    // Attach issues and differences
+    const recordsList = Object.keys(recordsMap).sort((a, b) => b.localeCompare(a)).map((d, index) => {
+      const item = recordsMap[d];
+      const issue = bmcIssuesMap[d];
+
+      let diffStr = '-';
+      if (item.macs && item.spot && item.macs.fat !== null && item.spot.fat !== null) {
+        const fDiff = parseFloat((item.macs.fat - item.spot.fat).toFixed(2));
+        const sDiff = (item.macs.snf !== null && item.spot.snf !== null) 
+          ? parseFloat((item.macs.snf - item.spot.snf).toFixed(2)) 
+          : 0;
+        const fSign = fDiff > 0 ? `+${fDiff}` : `${fDiff}`;
+        const sSign = sDiff > 0 ? `+${sDiff}` : `${sDiff}`;
+        diffStr = `FAT: ${fSign} | SNF: ${sSign}`;
+      }
+
+      return {
+        s_no: index + 1,
+        date: d,
+        macs: item.macs,
+        spot: item.spot,
+        diary: item.diary,
+        difference: diffStr,
+        is_denied: !!issue,
+        remarks: issue ? issue.remarks : ''
+      };
+    });
+
+    res.json({ bmc, records: recordsList });
+  } catch (err) {
+    console.error('❌ GET BMC Details error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/qc-agm/deny-reading — Deny/Reject item and record in Lab Issue Report
+app.post('/api/qc-agm/deny-reading', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  const { bmc_code, bmc_name, district, date, remarks, rejected_item } = req.body;
+
+  if (!bmc_code || !remarks) {
+    return res.status(400).json({ error: 'bmc_code and remarks are required.' });
+  }
+
+  try {
+    const { data: bmc } = await adminClient
+      .from('bmcs')
+      .select('id, name, district')
+      .eq('bmc_code', bmc_code)
+      .maybeSingle();
+
+    const bmcId = bmc ? bmc.id : null;
+    const finalBmcName = bmc_name || (bmc ? bmc.name : `BMC ${bmc_code}`);
+    const finalDistrict = district || (bmc ? bmc.district || bmc.location : 'N/A');
+
+    // Get valid visit_id for foreign key constraint
+    let visitId = null;
+    if (bmcId) {
+      const { data: bmcVisit } = await adminClient.from('trip_bmc_visits').select('id').eq('bmc_id', bmcId).limit(1).maybeSingle();
+      if (bmcVisit) visitId = bmcVisit.id;
+    }
+    if (!visitId) {
+      const { data: anyVisit } = await adminClient.from('trip_bmc_visits').select('id').limit(1).maybeSingle();
+      if (anyVisit) visitId = anyVisit.id;
+    }
+
+    const issuePayload = {
+      visit_id: visitId,
+      category: 'other',
+      description: JSON.stringify({
+        type: 'qc_lab_issue',
+        bmc_code,
+        bmc_name: finalBmcName,
+        district: finalDistrict,
+        date: date || new Date().toISOString().split('T')[0],
+        rejected_item: rejected_item || {}
+      }),
+      severity: 'high',
+      remarks: remarks,
+      status: 'rejected'
+    };
+
+    const { data: issue, error } = await adminClient
+      .from('bmc_issues')
+      .insert(issuePayload)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      message: 'Reading denied successfully and sent to Lab Issue Report.',
+      issue
+    });
+  } catch (err) {
+    console.error('❌ Deny reading error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-agm/lab-issues — Retrieve all rejected items for Lab Issue Report tab
+app.get('/api/qc-agm/lab-issues', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: issues, error } = await adminClient
+      .from('bmc_issues')
+      .select('*')
+      .eq('category', 'other')
+      .ilike('description', '%"type":"qc_lab_issue"%')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const formattedIssues = (issues || []).map((iss, index) => {
+      let meta = {};
+      try {
+        meta = typeof iss.description === 'string' ? JSON.parse(iss.description) : (iss.description || {});
+      } catch (e) {}
+
+      return {
+        s_no: index + 1,
+        id: iss.id,
+        bmc_code: meta.bmc_code || 'N/A',
+        bmc_name: meta.bmc_name || 'N/A',
+        district: meta.district || 'N/A',
+        date: meta.date || iss.created_at?.slice(0, 10),
+        rejected_item: meta.rejected_item || null,
+        remarks: iss.remarks || 'No remarks provided',
+        worker_remarks: meta.worker_remarks || null,
+        status: iss.status || 'rejected',
+        created_at: iss.created_at
+      };
+    });
+
+    res.json({ issues: formattedIssues });
+  } catch (err) {
+    console.error('❌ GET Lab Issues error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -6151,20 +6922,52 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
     const { data: rows, error } = await query;
     if (error) throw error;
 
+    // Fetch Spot Analyzer visit records for the date if date is given
+    let visitsQuery = adminClient
+      .from('trip_bmc_visits')
+      .select('*, bmc:bmcs(*), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
+      .eq('status', 'completed');
+
+    if (date) {
+      const fromIso = new Date(date + 'T00:00:00.000Z').toISOString();
+      const toIso = new Date(date + 'T23:59:59.999Z').toISOString();
+      visitsQuery = visitsQuery.gte('visit_end_time', fromIso).lte('visit_end_time', toIso);
+    }
+
+    const { data: visits } = await visitsQuery;
+    const visitsMap = {};
+    (visits || []).forEach(v => {
+      const bCode = String(v.bmc?.bmc_code || '').trim();
+      if (bCode) {
+        visitsMap[bCode] = v;
+      }
+    });
+
     const bmcMap = {};
 
     (rows || []).forEach(r => {
-      const bmcCode = r.sample_ref || (r.raw_data && r.raw_data.bmc_code) || r.bmc_name;
+      const bmcCode = String(r.sample_ref || (r.raw_data && r.raw_data.bmc_code) || r.bmc_name || '').trim();
       const key = `${bmcCode}_${r.test_date}`;
 
       if (!bmcMap[key]) {
+        const liters = r.raw_data?.macs_quantity_liters ?? r.raw_data?.liters ?? r.raw_data?.quantity ?? r.liters ?? r.quantity ?? null;
+        const kg = r.raw_data?.macs_quantity_kg ?? r.raw_data?.kg ?? (liters ? parseFloat((liters * 1.03).toFixed(2)) : null);
+
         bmcMap[key] = {
           bmc_code: bmcCode,
-          bmc_name: r.bmc_name,
+          bmc_name: r.bmc_name || r.bmc?.name || 'N/A',
           bmc_id: r.bmc_id,
           reading_date: r.test_date,
           worker: null,
           qc: null,
+          macs: {
+            quantity_liters: liters,
+            quantity_kg: kg,
+            fat: r.fat,
+            snf: r.snf
+          },
+          spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, visited: false },
+          diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
           fat_diff: null,
           snf_diff: null,
           status: 'NO_DATA'
@@ -6176,6 +6979,18 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
         bmcMap[key].worker = { fat: r.fat, snf: r.snf, id: r.id, raw: r.raw_data };
       } else if (src === 'qc') {
         bmcMap[key].qc = { fat: r.fat, snf: r.snf, id: r.id, raw: r.raw_data };
+      }
+
+      const spotVisit = visitsMap[bmcCode];
+      if (spotVisit) {
+        const ftir = (spotVisit.ftir_tests && spotVisit.ftir_tests[0]) || {};
+        bmcMap[key].spot = {
+          quantity_liters: spotVisit.sample_liters || null,
+          quantity_kg: spotVisit.sample_liters ? parseFloat((spotVisit.sample_liters * 1.03).toFixed(2)) : null,
+          fat: ftir.fat ?? null,
+          snf: ftir.snf ?? null,
+          visited: true
+        };
       }
     });
 
@@ -6214,7 +7029,37 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
       return item;
     });
 
-    res.json({ readings: macsComparisons });
+    // Build Table 2: No MACS Data — Spot Analyzer Visits ONLY
+    const matchedMacsCodes = new Set(Object.values(bmcMap).map(m => m.bmc_code));
+    const noMacsReadings = [];
+
+    (visits || []).forEach(v => {
+      const bCode = String(v.bmc?.bmc_code || '').trim();
+      const bName = v.bmc?.name || 'N/A';
+      if (bCode && !matchedMacsCodes.has(bCode)) {
+        const ftir = (v.ftir_tests && v.ftir_tests[0]) || {};
+        const vDate = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : (date || new Date().toISOString().split('T')[0]);
+
+        noMacsReadings.push({
+          bmc_code: bCode,
+          bmc_name: bName,
+          reading_date: vDate,
+          spot: {
+            quantity_liters: v.sample_liters || null,
+            quantity_kg: v.sample_liters ? parseFloat((v.sample_liters * 1.03).toFixed(2)) : null,
+            fat: ftir.fat ?? null,
+            snf: ftir.snf ?? null,
+            visited: true
+          },
+          diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
+          fat_diff: null,
+          snf_diff: null,
+          status: 'NO_MACS_DATA'
+        });
+      }
+    });
+
+    res.json({ readings: macsComparisons, no_macs_readings: noMacsReadings });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -6223,17 +7068,19 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
 // POST /api/qc-agm/macs/import
 app.post('/api/qc-agm/macs/import', requireQcAgm, async (req, res) => {
   const { adminClient, profile } = req;
-  const { file_name, readings, notes } = req.body;
+  const { file_name, import_date, period = 'both', readings, notes } = req.body;
 
   if (!file_name || !Array.isArray(readings)) {
     return res.status(400).json({ error: 'file_name and readings array are required.' });
   }
 
+  const targetDate = import_date || new Date().toISOString().split('T')[0];
+
   try {
     const { data: bmcMaster } = await adminClient.from('bmcs').select('id, name, bmc_code');
     const bmcCodeToIdMap = {};
     (bmcMaster || []).forEach(b => {
-      if (b.bmc_code) bmcCodeToIdMap[String(b.bmc_code).trim()] = b.id;
+      if (b.bmc_code) bmcCodeToIdMap[String(b.bmc_code).trim().toLowerCase()] = b;
     });
 
     const { data: importBatch, error: batchErr } = await adminClient
@@ -6242,7 +7089,7 @@ app.post('/api/qc-agm/macs/import', requireQcAgm, async (req, res) => {
         file_name,
         imported_by: profile.id,
         total_rows: readings.length,
-        notes: notes || 'MACS Reading Import',
+        notes: notes || `MACS Reading Import (${period.toUpperCase()} - ${targetDate})`,
         status: 'completed'
       })
       .select()
@@ -6250,91 +7097,619 @@ app.post('/api/qc-agm/macs/import', requireQcAgm, async (req, res) => {
 
     if (batchErr) throw batchErr;
 
-    const uniqueDates = Array.from(new Set(readings.map(r => r.reading_date).filter(Boolean)));
-    const { data: existingRows } = await adminClient
-      .from('qc_excel_import_rows')
-      .select('id, sample_ref, test_date, overall_result')
-      .in('test_date', uniqueDates);
-
-    const existingMap = {};
-    (existingRows || []).forEach(er => {
-      existingMap[`${er.sample_ref}_${er.test_date}_${er.overall_result}`] = er.id;
-    });
-
+    const matchedRows = [];
+    const unmatchedRows = [];
+    let bmcCodeMissingCount = 0;
+    let bmcCodeNotFoundCount = 0;
+    let duplicateRowsCount = 0;
     let workerRowsCount = 0;
     let qcRowsCount = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    let updatedCount = 0;
-
-    const toInsert = [];
-    const toUpdate = [];
+    let totalLitersSum = 0;
+    let totalKgSum = 0;
 
     for (const r of readings) {
-      const bmcCodeStr = String(r.bmc_code || '').trim();
-      const matchedBmcId = bmcCodeToIdMap[bmcCodeStr] || null;
-      
-      if (!matchedBmcId) {
-        console.warn(`[MACS Import] BMC Code ${bmcCodeStr} not found in master list. Row will not be linked to a BMC.`);
+      const rawCode = String(r.bmc_code || r.sample_ref || r.code || '').trim();
+      const codeKey = rawCode.toLowerCase();
+      const matchedBmc = codeKey ? bmcCodeToIdMap[codeKey] : null;
+
+      const liters = parseFloat(r.quantity_liters || r.liters || r.quantity || 0);
+      const kg = parseFloat((liters * 1.03).toFixed(2));
+      const rDate = r.reading_date || targetDate;
+      const rPeriod = (r.period || period || 'morning').toLowerCase();
+
+      if (!rawCode) {
+        bmcCodeMissingCount++;
+        unmatchedRows.push({
+          bmc_code: 'MISSING',
+          bmc_name: r.bmc_name || r.society_name || 'Unknown',
+          reading_date: rDate,
+          period: rPeriod,
+          liters,
+          kg,
+          reason: 'BMC Code Missing'
+        });
+        continue;
       }
+
+      if (!matchedBmc) {
+        bmcCodeNotFoundCount++;
+        unmatchedRows.push({
+          bmc_code: rawCode,
+          bmc_name: r.bmc_name || r.society_name || 'Unknown',
+          reading_date: rDate,
+          period: rPeriod,
+          liters,
+          kg,
+          reason: `BMC Code Not Found (${rawCode})`
+        });
+        continue;
+      }
+
+      totalLitersSum += liters;
+      totalKgSum += kg;
+
       const source = r.source === 'qc' ? 'qc' : 'worker';
       if (source === 'worker') workerRowsCount++; else qcRowsCount++;
 
-      const key = `${bmcCodeStr}_${r.reading_date}_${source}`;
-      const existingId = existingMap[key];
-
-      const rowPayload = {
+      const payload = {
         import_id: importBatch.id,
-        bmc_id: matchedBmcId || null,
-        bmc_name: r.bmc_name || null,
-        sample_ref: bmcCodeStr,
-        test_date: r.reading_date,
+        bmc_id: matchedBmc.id,
+        bmc_name: matchedBmc.name,
+        sample_ref: matchedBmc.bmc_code,
+        test_date: rDate,
         fat: r.fat !== undefined && r.fat !== '' && r.fat !== null ? parseFloat(r.fat) : null,
         snf: r.snf !== undefined && r.snf !== '' && r.snf !== null ? parseFloat(r.snf) : null,
-        overall_result: source,
-        raw_data: r,
+        overall_result: rPeriod,
+        raw_data: {
+          bmc_code: matchedBmc.bmc_code,
+          bmc_name: matchedBmc.name,
+          bmc_id: matchedBmc.id,
+          society_name: r.society_name || r.soc || matchedBmc.name,
+          reading_date: rDate,
+          period: rPeriod,
+          macs_quantity_liters: liters,
+          macs_quantity_kg: kg,
+          macs_fat: r.fat,
+          macs_snf: r.snf,
+          macs_status: 'completed',
+          spot_status: 'pending',
+          diary_status: 'pending',
+          source
+        },
         row_status: 'imported',
         error_message: null
       };
 
-      if (existingId) {
-        toUpdate.push({ id: existingId, ...rowPayload });
-        updatedCount++;
-        successCount++;
-      } else {
-        toInsert.push(rowPayload);
-        successCount++;
-      }
+      matchedRows.push(payload);
     }
 
-    if (toInsert.length > 0) {
-      const { error: insErr } = await adminClient.from('qc_excel_import_rows').insert(toInsert);
+    if (matchedRows.length > 0) {
+      // Deduplication: Remove existing rows for exact same sample_ref, test_date, and period to prevent duplicate daily records
+      for (const mRow of matchedRows) {
+        const { data: existingRows } = await adminClient
+          .from('qc_excel_import_rows')
+          .select('id')
+          .eq('sample_ref', mRow.sample_ref)
+          .eq('test_date', mRow.test_date)
+          .eq('overall_result', mRow.overall_result);
+
+        if (existingRows && existingRows.length > 0) {
+          duplicateRowsCount += existingRows.length;
+          await adminClient
+            .from('qc_excel_import_rows')
+            .delete()
+            .eq('sample_ref', mRow.sample_ref)
+            .eq('test_date', mRow.test_date)
+            .eq('overall_result', mRow.overall_result);
+        }
+      }
+
+      const { error: insErr } = await adminClient.from('qc_excel_import_rows').insert(matchedRows);
       if (insErr) throw insErr;
-    }
-    if (toUpdate.length > 0) {
-      const { error: upErr } = await adminClient.from('qc_excel_import_rows').upsert(toUpdate);
-      if (upErr) throw upErr;
     }
 
     await adminClient.from('qc_excel_imports').update({
-      successful_rows: successCount,
-      failed_rows: errorCount,
-      duplicate_rows: updatedCount
+      successful_rows: matchedRows.length,
+      failed_rows: unmatchedRows.length,
+      duplicate_rows: duplicateRowsCount
     }).eq('id', importBatch.id);
 
     res.json({
       success: true,
-      message: `MACS Readings imported successfully! (${successCount} processed, ${updatedCount} updated).`,
+      message: `MACS Readings imported! (${matchedRows.length} mapped & saved, ${bmcCodeMissingCount} code missing, ${bmcCodeNotFoundCount} code not found, ${duplicateRowsCount} updated/deduplicated).`,
       import_id: importBatch.id,
       stats: {
-        total: readings.length,
+        total_excel_rows: readings.length,
+        successfully_mapped: matchedRows.length,
+        bmc_code_missing: bmcCodeMissingCount,
+        bmc_code_not_found: bmcCodeNotFoundCount,
+        duplicate_conflicting: duplicateRowsCount,
         worker: workerRowsCount,
         qc: qcRowsCount,
-        updated: updatedCount
-      }
+        total_liters: totalLitersSum,
+        total_kg: totalKgSum
+      },
+      unmatched_rows: unmatchedRows
     });
   } catch (err) {
     console.error('❌ MACS Import error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/qc-agm/macs/delete-all — Delete all imported MACS data
+app.delete('/api/qc-agm/macs/delete-all', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { error: rowErr } = await adminClient.from('qc_excel_import_rows').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const { error: batchErr } = await adminClient.from('qc_excel_imports').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (rowErr) throw rowErr;
+    if (batchErr) throw batchErr;
+    res.json({ success: true, message: 'All imported MACS data safely deleted.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/qc-agm/macs/delete-date — Delete imported MACS data for a specific date
+app.delete('/api/qc-agm/macs/delete-date', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ error: 'date query parameter is required' });
+
+  try {
+    const { error } = await adminClient
+      .from('qc_excel_import_rows')
+      .delete()
+      .eq('test_date', date);
+    if (error) throw error;
+    res.json({ success: true, message: `Imported MACS data for date ${date} deleted successfully.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/qc-agm/macs/readings/:id — Delete single imported MACS reading
+app.delete('/api/qc-agm/macs/readings/:id', requireQcAgm, async (req, res) => {
+  const { adminClient } = req;
+  const { id } = req.params;
+
+  try {
+    const { error } = await adminClient
+      .from('qc_excel_import_rows')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+    res.json({ success: true, message: 'MACS reading deleted successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/qc-agm/macs/import-batch/:batchId — Delete MACS import batch & all mapped daily rows
+async function handleDeleteImportBatch(req, res) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  try {
+    const adminClient = req.adminClient || getAdminClient();
+    if (!adminClient) return res.status(503).json({ error: 'Database client not available.' });
+
+    const batchId = req.params.batchId || req.params.id;
+
+    // 1. Delete all mapped rows for this import batch
+    const { error: rowErr } = await adminClient
+      .from('qc_excel_import_rows')
+      .delete()
+      .eq('import_id', batchId);
+
+    if (rowErr) console.warn('Warning deleting import rows:', rowErr);
+
+    // 2. Delete the import batch header
+    const { error: batchErr } = await adminClient
+      .from('qc_excel_imports')
+      .delete()
+      .eq('id', batchId);
+
+    if (batchErr) throw batchErr;
+
+    res.json({ success: true, message: 'MACS Excel batch and all mapped daily records deleted successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+app.delete('/api/qc-agm/macs/import-batch/:batchId', handleDeleteImportBatch);
+app.delete('/api/qc-agm/macs/import/:id', handleDeleteImportBatch);
+
+// GET /api/pi-agm/bmcs/:bmcCode/daily-comparison — Side-by-side MACS vs Spot vs Diary comparison
+app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, res) => {
+  const { adminClient } = req;
+  const { bmcCode } = req.params;
+  const { from_date, to_date, period = 'all' } = req.query;
+
+  try {
+    const { data: bmc } = await adminClient
+      .from('bmcs')
+      .select('id, name, bmc_code, district, location')
+      .eq('bmc_code', bmcCode)
+      .maybeSingle();
+
+    if (!bmc) {
+      return res.status(404).json({ error: `BMC with code '${bmcCode}' not found.` });
+    }
+
+    let macsQuery = adminClient
+      .from('qc_excel_import_rows')
+      .select('*')
+      .or(`sample_ref.eq.${bmcCode},bmc_id.eq.${bmc.id}`);
+
+    if (from_date) macsQuery = macsQuery.gte('test_date', from_date);
+    if (to_date) macsQuery = macsQuery.lte('test_date', to_date);
+
+    const { data: rows } = await macsQuery;
+
+    const dailyMap = {};
+
+    (rows || []).forEach(r => {
+      const d = r.test_date;
+      
+      let p = (r.overall_result || 'morning').toLowerCase();
+      if (p === 'worker' || p === 'qc' || p === 'both') p = 'morning';
+
+      if (period !== 'all' && p !== period.toLowerCase()) return;
+
+      const key = `${d}_${p}`;
+      if (!dailyMap[key]) {
+        dailyMap[key] = {
+          date: d,
+          period: p === 'morning' ? 'Morning' : 'Evening',
+          macs: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
+          spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
+          diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' }
+        };
+      }
+
+      const entry = dailyMap[key];
+
+      // Treat ALL rows from qc_excel_import_rows as MACS data.
+      // Do not falsely map them to Spot Analyzer or Diary.
+      const liters = r.raw_data?.macs_quantity_liters ?? r.raw_data?.liters ?? r.raw_data?.quantity ?? r.liters ?? r.quantity ?? null;
+      const kg = r.raw_data?.macs_quantity_kg ?? r.raw_data?.kg ?? (liters ? parseFloat((liters * 1.03).toFixed(2)) : null);
+
+      if (liters !== null && entry.macs.quantity_liters === null) entry.macs.quantity_liters = liters;
+      if (kg !== null && entry.macs.quantity_kg === null) entry.macs.quantity_kg = kg;
+      
+      if (r.fat !== null && r.fat !== undefined) entry.macs.fat = r.fat;
+      else if (r.raw_data?.fat !== undefined) entry.macs.fat = r.raw_data.fat;
+      
+      if (r.snf !== null && r.snf !== undefined) entry.macs.snf = r.snf;
+      else if (r.raw_data?.snf !== undefined) entry.macs.snf = r.raw_data.snf;
+      
+      entry.macs.status = 'completed';
+    });
+
+    // Fetch Spot Analyzer (trip_bmc_visits) and Diary (trips)
+    let visitsQuery = adminClient
+      .from('trip_bmc_visits')
+      .select('*, trips(id, out_time, in_time, out_weight, in_weight, status), ftir_tests(*)')
+      .eq('status', 'completed');
+      
+    if (bmc.id) {
+      visitsQuery = visitsQuery.eq('bmc_id', bmc.id);
+    }
+    const { data: visits } = await visitsQuery;
+
+    (visits || []).forEach(v => {
+      const d = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : new Date(v.created_at).toISOString().split('T')[0];
+      
+      if (from_date && d < from_date) return;
+      if (to_date && d > to_date) return;
+      
+      // Default period to Morning for Spot/Diary visits for now, or detect based on time
+      const p = 'morning'; 
+      if (period !== 'all' && p !== period.toLowerCase()) return;
+      
+      const key = `${d}_${p}`;
+      if (!dailyMap[key]) {
+        dailyMap[key] = {
+          date: d,
+          period: 'Morning',
+          macs: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
+          spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
+          diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' }
+        };
+      }
+      
+      const entry = dailyMap[key];
+      const ftir = (v.ftir_tests && v.ftir_tests[0]) || {};
+      const lit = v.sample_liters || v.milk_quantity_liters || null;
+      const kg = lit ? parseFloat((lit * 1.03).toFixed(2)) : null;
+      
+      entry.spot = {
+        liters: lit,
+        kg: kg,
+        fat: ftir.fat ?? null,
+        snf: ftir.snf ?? null,
+        status: 'completed'
+      };
+      
+      // Diary data from trip
+      const t = v.trips || {};
+      const diaryKg = t.in_weight || null;
+      const diaryLit = diaryKg ? parseFloat((diaryKg / 1.03).toFixed(2)) : null;
+      
+      if (t.status === 'completed' && diaryKg) {
+        entry.diary = {
+          liters: diaryLit,
+          kg: diaryKg,
+          fat: null, // Diary fat is typically not recorded here, but if available it can be added
+          snf: null,
+          status: 'completed'
+        };
+      } else {
+        entry.diary = {
+          liters: null,
+          kg: null,
+          fat: null,
+          snf: null,
+          status: 'pending'
+        };
+      }
+    });
+
+    res.json({ bmc, daily_records: Object.values(dailyMap) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/trips/:id/start-worker — Worker measurement start trip input
+app.patch('/api/trips/:id/start-worker', requireWorker, async (req, res) => {
+  const { adminClient } = req;
+  const { id } = req.params;
+  const { out_km, out_tanker_weight, out_km_photo, latitude, longitude } = req.body;
+
+  if (out_km === undefined || out_tanker_weight === undefined || !out_km_photo) {
+    return res.status(400).json({ error: 'OUT KM, OUT Tanker Weight, and OUT KM Photo proof are required.' });
+  }
+
+  try {
+    const startedAt = new Date().toISOString();
+
+    const updatePayload = {
+      status: 'in_progress',
+      out_km: parseFloat(out_km),
+      out_weight: parseFloat(out_tanker_weight),
+      out_weight_photo: out_km_photo,
+      started_at: startedAt,
+      start_lat: latitude || null,
+      start_lng: longitude || null
+    };
+
+    await adminClient.from('driver_trips').update(updatePayload).eq('id', id);
+
+    const { data: trip, error } = await adminClient
+      .from('trips')
+      .update({
+        status: 'in_progress',
+        out_time: startedAt,
+        remarks: `OUT KM: ${out_km} | OUT Wt: ${out_tanker_weight} KG`
+      })
+      .eq('id', id)
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+
+    res.json({ success: true, message: 'Trip started successfully by worker!', trip });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/trips/:id/complete-worker — Worker measurement complete/end trip input
+app.patch('/api/trips/:id/complete-worker', requireWorker, async (req, res) => {
+  const { adminClient } = req;
+  const { id } = req.params;
+  const { in_km, empty_tanker_weight, in_km_photo, end_lat, end_lng, remarks } = req.body;
+
+  if (in_km === undefined) {
+    return res.status(400).json({ error: 'IN KM is required to complete trip.' });
+  }
+
+  try {
+    const { data: existing } = await adminClient
+      .from('driver_trips')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    const outKm = existing?.out_km || 0;
+    const outWeight = existing?.out_weight || 0;
+    const inKmNum = parseFloat(in_km);
+    const emptyWeightNum = empty_tanker_weight !== undefined && empty_tanker_weight !== '' && empty_tanker_weight !== null ? parseFloat(empty_tanker_weight) : null;
+
+    const kmTravelled = inKmNum >= outKm ? inKmNum - outKm : 0;
+    const milkWeightKg = (emptyWeightNum !== null && outWeight > emptyWeightNum) ? outWeight - emptyWeightNum : null;
+
+    const dieselLiters = kmTravelled > 0 ? parseFloat((kmTravelled / 3.5).toFixed(2)) : 0;
+    const mileageVal = dieselLiters > 0 ? parseFloat((kmTravelled / dieselLiters).toFixed(2)) : null;
+
+    const completedAt = new Date().toISOString();
+
+    const updatePayload = {
+      status: 'completed',
+      in_km: inKmNum,
+      in_weight: emptyWeightNum,
+      km_travelled: kmTravelled,
+      weight_difference: milkWeightKg,
+      diesel_consumption: dieselLiters,
+      average_mileage: mileageVal,
+      in_weight_photo: in_km_photo || null,
+      end_lat: end_lat || null,
+      end_lng: end_lng || null,
+      completed_at: completedAt,
+      remarks: remarks || existing?.remarks
+    };
+
+    await adminClient.from('driver_trips').update(updatePayload).eq('id', id);
+    await adminClient.from('trips').update({ status: 'completed', in_time: completedAt }).eq('id', id);
+
+    res.json({
+      success: true,
+      message: 'Trip completed successfully!',
+      summary: {
+        km_travelled: kmTravelled,
+        total_milk_weight_kg: milkWeightKg,
+        diesel_consumption: dieselLiters,
+        mileage: mileageVal
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/pi-agm/mileage — P&I Mileage Dashboard Endpoint
+app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
+  const { adminClient } = req;
+  const { status_filter = 'all', from_date, to_date, driver_id = 'all', vehicle_id = 'all', search } = req.query;
+
+  try {
+    let query = adminClient
+      .from('driver_trips')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (from_date) query = query.gte('created_at', `${from_date}T00:00:00`);
+    if (to_date) query = query.lte('created_at', `${to_date}T23:59:59`);
+
+    if (driver_id && driver_id !== 'all') {
+      query = query.or(`assigned_driver_id.eq.${driver_id},driver_name.ilike.%${driver_id}%`);
+    }
+    if (vehicle_id && vehicle_id !== 'all') {
+      query = query.or(`assigned_vehicle_id.eq.${vehicle_id},vehicle_number.ilike.%${vehicle_id}%`);
+    }
+
+    const { data: trips, error } = await query;
+    if (error) throw error;
+
+    let records = [];
+    let inTransitTrips = [];
+    let doneTrips = [];
+
+    let totalDistSum = 0;
+    let totalDieselSum = 0;
+    let validMileageCount = 0;
+    let sumMileage = 0;
+
+    (trips || []).forEach(t => {
+      const isDone = t.status === 'completed';
+      const isCancelled = t.status === 'cancelled';
+      if (isCancelled) return;
+
+      const normStatus = isDone ? 'done' : 'in_transit';
+
+      // Status filter check
+      if (status_filter !== 'all' && status_filter.toLowerCase() !== normStatus) {
+        return;
+      }
+
+      // Search term filter check
+      if (search) {
+        const q = search.toLowerCase();
+        const matchVehicle = (t.vehicle_number || '').toLowerCase().includes(q);
+        const matchDriver = (t.driver_name || t.bmc_name || '').toLowerCase().includes(q);
+        const matchTripNum = (t.trip_number || t.id || '').toLowerCase().includes(q);
+        if (!matchVehicle && !matchDriver && !matchTripNum) return;
+      }
+
+      if (isDone) {
+        const dist = (t.in_km !== null && t.in_km !== undefined && t.out_km !== null && t.out_km !== undefined && t.in_km >= t.out_km) 
+          ? (t.in_km - t.out_km) 
+          : (t.km_travelled || null);
+
+        const milkWeight = (t.out_weight !== null && t.in_weight !== null && t.out_weight > t.in_weight) 
+          ? (t.out_weight - t.in_weight) 
+          : (t.weight_difference || null);
+
+        // If empty weight (in_weight) is missing, diesel & mileage are Pending per requirement 8
+        const diesel = (dist !== null && t.in_weight !== null && t.in_weight !== undefined) 
+          ? (t.diesel_consumption || parseFloat((dist / 3.5).toFixed(2))) 
+          : null;
+
+        const mileage = (dist !== null && diesel !== null && diesel > 0) 
+          ? (t.average_mileage || parseFloat((dist / diesel).toFixed(2))) 
+          : null;
+
+        if (dist !== null) totalDistSum += Number(dist);
+        if (diesel !== null) totalDieselSum += Number(diesel);
+        if (mileage !== null) { validMileageCount++; sumMileage += Number(mileage); }
+
+        const rec = {
+          id: t.id,
+          date: t.completed_at ? t.completed_at.split('T')[0] : (t.created_at ? t.created_at.split('T')[0] : '—'),
+          trip_number: t.trip_number || t.id.substring(0, 8),
+          vehicle_number: t.vehicle_number || 'N/A',
+          driver_name: t.driver_name || 'Driver',
+          route: t.route || t.destination || 'Milk Route',
+          out_km: t.out_km !== null ? t.out_km : 'Pending',
+          out_weight: t.out_weight !== null ? `${t.out_weight} KG` : 'Pending',
+          in_km: t.in_km !== null ? t.in_km : 'Pending',
+          empty_weight: t.in_weight !== null ? `${t.in_weight} KG` : 'Pending',
+          distance_km: dist !== null ? dist : 'Pending',
+          total_milk_weight_kg: milkWeight !== null ? `${milkWeight} KG` : 'Pending',
+          diesel_litres: diesel !== null ? diesel : 'Pending',
+          mileage_kml: mileage !== null ? mileage : 'Pending',
+          status: 'Done',
+          completed_at: t.completed_at || t.updated_at
+        };
+
+        doneTrips.push(rec);
+        records.push(rec);
+      } else {
+        // In Transit Trip
+        const rec = {
+          id: t.id,
+          date: t.started_at ? t.started_at.split('T')[0] : (t.created_at ? t.created_at.split('T')[0] : '—'),
+          trip_number: t.trip_number || t.id.substring(0, 8),
+          vehicle_number: t.vehicle_number || 'N/A',
+          driver_name: t.driver_name || 'Driver',
+          route: t.route || t.destination || 'Milk Route',
+          out_km: t.out_km !== null ? t.out_km : 'Pending',
+          out_weight: t.out_weight !== null ? `${t.out_weight} KG` : 'Pending',
+          in_km: 'Pending',
+          empty_weight: 'Pending',
+          distance_km: 'Pending',
+          total_milk_weight_kg: 'Pending',
+          diesel_litres: 'Pending',
+          mileage_kml: 'Pending',
+          status: 'In Transit',
+          started_at: t.started_at || t.created_at
+        };
+
+        inTransitTrips.push(rec);
+        records.push(rec);
+      }
+    });
+
+    const avgMileage = validMileageCount > 0 ? parseFloat((sumMileage / validMileageCount).toFixed(2)) : 0;
+
+    res.json({
+      summary: {
+        total_trips: records.length,
+        in_transit_count: inTransitTrips.length,
+        done_count: doneTrips.length,
+        total_distance_km: parseFloat(totalDistSum.toFixed(2)),
+        total_diesel_litres: parseFloat(totalDieselSum.toFixed(2)),
+        average_mileage_kml: avgMileage
+      },
+      records: records,
+      in_transit_trips: inTransitTrips,
+      done_trips: doneTrips
+    });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

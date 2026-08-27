@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MACS Data — Transport Officer</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="transport-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>Transport Officer</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Dashboard</a>
+        <a href="vehicles.html" class="admin-nav-item"><span>🚛</span> Vehicles</a>
+        <a href="duty.html" class="admin-nav-item"><span>📋</span> Duty</a>
+        <a href="macs-data.html" class="admin-nav-item active"><span>🥛</span> MACS Data</a>
+        <a href="driver-analysis.html" class="admin-nav-item"><span>📈</span> Driver Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>MACS READINGS 📊</h2>
+            <p id="macs-date-subtitle">Compare MACS Quantity &amp; Laboratory Collection Records</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar">TO</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-to-name">Transport Officer</div>
+              <div class="header-user-role">Fleet Management</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-to-content">
+
+          <!-- Controls & Filters Bar -->
+          <div class="top-controls-bar" style="margin-bottom:20px;">
+            <div class="date-selector-group">
+              <span class="date-selector-label">📅 Date:</span>
+              <input type="date" id="macs-date-filter" class="date-picker-input">
+            </div>
+            <div class="date-selector-group">
+              <span class="date-selector-label">🕒 Period:</span>
+              <div class="type-toggle-container">
+                <button type="button" class="date-preset-btn active" data-period="all">All</button>
+                <button type="button" class="date-preset-btn" data-period="morning">🌅 Morning</button>
+                <button type="button" class="date-preset-btn" data-period="evening">🌙 Evening</button>
+              </div>
+            </div>
+            <div class="report-export-group">
+              <input type="text" id="macs-search-input" class="date-picker-input" placeholder="🔍 Search BMC Code or BMC Name..." style="min-width:240px;">
+              <button type="button" id="btn-refresh-macs" class="date-preset-btn" style="background:#2563EB; color:#FFF; border-color:#2563EB;">🔄 Refresh</button>
+            </div>
+          </div>
+
+          <!-- KPI Summary Cards -->
+          <div class="kpi-grid-5" style="margin-bottom: 24px;">
+            <div class="kpi-card-v2 blue">
+              <div class="kpi-icon-wrap">🏢</div>
+              <div>
+                <div class="kpi-val" id="kpi-total-bmcs">0</div>
+                <div class="kpi-title">Total BMC</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 green">
+              <div class="kpi-icon-wrap">🧪</div>
+              <div>
+                <div class="kpi-val" id="kpi-matched-bmcs">0</div>
+                <div class="kpi-title">BMCs with MACS Data</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 purple">
+              <div class="kpi-icon-wrap">⚖️</div>
+              <div>
+                <div class="kpi-val" id="kpi-total-kg">0.00 KG</div>
+                <div class="kpi-title">Total Quantity (KG)</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 cyan">
+              <div class="kpi-icon-wrap">🥛</div>
+              <div>
+                <div class="kpi-val" id="kpi-total-liters">0.00 L</div>
+                <div class="kpi-title">Total Quantity (Litre)</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Table 1: Matched MACS BMCs Table -->
+          <div class="table-card" style="margin-bottom: 28px;">
+            <div class="table-card-header">
+              <h4>📋 Matched MACS Readings &amp; Quantities</h4>
+              <div class="table-filter-controls">
+                <span class="badge badge-neutral" id="macs-row-count-badge" style="font-size:0.8rem; font-weight:700; padding:6px 12px;">0 Records</span>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="gm-table-v2">
+                <thead>
+                  <tr>
+                    <th style="padding:14px 18px;">BMC Code</th>
+                    <th style="padding:14px 18px;">BMC Name</th>
+                    <th style="padding:14px 18px;">MACS Result</th>
+                    <th style="padding:14px 18px;">Spot Analyzer</th>
+                    <th style="padding:14px 18px;">Diary Result</th>
+                    <th style="padding:14px 18px;">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="macs-table-body">
+                  <tr><td colspan="6" class="text-center text-muted" style="padding:28px;">Loading MACS data...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Table 2: No MACS Data (Spot Analyzer Visits Only) -->
+          <div class="table-card">
+            <div class="table-card-header" style="background:#FFFBEB; border-bottom:1px solid #FCD34D;">
+              <h4 style="color:#92400E;">⚠️ BMCs with No MACS Data (Spot Analyzer Visits Only)</h4>
+            </div>
+            <div class="table-responsive">
+              <table class="gm-table-v2">
+                <thead>
+                  <tr style="background:#FEF3C7; color:#78350F;">
+                    <th style="padding:14px 18px;">BMC Code</th>
+                    <th style="padding:14px 18px;">BMC Name</th>
+                    <th style="padding:14px 18px;">Spot Analyzer Result</th>
+                    <th style="padding:14px 18px;">Diary Result</th>
+                    <th style="padding:14px 18px;">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="no-macs-table-body">
+                  <tr><td colspan="5" class="text-center text-muted" style="padding:28px; color:#92400E;">No Spot Analyzer visits recorded for BMCs missing MACS data.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/transport-api.js"></script>
+  <script src="../js/transport-macs.js"></script>
+</body>
+</html>

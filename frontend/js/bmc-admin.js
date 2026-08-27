@@ -5,6 +5,7 @@ let editingBmcId = null;
 let selectedFile = null;
 let detectedLat = null;
 let detectedLng = null;
+let allRoutes = [];
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -18,9 +19,53 @@ document.addEventListener('DOMContentLoaded', async () => {
   const mainContent = document.getElementById('main-admin-content');
   if (mainContent) mainContent.classList.remove('hidden');
 
+  await loadRoutes();
   await loadBmcs();
   bindEvents();
 });
+
+// ── Load Routes ───────────────────────────────────────────────────────────────
+async function loadRoutes() {
+  try {
+    let routes = [];
+    try {
+      const fetchFunc = typeof adminFetch === 'function' ? adminFetch : fetch;
+      const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : '';
+      const token = window.localStorage.getItem('sb-access-token') || '';
+      const res = await fetchFunc(`${baseUrl}/api/gm/routes`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = typeof res.json === 'function' ? await res.json() : res;
+      if (data && data.routes) routes = data.routes;
+    } catch (apiErr) {
+      console.warn('Backend route load failed, using direct Supabase fallback:', apiErr);
+    }
+
+    if (!routes || routes.length === 0) {
+      const client = await initSupabase();
+      if (client) {
+        const { data } = await client.from('bmc_routes').select('*').order('name');
+        if (data) routes = data;
+      }
+    }
+
+    allRoutes = routes || [];
+    
+    const filterSelect = document.getElementById('bmc-filter-route');
+    if (filterSelect) {
+      filterSelect.innerHTML = '<option value="all">All Routes</option><option value="none">No Route</option>' + 
+        allRoutes.map(r => `<option value="${r.id}">${escHtml(r.name)}</option>`).join('');
+    }
+    
+    const modalSelect = document.getElementById('bmc-route');
+    if (modalSelect) {
+      modalSelect.innerHTML = '<option value="">No Route</option>' + 
+        allRoutes.map(r => `<option value="${r.id}">${escHtml(r.name)}</option>`).join('');
+    }
+  } catch (err) {
+    console.error('Failed to load routes:', err);
+  }
+}
 
 // ── Load All BMCs ─────────────────────────────────────────────────────────────
 async function loadBmcs() {
@@ -32,7 +77,7 @@ async function loadBmcs() {
 
   const { data, error } = await client
     .from('bmcs')
-    .select('*')
+    .select('*, bmc_routes(id, name)')
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -55,11 +100,23 @@ function renderStats() {
 }
 
 // ── Render Grid ───────────────────────────────────────────────────────────────
+function getRouteName(bmc) {
+  if (bmc.bmc_routes && bmc.bmc_routes.name) return bmc.bmc_routes.name;
+  if (bmc.route_name) return bmc.route_name;
+  if (bmc.route_id && Array.isArray(allRoutes) && allRoutes.length > 0) {
+    const found = allRoutes.find(r => String(r.id) === String(bmc.route_id));
+    if (found) return found.name;
+  }
+  return 'Unassigned Route';
+}
+
+// ── Render Grid ───────────────────────────────────────────────────────────────
 function renderGrid(list) {
   const grid = document.getElementById('bmc-grid');
+  if (!grid) return;
   if (!list.length) {
     grid.innerHTML = `
-      <div class="bmc-empty-state">
+      <div class="bmc-empty-state" style="grid-column: 1 / -1;">
         <div class="bmc-empty-icon">🏭</div>
         <div class="bmc-empty-title">No BMCs found</div>
         <div class="bmc-empty-desc">Click "Add New BMC" to register the first Bulk Milk Cooler.</div>
@@ -67,62 +124,144 @@ function renderGrid(list) {
     return;
   }
 
-  grid.innerHTML = list.map(bmc => `
-    <div class="bmc-card ${!bmc.is_active ? 'inactive-card' : ''}">
-      ${bmc.profile_image_url
-        ? `<img src="${escHtml(bmc.profile_image_url)}" class="bmc-card-image" alt="${escHtml(bmc.name)}">`
-        : `<div class="bmc-card-image-placeholder">🏭</div>`}
-      <div class="bmc-card-body">
-        <div class="bmc-card-title">${escHtml(bmc.name)}</div>
-        <div class="bmc-card-meta">
-          <div class="bmc-card-meta-item"><span>🗺️</span>${escHtml(bmc.district)}</div>
-          <div class="bmc-card-meta-item"><span>📍</span>${escHtml(bmc.location)}</div>
-          <div class="bmc-card-meta-item"><span>📞</span>${escHtml(bmc.contact_number)}</div>
-          ${bmc.bmc_code ? `<div class="bmc-card-meta-item"><span>🔖</span>Code: ${escHtml(bmc.bmc_code)}</div>` : ''}
-          ${bmc.latitude ? `<div class="bmc-card-meta-item"><span>🛰️</span>${Number(bmc.latitude).toFixed(5)}, ${Number(bmc.longitude).toFixed(5)}</div>` : ''}
+  // Group BMCs by route name
+  const groups = {};
+  list.forEach(bmc => {
+    const rName = getRouteName(bmc);
+    if (!groups[rName]) groups[rName] = [];
+    groups[rName].push(bmc);
+  });
+
+  let html = '';
+  const groupNames = Object.keys(groups);
+
+  groupNames.forEach((rName, groupIdx) => {
+    const groupBmcs = groups[rName];
+    html += `
+      <div class="bmc-route-group-header" style="grid-column: 1 / -1; margin-top: ${groupIdx === 0 ? '0' : '20px'}; margin-bottom: 8px; padding: 10px 16px; background: linear-gradient(135deg, #1e293b, #334155); color: #ffffff; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; font-weight: 700; box-shadow: 0 2px 4px rgba(0,0,0,0.06);">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.1rem;">🛣️</span>
+          <span style="font-size:1rem; letter-spacing:0.3px;">${escHtml(rName)}</span>
         </div>
-        <div class="bmc-card-status">
-          <span class="bmc-status-badge ${bmc.is_active ? 'bmc-status-active' : 'bmc-status-inactive'}">
-            ${bmc.is_active ? '● Active' : '● Inactive'}
-          </span>
+        <span style="background: rgba(255,255,255,0.2); font-size: 0.78rem; padding: 3px 10px; border-radius: 20px; font-weight: 600;">
+          ${groupBmcs.length} BMC${groupBmcs.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+    `;
+
+    html += groupBmcs.map(bmc => `
+      <div class="bmc-card ${!bmc.is_active ? 'inactive-card' : ''}">
+        ${bmc.profile_image_url
+          ? `<img src="${escHtml(bmc.profile_image_url)}" class="bmc-card-image" alt="${escHtml(bmc.name)}">`
+          : `<div class="bmc-card-image-placeholder">🏭</div>`}
+        <div class="bmc-card-body">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:4px;">
+            <div class="bmc-card-title">${escHtml(bmc.name)}</div>
+            ${bmc.bmc_code ? `<span style="font-size:0.75rem; background:#f1f5f9; color:#475569; padding:2px 6px; border-radius:4px; font-weight:600; white-space:nowrap;">Code: ${escHtml(bmc.bmc_code)}</span>` : ''}
+          </div>
+          <div class="bmc-card-meta">
+            <div class="bmc-card-meta-item" style="color:#0284c7; font-weight:600;"><span>🛣️</span>${escHtml(rName)}</div>
+            <div class="bmc-card-meta-item"><span>🗺️</span>${escHtml(bmc.district)}</div>
+            <div class="bmc-card-meta-item"><span>📍</span>${escHtml(bmc.location)}</div>
+            <div class="bmc-card-meta-item"><span>📞</span>${escHtml(bmc.contact_number)}</div>
+            ${bmc.latitude ? `<div class="bmc-card-meta-item"><span>🛰️</span>${Number(bmc.latitude).toFixed(5)}, ${Number(bmc.longitude).toFixed(5)}</div>` : ''}
+          </div>
+          <div class="bmc-card-status">
+            <span class="bmc-status-badge ${bmc.is_active ? 'bmc-status-active' : 'bmc-status-inactive'}">
+              ${bmc.is_active ? '● Active' : '● Inactive'}
+            </span>
+          </div>
+        </div>
+        <div class="bmc-card-actions">
+          <button class="btn btn-outline btn-sm" onclick="openEditModal('${bmc.id || bmc.bmc_code}')" style="flex:1;">✏️ Edit</button>
+          <button class="btn btn-sm ${bmc.is_active ? 'btn-danger' : 'btn-primary'}" onclick="toggleBmcStatus('${bmc.id || bmc.bmc_code}', ${bmc.is_active})" style="flex:1;">
+            ${bmc.is_active ? '⏹ Deactivate' : '▶ Activate'}
+          </button>
+          <button class="btn btn-sm" onclick="deleteBmc('${bmc.id || bmc.bmc_code}')" style="background:#FEE2E2; border-color:#FCA5A5; color:#DC2626; font-weight:700; flex:0.4; display:flex; justify-content:center; align-items:center;" title="Delete BMC">🗑️</button>
         </div>
       </div>
-      <div class="bmc-card-actions">
-        <button class="btn btn-outline btn-sm" onclick="openEditModal('${bmc.id}')" style="flex:1;">✏️ Edit</button>
-        <button class="btn btn-sm ${bmc.is_active ? 'btn-danger' : 'btn-primary'}" onclick="toggleBmcStatus('${bmc.id}', ${bmc.is_active})" style="flex:1;">
-          ${bmc.is_active ? '⏹ Deactivate' : '▶ Activate'}
-        </button>
-        <button class="btn btn-danger btn-sm" onclick="deleteBmc('${bmc.id}')" title="Delete BMC" style="padding: 0 10px;">🗑️</button>
-      </div>
-    </div>
-  `).join('');
+    `).join('');
+  });
+
+  grid.innerHTML = html;
 }
 
 window.deleteBmc = async function(id) {
   if (!confirm('Are you sure you want to delete this BMC record?')) return;
+  if (typeof toggleLoading === 'function') toggleLoading(true);
   try {
-    const client = await initSupabase();
-    if (!client) { showToast('Database offline.', 'error'); return; }
-    
-    const { error } = await client.from('bmcs').delete().eq('id', id);
-    if (error) throw error;
-    
-    showToast('BMC deleted', 'success');
+    let deletedSuccess = false;
+    let errorMsg = '';
+
+    try {
+      if (typeof adminFetch === 'function') {
+        await adminFetch(`/api/admin/bmcs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        deletedSuccess = true;
+      } else {
+        const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'https://aavin-backend.onrender.com';
+        const token = window.localStorage.getItem('sb-access-token') || '';
+        const res = await fetch(`${baseUrl}/api/admin/bmcs/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          deletedSuccess = true;
+        } else {
+          const json = await res.json().catch(() => ({}));
+          errorMsg = json.error || `Server status ${res.status}`;
+        }
+      }
+    } catch (apiErr) {
+      console.warn('[deleteBmc] Backend API delete failed, using direct Supabase fallback:', apiErr);
+      errorMsg = apiErr.message;
+    }
+
+    if (!deletedSuccess) {
+      const client = await initSupabase();
+      if (!client) throw new Error(errorMsg || 'Database offline.');
+
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+      if (isUuid) {
+        await client.from('bmc_silos').delete().eq('bmc_id', id);
+        await client.from('eo_bmc_assignments').delete().eq('bmc_id', id);
+      }
+
+      const { error } = isUuid
+        ? await client.from('bmcs').delete().eq('id', id)
+        : await client.from('bmcs').delete().eq('bmc_code', id);
+
+      if (error) throw error;
+      deletedSuccess = true;
+    }
+
+    if (typeof showToast === 'function') showToast('BMC deleted successfully', 'success');
     await loadBmcs();
   } catch (err) {
-    showToast(err.message, 'error');
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to delete BMC', 'error');
+  } finally {
+    if (typeof toggleLoading === 'function') toggleLoading(false);
   }
 };
 
 // ── Filter / Search ───────────────────────────────────────────────────────────
 function applyFilters() {
   const q = document.getElementById('bmc-search').value.toLowerCase().trim();
-  const status = document.getElementById('bmc-filter-status').value;
+  const statusEl = document.getElementById('bmc-filter-status');
+  const status = statusEl ? statusEl.value : 'all';
+  const routeEl = document.getElementById('bmc-filter-route');
+  const routeId = routeEl ? routeEl.value : 'all';
 
   let list = [...allBmcs];
   if (q) list = list.filter(b => b.name.toLowerCase().includes(q) || b.district.toLowerCase().includes(q));
   if (status === 'active') list = list.filter(b => b.is_active);
   if (status === 'inactive') list = list.filter(b => !b.is_active);
+  
+  if (routeId === 'none') {
+    list = list.filter(b => !b.route_id);
+  } else if (routeId !== 'all') {
+    list = list.filter(b => b.route_id === routeId);
+  }
   renderGrid(list);
 }
 
@@ -138,6 +277,60 @@ function bindEvents() {
   document.getElementById('detect-location-btn').addEventListener('click', detectLocation);
   document.getElementById('bmc-search').addEventListener('input', applyFilters);
   document.getElementById('bmc-filter-status').addEventListener('change', applyFilters);
+  
+  const filterRoute = document.getElementById('bmc-filter-route');
+  if (filterRoute) filterRoute.addEventListener('change', applyFilters);
+  
+  const addRouteBtn = document.getElementById('add-route-btn');
+  if (addRouteBtn) {
+    addRouteBtn.addEventListener('click', async () => {
+      const name = prompt('Enter new route name:');
+      if (name && name.trim()) {
+        const routeName = name.trim();
+        try {
+          let newRoute = null;
+          try {
+            const fetchFunc = typeof adminFetch === 'function' ? adminFetch : fetch;
+            const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : '';
+            const headers = {'Content-Type': 'application/json'};
+            if (typeof adminFetch !== 'function') {
+              headers['Authorization'] = `Bearer ${window.localStorage.getItem('sb-access-token')}`;
+            }
+            const res = await fetchFunc(`${baseUrl}/api/gm/routes`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ name: routeName })
+            });
+            const data = typeof res.json === 'function' ? await res.json() : res;
+            if (data && data.route) newRoute = data.route;
+          } catch (apiErr) {
+            console.warn('API add route failed, trying direct Supabase fallback:', apiErr);
+          }
+
+          if (!newRoute) {
+            const client = await initSupabase();
+            if (client) {
+              const { data, error } = await client.from('bmc_routes').insert({ name: routeName }).select().single();
+              if (error) throw error;
+              newRoute = data;
+            }
+          }
+
+          if (newRoute) {
+            await loadRoutes();
+            const modalSelect = document.getElementById('bmc-route');
+            if (modalSelect) modalSelect.value = newRoute.id;
+            if (typeof showToast === 'function') showToast('Route added successfully', 'success');
+          } else {
+            throw new Error('Failed to create route');
+          }
+        } catch (err) {
+          console.error('Add route error:', err);
+          if (typeof showToast === 'function') showToast(err.message || 'Failed to add route', 'error');
+        }
+      }
+    });
+  }
 
   // Image upload
   const imageZone = document.getElementById('bmc-image-drop');
@@ -226,6 +419,8 @@ function openAddModal() {
   detectedLng = null;
 
   document.getElementById('bmc-modal-title').textContent = 'Add New BMC';
+  const routeEl = document.getElementById('bmc-route');
+  if (routeEl) routeEl.value = '';
   document.getElementById('bmc-name').value = '';
   document.getElementById('bmc-district').value = '';
   document.getElementById('bmc-contact').value = '';
@@ -258,6 +453,8 @@ function openEditModal(id) {
   detectedLng = bmc.longitude || null;
 
   document.getElementById('bmc-modal-title').textContent = 'Edit BMC';
+  const routeEl = document.getElementById('bmc-route');
+  if (routeEl) routeEl.value = bmc.route_id || '';
   document.getElementById('bmc-name').value = bmc.name;
   document.getElementById('bmc-district').value = bmc.district;
   document.getElementById('bmc-contact').value = bmc.contact_number;
@@ -298,6 +495,8 @@ async function saveBmc() {
   const location = document.getElementById('bmc-location-text').value.trim();
   const lat = document.getElementById('bmc-latitude').value;
   const lng = document.getElementById('bmc-longitude').value;
+  const routeEl = document.getElementById('bmc-route');
+  const route_id = routeEl ? routeEl.value : null;
 
   // Validation
   if (!name) { showToast('BMC Name is required.', 'error'); return; }
@@ -347,6 +546,7 @@ async function saveBmc() {
       latitude: parseFloat(lat),
       longitude: parseFloat(lng),
       profile_image_url: imageUrl,
+      route_id: route_id,
       updated_at: new Date()
     };
 
@@ -375,23 +575,52 @@ async function toggleBmcStatus(id, currentlyActive) {
   const action = currentlyActive ? 'deactivate' : 'activate';
   if (!confirm(`Are you sure you want to ${action} this BMC?`)) return;
 
-  toggleLoading(true);
-  const client = await initSupabase();
-  if (!client) { toggleLoading(false); showToast('Database offline.', 'error'); return; }
+  if (typeof toggleLoading === 'function') toggleLoading(true);
 
-  const { error } = await client
-    .from('bmcs')
-    .update({ is_active: !currentlyActive, updated_at: new Date() })
-    .eq('id', id);
+  try {
+    let success = false;
+    try {
+      if (typeof adminFetch === 'function') {
+        await adminFetch(`/api/gm/bmcs/${encodeURIComponent(id)}/toggle`, {
+          method: 'PUT',
+          body: JSON.stringify({ is_active: !currentlyActive })
+        });
+        success = true;
+      } else {
+        const token = window.localStorage.getItem('sb-access-token') || '';
+        const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'https://aavin-backend.onrender.com';
+        const res = await fetch(`${baseUrl}/api/gm/bmcs/${encodeURIComponent(id)}/toggle`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ is_active: !currentlyActive })
+        });
+        if (res.ok) success = true;
+      }
+    } catch (fetchErr) {
+      console.warn('[toggleBmcStatus] API toggle failed, trying direct Supabase fallback:', fetchErr);
+    }
 
-  toggleLoading(false);
-  if (error) {
-    showToast('Failed: ' + error.message, 'error');
-  } else {
-    showToast(`BMC ${action}d successfully.`, 'success');
+    if (!success) {
+      const client = await initSupabase();
+      if (!client) throw new Error('Database offline.');
+
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      const { error } = isUuid
+        ? await client.from('bmcs').update({ is_active: !currentlyActive }).eq('id', id)
+        : await client.from('bmcs').update({ is_active: !currentlyActive }).eq('bmc_code', id);
+
+      if (error) throw error;
+    }
+
+    if (typeof showToast === 'function') showToast(`BMC ${action}d successfully.`, 'success');
     await loadBmcs();
+  } catch (err) {
+    if (typeof showToast === 'function') showToast('Failed: ' + err.message, 'error');
+  } finally {
+    if (typeof toggleLoading === 'function') toggleLoading(false);
   }
 }
+window.toggleBmcStatus = toggleBmcStatus;
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 function getOptimizedBase64(file, maxWidth = 800, quality = 0.8) {

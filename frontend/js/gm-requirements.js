@@ -1,6 +1,7 @@
 // gm-requirements.js — GM BMC Requirements Management
 
 let allRequirements = [];
+let allMasterBmcs = [];
 
 const REQ_FIELDS = [
   { key: 'acid_available',         label: 'Acids',        icon: '🧪' },
@@ -37,10 +38,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadBmcDropdown() {
   try {
     const res = await apiGetGmBmcs();
+    allMasterBmcs = res.bmcs || [];
     const select = document.getElementById('bmc-filter-select');
-    (res.bmcs || []).forEach(b => {
+    select.innerHTML = '<option value="">All BMCs</option>';
+    allMasterBmcs.forEach(b => {
       const opt = document.createElement('option');
-      opt.value = b.id;
+      opt.value = b.id || b.bmc_code;
       opt.textContent = `${b.name} (${b.district})`;
       select.appendChild(opt);
     });
@@ -65,7 +68,15 @@ function renderRequirements() {
 
   let list = [...allRequirements].filter(hasFault);
 
-  if (bmcId) list = list.filter(r => String(r.bmc_id) === String(bmcId));
+  if (bmcId) {
+    const selectedBmc = allMasterBmcs.find(b => String(b.id) === String(bmcId) || String(b.bmc_code) === String(bmcId));
+    list = list.filter(r => {
+      const matchId = String(r.bmc_id) === String(bmcId);
+      const matchCode = selectedBmc && selectedBmc.bmc_code && String(r.bmc_code || r.bmc_id) === String(selectedBmc.bmc_code);
+      const matchName = selectedBmc && selectedBmc.name && String(r.bmc_name).toLowerCase() === String(selectedBmc.name).toLowerCase();
+      return matchId || matchCode || matchName;
+    });
+  }
   if (status !== 'all') {
     list = list.filter(r => {
       const done = r.status === 'completed' || (r.remarks && r.remarks.includes('[COMPLETED'));

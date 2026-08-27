@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await loadTripDetails();
   setupAddBmcModal();
-
+  setupStartTripModal();
   setupCloseTripModal();
 });
 
@@ -94,21 +94,37 @@ function renderTripHeader() {
   document.getElementById('trip-number-display').textContent = `Trip #: ${currentTrip.trip_number || 'N/A'}`;
   
   const statusBadge = document.getElementById('trip-status-badge');
+  const startBtn = document.getElementById('start-trip-btn');
+  const closeBtn = document.getElementById('close-trip-btn');
+
   if (currentTrip.status === 'completed') {
     statusBadge.textContent = 'Completed';
     statusBadge.className = 'status-pill pill-completed';
-    document.getElementById('close-trip-btn').style.display = 'none';
+    if (startBtn) startBtn.style.display = 'none';
+    if (closeBtn) closeBtn.style.display = 'none';
     document.getElementById('add-bmc-to-trip-btn').style.display = 'none';
-  } else {
-    statusBadge.textContent = 'Active';
+  } else if (currentTrip.status === 'in_progress') {
+    statusBadge.textContent = 'In Progress';
     statusBadge.className = 'status-pill pill-active';
+    if (startBtn) startBtn.style.display = 'none';
+    if (closeBtn) closeBtn.style.display = 'inline-block';
+  } else {
+    statusBadge.textContent = 'Pending Start';
+    statusBadge.className = 'status-pill pill-pending';
+    if (startBtn) startBtn.style.display = 'inline-block';
+    if (closeBtn) closeBtn.style.display = 'none';
   }
 
   document.getElementById('meta-driver').textContent = currentTrip.driver_name || (currentTrip.driver ? currentTrip.driver.name : 'Unassigned');
   document.getElementById('meta-tanker').textContent = currentTrip.tanker_number || (currentTrip.tanker ? currentTrip.tanker.board_number : 'Unassigned');
 
-  document.getElementById('meta-out-time').textContent = new Date(currentTrip.out_time).toLocaleString();
+  document.getElementById('meta-out-time').textContent = currentTrip.out_time ? new Date(currentTrip.out_time).toLocaleString() : 'Not Started';
   document.getElementById('meta-in-time').textContent = currentTrip.in_time ? new Date(currentTrip.in_time).toLocaleString() : 'In Progress';
+
+  if (document.getElementById('meta-out-km')) document.getElementById('meta-out-km').textContent = currentTrip.out_km !== null ? `${currentTrip.out_km} KM` : 'Pending';
+  if (document.getElementById('meta-out-weight')) document.getElementById('meta-out-weight').textContent = currentTrip.out_tanker_weight !== null ? `${currentTrip.out_tanker_weight} KG` : 'Pending';
+  if (document.getElementById('meta-in-km')) document.getElementById('meta-in-km').textContent = currentTrip.in_km !== null ? `${currentTrip.in_km} KM` : 'Pending';
+  if (document.getElementById('meta-distance')) document.getElementById('meta-distance').textContent = currentTrip.distance_km !== null ? `${currentTrip.distance_km} KM` : 'Pending';
 }
 
 function renderVisitsList() {
@@ -324,6 +340,72 @@ function getOptimizedBase64(file, maxWidth = 800, quality = 0.8) {
   });
 }
 
+function setupStartTripModal() {
+  const modal = document.getElementById('start-trip-modal');
+  const openBtn = document.getElementById('start-trip-btn');
+  const cancelBtn = document.getElementById('start-modal-cancel');
+  const confirmBtn = document.getElementById('confirm-start-trip-btn');
+
+  if (!openBtn || !modal) return;
+
+  openBtn.addEventListener('click', () => {
+    modal.classList.remove('hidden');
+  });
+
+  if (cancelBtn) cancelBtn.addEventListener('click', () => modal.classList.add('hidden'));
+
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async () => {
+      const outKm = document.getElementById('worker-out-km')?.value;
+      const outWeight = document.getElementById('worker-out-weight')?.value;
+      const photoFile = document.getElementById('worker-out-photo-input')?.files[0];
+
+      if (!outKm) { showToast('Please enter OUT KM odometer reading.', 'error'); return; }
+      if (!outWeight) { showToast('Please enter OUT Tanker Weight.', 'error'); return; }
+
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Starting...';
+
+      try {
+        let photoProof = null;
+        if (photoFile) {
+          photoProof = await getOptimizedBase64(photoFile);
+        }
+
+        const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'https://aavin-backend.onrender.com';
+        const token = await getAuthToken();
+
+        const res = await fetch(`${baseUrl}/api/trips/${currentTripId}/start-worker`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            out_km: outKm,
+            out_tanker_weight: outWeight,
+            odometer_photo_out: photoProof
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to start trip');
+
+        showToast('🚀 Trip successfully started!', 'success');
+        modal.classList.add('hidden');
+        await loadTripDetails();
+
+      } catch (err) {
+        console.error('Failed to start worker trip:', err);
+        showToast(err.message || 'Failed to start trip', 'error');
+      } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Confirm Start Trip';
+      }
+    });
+  }
+}
+
 function setupCloseTripModal() {
   const modal = document.getElementById('close-trip-modal');
   const openBtn = document.getElementById('close-trip-btn');
@@ -336,42 +418,68 @@ function setupCloseTripModal() {
   openBtn.addEventListener('click', () => {
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    inTimeInput.value = now.toISOString().slice(0, 16);
+    if (inTimeInput) inTimeInput.value = now.toISOString().slice(0, 16);
     modal.classList.remove('hidden');
   });
 
-  cancelBtn.addEventListener('click', () => modal.classList.add('hidden'));
+  if (cancelBtn) cancelBtn.addEventListener('click', () => modal.classList.add('hidden'));
 
-  confirmBtn.addEventListener('click', async () => {
-    const inTime = inTimeInput.value;
-    const remarks = document.getElementById('trip-closing-remarks').value;
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async () => {
+      const inKm = document.getElementById('worker-in-km')?.value;
+      const emptyWeight = document.getElementById('worker-empty-weight')?.value || null;
+      const photoFile = document.getElementById('worker-in-photo-input')?.files[0];
+      const inTime = inTimeInput?.value;
+      const remarks = document.getElementById('trip-closing-remarks')?.value || '';
 
-    if (!inTime) {
-      showToast('Factory IN-time is required.', 'error');
-      return;
-    }
+      if (!inKm) {
+        showToast('IN KM odometer reading is required.', 'error');
+        return;
+      }
 
-    confirmBtn.disabled = true;
-    confirmBtn.textContent = 'Closing...';
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Closing...';
 
-    try {
-      await apiCompleteTrip(currentTripId, {
-        in_time: new Date(inTime).toISOString(),
-        remarks
-      });
+      try {
+        let photoProof = null;
+        if (photoFile) {
+          photoProof = await getOptimizedBase64(photoFile);
+        }
 
-      showToast('Trip successfully completed & closed!', 'success');
-      modal.classList.add('hidden');
-      await loadTripDetails();
+        const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'https://aavin-backend.onrender.com';
+        const token = await getAuthToken();
 
-    } catch (err) {
-      console.error('Failed to complete trip:', err);
-      showToast(err.message || 'Failed to close trip.', 'error');
-    } finally {
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = 'Confirm Close Trip';
-    }
-  });
+        const res = await fetch(`${baseUrl}/api/trips/${currentTripId}/complete-worker`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            in_km: inKm,
+            empty_tanker_weight: emptyWeight,
+            odometer_photo_in: photoProof,
+            in_time: inTime ? new Date(inTime).toISOString() : new Date().toISOString(),
+            remarks
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to complete trip');
+
+        showToast('🏁 Trip successfully completed & closed!', 'success');
+        modal.classList.add('hidden');
+        await loadTripDetails();
+
+      } catch (err) {
+        console.error('Failed to complete trip:', err);
+        showToast(err.message || 'Failed to close trip.', 'error');
+      } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Confirm Close Trip';
+      }
+    });
+  }
 }
 
 function esc(str) {

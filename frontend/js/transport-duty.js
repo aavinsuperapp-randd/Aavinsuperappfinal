@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('header-to-name').textContent = profile.name;
 
   setupSidebarToggle();
-  document.getElementById('logout-btn').addEventListener('click', handleLogout);
+  document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
 
   setupDutyFilters();
   setupDutyModal();
@@ -162,12 +162,17 @@ async function setupCreateTripModal() {
   const form = document.getElementById('create-trip-form');
   const searchInput = document.getElementById('ct-bmc-search');
   const btnSaveBmcs = document.getElementById('btn-save-bmcs');
+  const dateInput = document.getElementById('ct-macs-date');
+  const periodSelect = document.getElementById('ct-macs-period');
 
   if (!btnCreate || !modal) return;
 
   btnCreate.addEventListener('click', async () => {
     selectedBmcs = [];
     isBmcSelectionSaved = false;
+    if (dateInput && !dateInput.value) {
+      dateInput.value = new Date().toISOString().split('T')[0];
+    }
     renderSelectedBmcs();
     lockStep2();
     openModal('create-trip-modal');
@@ -175,7 +180,23 @@ async function setupCreateTripModal() {
   });
 
   btnClose.addEventListener('click', () => closeModal('create-trip-modal'));
-  btnCancel.addEventListener('click', () => closeModal('create-trip-modal'));
+  btnCancel.addEventListener('click', () => closeModal('create-trip-cancel'));
+
+  const handleMacsFilterChange = async () => {
+    const selDate = dateInput?.value || new Date().toISOString().split('T')[0];
+    const selPeriod = periodSelect?.value || 'both';
+    try {
+      const bRes = await apiGetBmcsList(selDate, selPeriod);
+      bmcsList = bRes.bmcs || [];
+      renderAvailableBmcs(searchInput?.value.trim() || '');
+      renderSelectedBmcs();
+    } catch (err) {
+      console.error('Failed to reload BMC MACS data:', err);
+    }
+  };
+
+  if (dateInput) dateInput.addEventListener('change', handleMacsFilterChange);
+  if (periodSelect) periodSelect.addEventListener('change', handleMacsFilterChange);
 
   if (searchInput) {
     searchInput.addEventListener('input', () => {
@@ -345,7 +366,7 @@ function renderAvailableBmcs(query = '') {
   if (!bmcContainer) return;
 
   const filtered = bmcsList.filter(b =>
-    !query || (b.name || '').toLowerCase().includes(query.toLowerCase()) || (b.location || '').toLowerCase().includes(query.toLowerCase())
+    !query || (b.name || '').toLowerCase().includes(query.toLowerCase()) || (b.location || '').toLowerCase().includes(query.toLowerCase()) || (b.route_name || b.bmc_routes?.name || '').toLowerCase().includes(query.toLowerCase())
   );
 
   if (filtered.length === 0) {
@@ -353,23 +374,48 @@ function renderAvailableBmcs(query = '') {
     return;
   }
 
-  bmcContainer.innerHTML = filtered.map(b => {
-    const isSelected = selectedBmcs.some(item => item.bmc_id === b.id);
-    const selectedItem = selectedBmcs.find(item => item.bmc_id === b.id);
+  // Group by Route Name
+  const groups = {};
+  filtered.forEach(b => {
+    const rName = b.bmc_routes?.name || b.route_name || b.route || 'Unassigned Route';
+    if (!groups[rName]) groups[rName] = [];
+    groups[rName].push(b);
+  });
 
-    return `
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border: 1px solid #E2E8F0; border-radius: 6px; background: ${isSelected ? '#F0FDF4' : '#FFFFFF'};">
-        <div>
-          <strong style="font-size: 0.9rem; color: #0F172A;">🏢 ${b.name}</strong>
-          ${b.location ? `<span style="font-size: 0.8rem; color: #64748B; margin-left: 6px;">(${b.location})</span>` : ''}
-        </div>
-        ${isSelected
-          ? `<span class="badge badge-success" style="font-size: 0.75rem;">✓ Added (${selectedItem.compartment})</span>`
-          : `<button type="button" class="btn btn-outline btn-sm" onclick="promptCompartment('${b.id}')" style="padding: 4px 10px; font-weight: 600;">➕ Add</button>`
-        }
+  let html = '';
+  Object.keys(groups).forEach((rName, gIdx) => {
+    const gList = groups[rName];
+    html += `
+      <div style="margin-top:${gIdx === 0 ? '0' : '14px'}; margin-bottom:6px; padding:6px 12px; background:linear-gradient(135deg, #1e293b, #334155); border-radius:8px; font-size:0.85rem; font-weight:800; color:#FFFFFF; display:flex; justify-space-between; align-items:center;">
+        <span style="display:flex; align-items:center; gap:6px;">🛣️ Route: ${rName}</span>
+        <span style="font-size:0.75rem; color:#FFFFFF; background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:12px; margin-left:auto;">${gList.length} BMC${gList.length !== 1 ? 's' : ''}</span>
       </div>
     `;
-  }).join('');
+
+    html += gList.map(b => {
+      const isSelected = selectedBmcs.some(item => item.bmc_id === b.id);
+      const selectedItem = selectedBmcs.find(item => item.bmc_id === b.id);
+      const macsQtyStr = (b.macs_quantity_kg !== null && b.macs_quantity_kg !== undefined) ? `${b.macs_quantity_kg} KG` : '-';
+
+      return `
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; margin-bottom:6px; border: 1.5px solid ${isSelected ? '#86EFAC' : '#E2E8F0'}; border-radius: 10px; background: ${isSelected ? '#F0FDF4' : '#FFFFFF'}; transition: all 0.2s ease;">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <strong style="font-size: 0.92rem; color: #0F172A;">🏢 ${b.name}</strong>
+            <span style="font-size:0.78rem; font-weight:700; color:${b.macs_quantity_kg ? '#1D4ED8' : '#64748B'}; background:${b.macs_quantity_kg ? '#EFF6FF' : '#F1F5F9'}; padding:3px 8px; border-radius:6px; border:1px solid ${b.macs_quantity_kg ? '#BFDBFE' : '#E2E8F0'};">
+              MACS: ${macsQtyStr}
+            </span>
+            ${b.location ? `<span style="font-size: 0.8rem; color: #64748B;">(${b.location})</span>` : ''}
+          </div>
+          ${isSelected
+            ? `<span class="badge badge-success" style="font-size: 0.78rem; padding:5px 10px; font-weight:700;">✓ Added (${selectedItem.compartment})</span>`
+            : `<button type="button" class="btn btn-outline btn-sm" onclick="promptCompartment('${b.id}')" style="padding: 6px 14px; font-weight: 700; border-radius:8px; border-color:#2563EB; color:#2563EB; background:#F0F7FF;">➕ Add</button>`
+          }
+        </div>
+      `;
+    }).join('');
+  });
+
+  bmcContainer.innerHTML = html;
 }
 
 window.promptCompartment = function(bmcId) {
@@ -389,23 +435,99 @@ function renderSelectedBmcs() {
 
   if (selectedBmcs.length === 0) {
     container.innerHTML = '<span class="text-muted text-sm" style="font-style: italic;">No BMCs selected yet. Search and click (+) Add above.</span>';
+    updateVehicleUtilization();
     return;
   }
 
-  container.innerHTML = selectedBmcs.map((item, idx) => {
-    const compBadgeClass = item.compartment === 'Front' ? 'badge-danger' : item.compartment === 'Mid' ? 'badge-warning' : 'badge-info';
-    return `
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 6px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-weight: 800; color: #2563EB; width: 20px;">${idx + 1}.</span>
-          <span style="font-weight: 600; color: #0F172A;">BMC - ${item.bmc_name}</span>
-          <span class="badge ${compBadgeClass}" style="font-size: 0.75rem;">${item.compartment}</span>
+  // Group assigned BMCs by compartment: Front, Mid, Back
+  const compFront = selectedBmcs.filter(b => b.compartment === 'Front');
+  const compMid = selectedBmcs.filter(b => b.compartment === 'Mid');
+  const compBack = selectedBmcs.filter(b => b.compartment === 'Back');
+
+  const getBmcWeightDisplay = (bObj) => {
+    const fullBmc = bmcsList.find(b => b.id === bObj.bmc_id);
+    if (fullBmc?.macs_quantity_kg !== null && fullBmc?.macs_quantity_kg !== undefined) {
+      return `${fullBmc.macs_quantity_kg} KG`;
+    }
+    return '-'; // Show - if no MACS data
+  };
+
+  const getBmcWeightValue = (bObj) => {
+    const fullBmc = bmcsList.find(b => b.id === bObj.bmc_id);
+    if (fullBmc?.macs_quantity_kg !== null && fullBmc?.macs_quantity_kg !== undefined) {
+      return Number(fullBmc.macs_quantity_kg);
+    }
+    return 0; // Don't add generic capacity if no real MACS data
+  };
+
+  const frontKg = compFront.reduce((acc, b) => acc + getBmcWeightValue(b), 0);
+  const midKg = compMid.reduce((acc, b) => acc + getBmcWeightValue(b), 0);
+  const backKg = compBack.reduce((acc, b) => acc + getBmcWeightValue(b), 0);
+
+  container.innerHTML = `
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:14px; margin-top:8px;">
+      
+      <!-- FRONT COMPARTMENT -->
+      <div style="background:#FEF2F2; border:1.5px solid #FECACA; border-radius:12px; padding:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #FCA5A5; padding-bottom:6px;">
+          <strong style="font-size:0.88rem; color:#991B1B; display:flex; align-items:center; gap:4px;">🔴 FRONT Compartment</strong>
+          <span style="font-size:0.78rem; font-weight:800; color:#B91C1C; background:#FEE2E2; padding:3px 8px; border-radius:12px; border:1px solid #FCA5A5;">${frontKg.toLocaleString()} KG</span>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm text-danger" onclick="removeSelectedBmc(${idx})" style="padding: 2px 6px; font-size: 0.9rem;" title="Remove BMC">✕</button>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          ${compFront.length === 0 ? '<span class="text-xs text-muted" style="padding:4px 0;">No BMC assigned</span>' : compFront.map((item, idx) => `
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#FFFFFF; padding:8px 10px; border-radius:8px; border:1px solid #FCA5A5; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+              <span style="font-size:0.83rem; font-weight:700; color:#0F172A;">${idx+1}. ${item.bmc_name} <span style="color:#64748B; font-weight:500; font-size:0.78rem; margin-left:4px;">(${getBmcWeightDisplay(item)})</span></span>
+              <button type="button" onclick="removeSelectedBmcByBmcId('${item.bmc_id}')" style="border:none; background:#FEE2E2; color:#DC2626; font-size:0.85rem; width:24px; height:24px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; font-weight:800;" title="Remove">✕</button>
+            </div>
+          `).join('')}
+        </div>
       </div>
-    `;
-  }).join('');
+
+      <!-- MID COMPARTMENT -->
+      <div style="background:#FFFBEB; border:1.5px solid #FDE68A; border-radius:12px; padding:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #FCD34D; padding-bottom:6px;">
+          <strong style="font-size:0.88rem; color:#92400E; display:flex; align-items:center; gap:4px;">🟡 MID Compartment</strong>
+          <span style="font-size:0.78rem; font-weight:800; color:#B45309; background:#FEF3C7; padding:3px 8px; border-radius:12px; border:1px solid #FCD34D;">${midKg.toLocaleString()} KG</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          ${compMid.length === 0 ? '<span class="text-xs text-muted" style="padding:4px 0;">No BMC assigned</span>' : compMid.map((item, idx) => `
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#FFFFFF; padding:8px 10px; border-radius:8px; border:1px solid #FCD34D; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+              <span style="font-size:0.83rem; font-weight:700; color:#0F172A;">${idx+1}. ${item.bmc_name} <span style="color:#64748B; font-weight:500; font-size:0.78rem; margin-left:4px;">(${getBmcWeightDisplay(item)})</span></span>
+              <button type="button" onclick="removeSelectedBmcByBmcId('${item.bmc_id}')" style="border:none; background:#FEF3C7; color:#B45309; font-size:0.85rem; width:24px; height:24px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; font-weight:800;" title="Remove">✕</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- BACK COMPARTMENT -->
+      <div style="background:#EFF6FF; border:1.5px solid #BFDBFE; border-radius:12px; padding:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #93C5FD; padding-bottom:6px;">
+          <strong style="font-size:0.88rem; color:#1E40AF; display:flex; align-items:center; gap:4px;">🔵 BACK Compartment</strong>
+          <span style="font-size:0.78rem; font-weight:800; color:#1D4ED8; background:#DBEAFE; padding:3px 8px; border-radius:12px; border:1px solid #93C5FD;">${backKg.toLocaleString()} KG</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          ${compBack.length === 0 ? '<span class="text-xs text-muted" style="padding:4px 0;">No BMC assigned</span>' : compBack.map((item, idx) => `
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#FFFFFF; padding:8px 10px; border-radius:8px; border:1px solid #93C5FD; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+              <span style="font-size:0.83rem; font-weight:700; color:#0F172A;">${idx+1}. ${item.bmc_name} <span style="color:#64748B; font-weight:500; font-size:0.78rem; margin-left:4px;">(${getBmcWeightDisplay(item)})</span></span>
+              <button type="button" onclick="removeSelectedBmcByBmcId('${item.bmc_id}')" style="border:none; background:#DBEAFE; color:#1E40AF; font-size:0.85rem; width:24px; height:24px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; font-weight:800;" title="Remove">✕</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+    </div>
+  `;
+
+  updateVehicleUtilization();
 }
+
+window.removeSelectedBmcByBmcId = function(bmcId) {
+  selectedBmcs = selectedBmcs.filter(item => item.bmc_id !== bmcId);
+  isBmcSelectionSaved = false;
+  lockStep2('⚠️ BMC list modified. Click "Save & Confirm BMC Details" to apply changes.');
+  renderSelectedBmcs();
+  renderAvailableBmcs(document.getElementById('ct-bmc-search')?.value.trim() || '');
+};
 
 window.removeSelectedBmc = function(index) {
   selectedBmcs.splice(index, 1);
@@ -415,12 +537,68 @@ window.removeSelectedBmc = function(index) {
   renderAvailableBmcs(document.getElementById('ct-bmc-search')?.value.trim() || '');
 };
 
+function updateVehicleUtilization() {
+  const card = document.getElementById('vehicle-utilization-card');
+  const capLabel = document.getElementById('util-vehicle-cap');
+  const assignedLabel = document.getElementById('util-assigned-kg');
+  const badge = document.getElementById('utilization-badge');
+  const bar = document.getElementById('utilization-bar');
+
+  if (!card) return;
+
+  const vehicleId = document.getElementById('ct-vehicle')?.value;
+  const vehicle = vehiclesList.find(v => v.id === vehicleId);
+
+  // Get vehicle capacity in KG from vehicle record (default 10,000 KG if missing)
+  const vehicleCapKg = vehicle?.capacity_kg || vehicle?.capacity || 10000;
+
+  // Calculate assigned BMC total milk weight
+  const totalAssignedKg = selectedBmcs.reduce((sum, item) => {
+    const fullBmc = bmcsList.find(b => b.id === item.bmc_id);
+    if (fullBmc?.macs_quantity_kg !== null && fullBmc?.macs_quantity_kg !== undefined) {
+      return sum + Number(fullBmc.macs_quantity_kg);
+    }
+    return sum;
+  }, 0);
+
+  const percent = Math.min(100, Math.round((totalAssignedKg / vehicleCapKg) * 100));
+
+  card.style.display = 'block';
+  if (capLabel) capLabel.textContent = `${vehicleCapKg.toLocaleString()} KG`;
+  if (assignedLabel) assignedLabel.textContent = `${totalAssignedKg.toLocaleString()} KG`;
+
+  if (badge) {
+    badge.textContent = `${percent}% Utilized`;
+    if (percent > 85) {
+      badge.style.background = '#16A34A'; // GREEN
+      if (bar) bar.style.background = '#16A34A';
+    } else if (percent >= 80) {
+      badge.style.background = '#D97706'; // ORANGE
+      if (bar) bar.style.background = '#D97706';
+    } else {
+      badge.style.background = '#DC2626'; // RED
+      if (bar) bar.style.background = '#DC2626';
+    }
+  }
+
+  if (bar) bar.style.width = `${percent}%`;
+}
+
 async function fetchCreateTripOptions() {
   try {
+    const dateInput = document.getElementById('ct-macs-date');
+    const periodSelect = document.getElementById('ct-macs-period');
+    
+    if (dateInput && !dateInput.value) {
+      dateInput.value = new Date().toISOString().split('T')[0];
+    }
+    const selDate = dateInput?.value || new Date().toISOString().split('T')[0];
+    const selPeriod = periodSelect?.value || 'both';
+
     const [dRes, vRes, bRes] = await Promise.all([
       apiGetDriversList(),
       apiGetVehicles(),
-      apiGetBmcsList()
+      apiGetBmcsList(selDate, selPeriod)
     ]);
 
     driversList = dRes.drivers || [];
@@ -434,6 +612,10 @@ async function fetchCreateTripOptions() {
     const vehicleSel = document.getElementById('ct-vehicle');
     vehicleSel.innerHTML = '<option value="">Select Vehicle...</option>' +
       vehiclesList.map(v => `<option value="${v.id}">${v.board_number} (${v.vehicle_type || 'Tanker'})</option>`).join('');
+
+    vehicleSel.addEventListener('change', () => {
+      updateVehicleUtilization();
+    });
 
     renderAvailableBmcs();
     renderSelectedBmcs();

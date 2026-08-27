@@ -1,5 +1,13 @@
 // qc-agm-api.js — API Helper for QC AGM Dashboard
 
+async function getQcAgmAuthToken() {
+  const client = await initSupabase();
+  if (!client) throw new Error('Supabase configuration missing.');
+  const { data: { session } } = await client.auth.getSession();
+  if (!session) throw new Error('No active session. Please log in.');
+  return session.access_token;
+}
+
 async function qcAgmFetch(path, options = {}) {
   const client = await initSupabase();
   if (!client) throw new Error('Supabase configuration missing.');
@@ -34,10 +42,27 @@ async function qcAgmFetch(path, options = {}) {
 async function apiQcAgmGetProfile() {
   return qcAgmFetch('/api/qc-agm/profile');
 }
-async function apiQcAgmGetDashboard(date = '') {
-  let url = '/api/qc-agm/dashboard';
-  if (date) url += `?date=${encodeURIComponent(date)}`;
+async function apiQcAgmUpdateProfile(profileData) {
+  return qcAgmFetch('/api/qc-agm/profile', {
+    method: 'PUT',
+    body: JSON.stringify(profileData)
+  });
+}
+async function apiQcAgmGetDashboard(date = '', period = 'both') {
+  let url = `/api/qc-agm/dashboard?date=${encodeURIComponent(date)}&period=${encodeURIComponent(period)}`;
   return qcAgmFetch(url);
+}
+async function apiQcAgmGetBmcDetails(bmcCode) {
+  return qcAgmFetch(`/api/qc-agm/bmcs/${encodeURIComponent(bmcCode)}/details`);
+}
+async function apiQcAgmDenyReading(payload) {
+  return qcAgmFetch('/api/qc-agm/deny-reading', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+async function apiQcAgmGetLabIssues() {
+  return qcAgmFetch('/api/qc-agm/lab-issues');
 }
 async function apiQcAgmGetAllTests(date = '') {
   let url = '/api/qc-agm/tests';

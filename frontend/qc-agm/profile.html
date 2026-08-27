@@ -31,20 +31,11 @@
         <a href="dashboard.html" class="qs-nav-item">
           <span>📊</span> Dashboard Overview
         </a>
-        <a href="all-tests.html" class="qs-nav-item">
-          <span>🔬</span> All Test Results
-        </a>
-        <a href="bmc-quality.html" class="qs-nav-item">
-          <span>🏭</span> BMC Quality Analysis
-        </a>
         <a href="excel-import.html" class="qs-nav-item">
           <span>📥</span> Excel Import
         </a>
-        <a href="import-history.html" class="qs-nav-item">
-          <span>📜</span> Import History
-        </a>
-        <a href="variance.html" class="qs-nav-item">
-          <span>⚠️</span> Variance Analysis
+        <a href="lab-issue-report.html" class="qs-nav-item">
+          <span>🚨</span> Lab Issue Report
         </a>
         <a href="profile.html" class="qs-nav-item active">
           <span>👤</span> My Profile
@@ -74,37 +65,52 @@
 
           <div class="qc-page-top">
             <h1>QC AGM Executive Profile 👤</h1>
-            <p>Your authenticated Quality Assurance Assistant General Manager profile details.</p>
+            <p>View and edit your authenticated Quality Assurance Manager profile details.</p>
           </div>
 
-          <div class="qc-form-card" style="max-width:550px;">
+          <div class="qc-form-card" style="max-width:550px; background:white; border-radius:16px; border:1px solid #CBD5E1; padding:24px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
             <div style="display:flex; align-items:center; gap:16px; margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid #F1F5F9;">
               <div style="width:64px; height:64px; border-radius:50%; background:var(--qc-100); color:var(--qc-700); font-size:2rem; display:flex; align-items:center; justify-content:center; font-weight:800;">
                 🔬
               </div>
               <div>
-                <h3 style="margin:0 0 2px; font-size:1.1rem; color:#0F172A;" id="prof-name">Loading...</h3>
+                <h3 style="margin:0 0 2px; font-size:1.2rem; color:#0F172A;" id="prof-name">Loading...</h3>
                 <span class="qc-pill pill-approved">QC AGM DESK</span>
               </div>
             </div>
 
-            <div class="qc-info-grid" style="grid-template-columns: 1fr;">
-              <div class="qc-info-item">
-                <div class="qc-info-label">Email Address</div>
-                <div class="qc-info-value" id="prof-email">--</div>
-              </div>
-              <div class="qc-info-item">
-                <div class="qc-info-label">Date of Birth</div>
-                <div class="qc-info-value" id="prof-dob">--</div>
-              </div>
-              <div class="qc-info-item">
-                <div class="qc-info-label">Account Status</div>
-                <div class="qc-info-value" style="color:#16A34A;">Approved</div>
-              </div>
-            </div>
+            <form id="profile-edit-form">
+              <div class="qc-info-grid" style="grid-template-columns: 1fr; gap:16px;">
+                <div class="qc-form-group">
+                  <label style="font-weight:700; color:#334155; font-size:0.88rem; display:block; margin-bottom:6px;">Full Name</label>
+                  <input type="text" id="edit-prof-name" class="qc-form-input" required placeholder="Enter full name" style="width:100%; padding:10px 14px; border-radius:8px; font-weight:600;">
+                </div>
 
-            <div style="margin-top:24px;">
-              <button class="btn-qc btn-qc-outline btn-block" onclick="handleLogout()">🚪 Logout from Account</button>
+                <div class="qc-form-group">
+                  <label style="font-weight:700; color:#334155; font-size:0.88rem; display:block; margin-bottom:6px;">Date of Birth</label>
+                  <input type="date" id="edit-prof-dob" class="qc-form-input" required style="width:100%; padding:10px 14px; border-radius:8px; font-weight:600;">
+                </div>
+
+                <div class="qc-info-item">
+                  <div class="qc-info-label">Email Address</div>
+                  <div class="qc-info-value" id="prof-email" style="font-weight:700; color:#475569;">--</div>
+                </div>
+
+                <div class="qc-info-item">
+                  <div class="qc-info-label">Account Status</div>
+                  <div class="qc-info-value" style="color:#16A34A; font-weight:800;">Approved</div>
+                </div>
+              </div>
+
+              <div style="margin-top:24px; display:flex; gap:12px;">
+                <button type="submit" id="btn-save-profile" class="btn-qc btn-qc-primary" style="flex:1; padding:12px; font-weight:800; font-size:0.95rem; border-radius:8px;">
+                  💾 Save Profile Changes
+                </button>
+              </div>
+            </form>
+
+            <div style="margin-top:20px; border-top:1px solid #F1F5F9; padding-top:16px;">
+              <button type="button" class="btn-qc btn-qc-outline btn-block" onclick="handleLogout()" style="width:100%; padding:10px;">🚪 Logout from Account</button>
             </div>
           </div>
 
@@ -123,9 +129,35 @@
       document.getElementById('main-qc-agm-content').classList.remove('hidden');
       document.getElementById('header-agm-name').textContent = profile.name;
       document.getElementById('prof-name').textContent = profile.name;
-      document.getElementById('prof-email').textContent = profile.email;
-      document.getElementById('prof-dob').textContent = profile.dob || 'N/A';
+      document.getElementById('edit-prof-name').value = profile.name || '';
+      document.getElementById('edit-prof-dob').value = profile.dob || '';
+      document.getElementById('prof-email').textContent = profile.email || '--';
       document.getElementById('logout-btn').addEventListener('click', handleLogout);
+
+      document.getElementById('profile-edit-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('edit-prof-name').value.trim();
+        const dob = document.getElementById('edit-prof-dob').value;
+
+        if (!name || !dob) {
+          showToast('Name and Date of Birth are required.', 'warning');
+          return;
+        }
+
+        try {
+          const res = await apiQcAgmUpdateProfile({ name, dob });
+          if (res.success) {
+            showToast('Profile updated successfully!', 'success');
+            document.getElementById('header-agm-name').textContent = name;
+            document.getElementById('prof-name').textContent = name;
+          } else {
+            showToast(res.error || 'Failed to update profile.', 'error');
+          }
+        } catch (err) {
+          console.error('Error updating profile:', err);
+          showToast('Error updating profile.', 'error');
+        }
+      });
     });
   </script>
 </body>

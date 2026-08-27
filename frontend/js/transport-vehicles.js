@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('header-to-name').textContent = profile.name;
 
   setupSidebarToggle();
-  document.getElementById('logout-btn').addEventListener('click', handleLogout);
+  document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
 
   setupVehicleModal();
   setupVehicleProfileModal();
@@ -44,6 +44,7 @@ async function loadVehicles() {
   try {
     const data = await apiGetVehicles();
     allVehicles = data.vehicles || [];
+    console.log('[VEHICLES] Loaded', allVehicles.length, 'vehicles');
     renderVehiclesTable(allVehicles);
   } catch (err) {
     console.error('Failed to load vehicles:', err);
@@ -51,27 +52,28 @@ async function loadVehicles() {
   }
 }
 
+function getCapacity(vehicle) {
+  return vehicle.capacity_liters ?? vehicle.capacity ?? 5000;
+}
+
 function renderVehiclesTable(vehicles) {
   const tbody = document.getElementById('vehicles-table-body');
   if (!tbody) return;
 
   if (vehicles.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted" style="padding:24px;">No vehicles found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding:24px;">No vehicles found</td></tr>';
     return;
   }
 
   tbody.innerHTML = vehicles.map(vehicle => {
-    const assignedDriver = vehicle.assigned_driver || '—';
     const totalTrips = vehicle.total_trips || 0;
     const lastUsed = vehicle.last_used ? formatDate(vehicle.last_used) : '—';
-    const capacity = vehicle.capacity_liters ? `${vehicle.capacity_liters}L` : '—';
+    const cap = getCapacity(vehicle);
 
     return `
       <tr>
         <td><strong>${vehicle.board_number}</strong></td>
-        <td>Milk Tanker</td>
-        <td>${capacity}</td>
-        <td>${assignedDriver}</td>
+        <td>${cap}L</td>
         <td>${totalTrips}</td>
         <td>${lastUsed}</td>
         <td><span class="badge badge-${vehicle.is_active ? 'success' : 'neutral'}">${vehicle.is_active ? 'Active' : 'Inactive'}</span></td>
@@ -111,63 +113,153 @@ function setupVehicleModal() {
 
 function openAddVehicleModal() {
   currentEditingVehicleId = null;
-  document.getElementById('vehicle-modal-title').textContent = '➕ Add New Vehicle';
+  const titleEl = document.getElementById('vehicle-modal-title');
+  if (titleEl) titleEl.textContent = 'Add New Vehicle';
+  
   document.getElementById('vehicle-id').value = '';
   document.getElementById('vehicle-board-number').value = '';
   document.getElementById('vehicle-capacity').value = '5000';
   document.getElementById('vehicle-compartments').value = '2';
   document.getElementById('vehicle-status').value = 'true';
-  document.getElementById('vehicle-submit-btn').textContent = 'Save Vehicle';
+  
+  const submitBtn = document.getElementById('vehicle-submit-btn');
+  if (submitBtn) submitBtn.textContent = 'Save Vehicle';
   openModal('vehicle-modal');
 }
 
 function editVehicle(vehicleId) {
-  const vehicle = allVehicles.find(v => v.id === vehicleId);
+  const vehicle = allVehicles.find(v => String(v.id) === String(vehicleId));
   if (!vehicle) {
-    showToast('Vehicle not found', 'error');
+    showToast('Vehicle record not found', 'error');
     return;
   }
 
-  currentEditingVehicleId = vehicleId;
-  document.getElementById('vehicle-modal-title').textContent = '✏️ Edit Vehicle';
-  document.getElementById('vehicle-id').value = vehicleId;
+  currentEditingVehicleId = vehicle.id;
+  const titleEl = document.getElementById('vehicle-modal-title');
+  if (titleEl) titleEl.textContent = `Edit Vehicle: ${vehicle.board_number || ''}`;
+
+  const cap = getCapacity(vehicle);
+  console.log('[EDIT] Vehicle:', vehicle.id, 'Board:', vehicle.board_number, 'Current capacity:', cap);
+
+  document.getElementById('vehicle-id').value = vehicle.id;
   document.getElementById('vehicle-board-number').value = vehicle.board_number || '';
-  document.getElementById('vehicle-capacity').value = vehicle.capacity_liters || 5000;
+  document.getElementById('vehicle-capacity').value = cap;
   document.getElementById('vehicle-compartments').value = vehicle.compartments || 2;
-  document.getElementById('vehicle-status').value = vehicle.is_active ? 'true' : 'false';
-  document.getElementById('vehicle-submit-btn').textContent = 'Update Vehicle';
+  document.getElementById('vehicle-status').value = vehicle.is_active !== false ? 'true' : 'false';
+
+  const submitBtn = document.getElementById('vehicle-submit-btn');
+  if (submitBtn) submitBtn.textContent = 'Update Vehicle';
   openModal('vehicle-modal');
 }
 
 async function handleVehicleSubmit(e) {
   e.preventDefault();
 
-  const vehicleData = {
-    board_number: document.getElementById('vehicle-board-number').value.trim(),
-    capacity_liters: parseInt(document.getElementById('vehicle-capacity').value) || 5000,
-    compartments: parseInt(document.getElementById('vehicle-compartments').value) || 2,
-    is_active: document.getElementById('vehicle-status').value === 'true'
-  };
+  const submitBtn = document.getElementById('vehicle-submit-btn');
+  const originalText = submitBtn ? submitBtn.textContent : 'Save';
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving...';
+  }
 
-  if (!vehicleData.board_number) {
+  const boardNumber = document.getElementById('vehicle-board-number').value.trim();
+  const capacity = parseInt(document.getElementById('vehicle-capacity').value) || 5000;
+  const compartments = parseInt(document.getElementById('vehicle-compartments').value) || 2;
+  const isActive = document.getElementById('vehicle-status').value === 'true';
+
+  if (!boardNumber) {
     showToast('Please enter vehicle board number', 'error');
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalText;
+    }
     return;
   }
 
+  const vehicleData = {
+    board_number: boardNumber,
+    capacity_liters: capacity,
+    compartments: compartments,
+    is_active: isActive
+  };
+
+  console.log('[SUBMIT] Mode:', currentEditingVehicleId ? 'UPDATE' : 'CREATE');
+  console.log('[SUBMIT] Vehicle ID:', currentEditingVehicleId);
+  console.log('[SUBMIT] Payload:', JSON.stringify(vehicleData));
+
   try {
+    let apiSuccess = false;
+
     if (currentEditingVehicleId) {
-      await apiUpdateVehicle(currentEditingVehicleId, vehicleData);
-      showToast('Vehicle updated successfully', 'success');
+      // ── UPDATE FLOW ──
+      try {
+        const result = await apiUpdateVehicle(currentEditingVehicleId, vehicleData);
+        console.log('[SUBMIT] API update result:', JSON.stringify(result));
+        apiSuccess = true;
+      } catch (apiErr) {
+        console.error('[SUBMIT] API update FAILED:', apiErr.message);
+      }
+
+      // If API failed, try direct Supabase write
+      if (!apiSuccess) {
+        console.log('[SUBMIT] Falling back to direct Supabase write...');
+        const client = await initSupabase();
+        if (!client) throw new Error('Cannot connect to database');
+
+        const { data: directResult, error: sbError } = await client
+          .from('tankers')
+          .update({ capacity_liters: capacity, compartments: compartments, is_active: isActive })
+          .eq('id', currentEditingVehicleId)
+          .select();
+
+        console.log('[SUBMIT] Direct Supabase result:', directResult, 'error:', sbError);
+        if (sbError) throw sbError;
+      }
+
+      showToast(`Vehicle "${boardNumber}" updated successfully`, 'success');
+
     } else {
-      await apiCreateVehicle(vehicleData);
-      showToast('Vehicle added successfully', 'success');
+      // ── CREATE FLOW ──
+      try {
+        await apiCreateVehicle(vehicleData);
+        apiSuccess = true;
+      } catch (apiErr) {
+        console.error('[SUBMIT] API create FAILED:', apiErr.message);
+      }
+
+      if (!apiSuccess) {
+        const client = await initSupabase();
+        if (!client) throw new Error('Cannot connect to database');
+
+        const { error: sbError } = await client
+          .from('tankers')
+          .insert({ board_number: boardNumber, capacity_liters: capacity, compartments: compartments, is_active: isActive });
+
+        if (sbError) throw sbError;
+      }
+
+      showToast(`Vehicle "${boardNumber}" created successfully`, 'success');
     }
 
     closeModal('vehicle-modal');
+
+    // Force fresh reload from server
+    console.log('[SUBMIT] Reloading vehicles...');
     await loadVehicles();
+    console.log('[SUBMIT] Reload complete. Checking updated value...');
+    const updated = allVehicles.find(v => String(v.id) === String(currentEditingVehicleId));
+    if (updated) {
+      console.log('[SUBMIT] After reload - capacity_liters:', updated.capacity_liters, 'capacity:', updated.capacity);
+    }
+
   } catch (err) {
-    console.error('Failed to save vehicle:', err);
-    showToast(err.message || 'Failed to save vehicle', 'error');
+    console.error('[SUBMIT] Final error:', err);
+    showToast(err.message || 'Failed to save vehicle. Please check connection and try again.', 'error');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = currentEditingVehicleId ? 'Update Vehicle' : 'Save Vehicle';
+    }
   }
 }
 
@@ -187,15 +279,16 @@ async function deleteVehicle(vehicleId, boardNumber) {
 }
 
 async function viewVehicle(vehicleId) {
-  const vehicle = allVehicles.find(v => v.id === vehicleId);
+  const vehicle = allVehicles.find(v => String(v.id) === String(vehicleId));
   if (!vehicle) {
     showToast('Vehicle not found', 'error');
     return;
   }
 
+  const cap = getCapacity(vehicle);
   document.getElementById('profile-vehicle-number').textContent = vehicle.board_number;
-  document.getElementById('profile-vehicle-meta').textContent = `Capacity: ${vehicle.capacity_liters || 5000}L`;
-  document.getElementById('profile-capacity').textContent = vehicle.capacity_liters ? `${vehicle.capacity_liters} Liters` : '—';
+  document.getElementById('profile-vehicle-meta').textContent = `Capacity: ${cap}L`;
+  document.getElementById('profile-capacity').textContent = `${cap} Liters`;
   document.getElementById('profile-compartments').textContent = vehicle.compartments || 2;
   document.getElementById('profile-vehicle-status').innerHTML = `<span class="badge badge-${vehicle.is_active ? 'success' : 'neutral'}">${vehicle.is_active ? 'Active' : 'Inactive'}</span>`;
 

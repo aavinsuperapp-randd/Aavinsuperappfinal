@@ -186,9 +186,15 @@ async function apiGetDriversList() {
 
 /**
  * Get BMCs List for Assignment
+ * @param {string} [date] - Date in YYYY-MM-DD format
+ * @param {string} [period] - 'morning', 'evening', or 'both'
  */
-async function apiGetBmcsList() {
-  return transportFetch('/api/transport/bmcs-list');
+async function apiGetBmcsList(date, period) {
+  const params = new URLSearchParams();
+  if (date) params.append('date', date);
+  if (period) params.append('period', period);
+  const qs = params.toString();
+  return transportFetch(`/api/transport/bmcs-list${qs ? '?' + qs : ''}`);
 }
 
 
@@ -318,4 +324,12 @@ if (!document.getElementById('toast-styles')) {
     }
   `;
   document.head.appendChild(style);
+}
+
+/**
+ * Fetch MACS Data Summary for Transport Officer
+ */
+async function apiFetchMacsSummary(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return transportFetch(`/api/transport/macs-summary${query ? '?' + query : ''}`);
 }

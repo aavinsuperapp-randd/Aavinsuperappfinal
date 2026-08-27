@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('header-to-name').textContent = profile.name;
 
   setupSidebarToggle();
-  document.getElementById('logout-btn').addEventListener('click', handleLogout);
+  document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
 
   await loadDriverList();
   setupFilters();

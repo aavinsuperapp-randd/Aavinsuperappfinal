@@ -98,6 +98,15 @@ async function apiCompleteGmIssue(id) {
   return gmFetch(`/api/gm/issues/${id}/complete`, { method: 'PATCH' });
 }
 
+// Prioritize BMC Issue
+async function apiPrioritizeGmIssue(id, username = '') {
+  return gmFetch(`/api/gm/issues/${id}/prioritize`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username })
+  });
+}
+
 // Fetch List of BMCs
 async function apiGetGmBmcs() {
   return gmFetch('/api/gm/bmcs');
@@ -134,6 +143,53 @@ async function apiCreateTransportTrip(data) {
     method: 'POST',
     body: JSON.stringify(data)
   });
+}
+
+// ── GM EXECUTIVE DELETE APIs ──────────────────────────────────────────────────
+async function apiGmDeleteBmc(id) {
+  try {
+    return await gmFetch(`/api/gm/bmcs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  } catch (apiErr) {
+    console.warn('[apiGmDeleteBmc] Backend API delete failed, using direct Supabase fallback:', apiErr);
+    const client = await initSupabase();
+    if (!client) throw new Error('Supabase client uninitialized.');
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    if (isUuid) {
+      await client.from('bmc_silos').delete().eq('bmc_id', id);
+      await client.from('eo_bmc_assignments').delete().eq('bmc_id', id);
+    }
+    const { error } = isUuid
+      ? await client.from('bmcs').delete().eq('id', id)
+      : await client.from('bmcs').delete().eq('bmc_code', id);
+    if (error) throw error;
+    return { success: true };
+  }
+}
+
+async function apiGmDeleteTrip(tripId) {
+  const client = await initSupabase();
+  if (!client) throw new Error('Supabase client uninitialized.');
+  await client.from('trip_bmc_visits').delete().eq('trip_id', tripId);
+  const { error } = await client.from('driver_trips').delete().eq('id', tripId);
+  if (error) throw error;
+  return { success: true };
+}
+
+async function apiGmDeleteIssue(issueId) {
+  const client = await initSupabase();
+  if (!client) throw new Error('Supabase client uninitialized.');
+  const { error } = await client.from('issues').delete().eq('id', issueId);
+  if (error) throw error;
+  return { success: true };
+}
+
+async function apiGmDeleteVehicle(vehicleId) {
+  const client = await initSupabase();
+  if (!client) throw new Error('Supabase client uninitialized.');
+  const { error } = await client.from('tankers').delete().eq('id', vehicleId);
+  if (error) throw error;
+  return { success: true };
 }
 
 // ── Sidebar Toggle (shared across all P&I AGM portal pages) ──────────────────

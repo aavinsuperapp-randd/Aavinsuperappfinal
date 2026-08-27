@@ -238,16 +238,42 @@ function showStatusScreen(status) {
 }
 
 // Handle Logout for all roles
-async function handleLogout() {
-  toggleLoading(true);
-  const client = await initSupabase();
-  
-  if (client) {
-    await client.auth.signOut();
+async function handleLogout(e) {
+  if (e && typeof e.preventDefault === 'function') e.preventDefault();
+
+  if (typeof toggleLoading === 'function') {
+    try { toggleLoading(true); } catch(err) {}
   }
-  
-  showToast("Logged out successfully.", "info");
+
+  try {
+    const client = await initSupabase();
+    if (client) {
+      await client.auth.signOut().catch(err => console.warn("signOut error:", err));
+    }
+  } catch (err) {
+    console.warn("Logout error:", err);
+  }
+
+  try {
+    localStorage.clear();
+    sessionStorage.clear();
+  } catch (err) {}
+
+  if (typeof showToast === 'function') {
+    try { showToast("Logged out successfully.", "info"); } catch(err) {}
+  }
+
+  const loginUrl = typeof getPath === 'function' ? getPath('login.html') : '/login.html';
   setTimeout(() => {
-    window.location.href = getPath('login.html');
-  }, 500);
+    window.location.href = loginUrl;
+  }, 200);
 }
+
+// Global auto-bind for logout button across all portals
+document.addEventListener('DOMContentLoaded', () => {
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', handleLogout);
+  }
+});
+

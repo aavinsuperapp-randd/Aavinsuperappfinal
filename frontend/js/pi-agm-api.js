@@ -1,5 +1,13 @@
 // gm-api.js — API Helper for P&I AGM Portal
 
+async function getPiAgmAuthToken() {
+  const client = await initSupabase();
+  if (!client) throw new Error('Supabase configuration missing.');
+  const { data: { session } } = await client.auth.getSession();
+  if (!session) throw new Error('No active session. Please log in.');
+  return session.access_token;
+}
+
 async function gmFetch(endpoint, options = {}) {
   const client = await initSupabase();
   if (!client) throw new Error('Supabase configuration missing.');
@@ -96,6 +104,15 @@ async function apiGetGmIssues({ bmcId = '', status = 'all', category = '', sever
 // Complete BMC Issue
 async function apiCompleteGmIssue(id) {
   return gmFetch(`/api/gm/issues/${id}/complete`, { method: 'PATCH' });
+}
+
+// Prioritize BMC Issue
+async function apiPrioritizeGmIssue(id, username = '') {
+  return gmFetch(`/api/gm/issues/${id}/prioritize`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username })
+  });
 }
 
 // Fetch List of BMCs

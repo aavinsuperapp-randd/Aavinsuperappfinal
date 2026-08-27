@@ -23,6 +23,7 @@
         <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Dashboard</a>
         <a href="vehicles.html" class="admin-nav-item active"><span>🚛</span> Vehicles</a>
         <a href="duty.html" class="admin-nav-item"><span>📋</span> Duty</a>
+        <a href="macs-data.html" class="admin-nav-item"><span>🥛</span> MACS Data</a>
         <a href="driver-analysis.html" class="admin-nav-item"><span>📈</span> Driver Analysis</a>
         <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
       </nav>
@@ -67,9 +68,7 @@
                 <thead>
                   <tr>
                     <th>Vehicle Number</th>
-                    <th>Vehicle Type</th>
                     <th>Capacity</th>
-                    <th>Assigned Driver</th>
                     <th>Total Trips</th>
                     <th>Recent Usage</th>
                     <th>Status</th>
@@ -77,7 +76,7 @@
                   </tr>
                 </thead>
                 <tbody id="vehicles-table-body">
-                  <tr><td colspan="8" class="text-center text-muted" style="padding:24px;">Loading vehicles...</td></tr>
+                  <tr><td colspan="6" class="text-center text-muted" style="padding:24px;">Loading vehicles...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -90,43 +89,61 @@
 
   <!-- Add/Edit Vehicle Modal -->
   <div id="vehicle-modal" class="modal-overlay hidden">
-    <div class="modal-content modal-lg">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <h3 id="vehicle-modal-title" style="margin:0; font-weight:800; color:#0F172A;">➕ Add New Vehicle</h3>
-        <button id="vehicle-modal-close" class="btn btn-ghost">✕</button>
-      </div>
-
-      <form id="vehicle-form">
-        <input type="hidden" id="vehicle-id">
-        
-        <div class="form-grid-2">
-          <div class="form-group mb-3">
-            <label class="form-label">Vehicle Board Number *</label>
-            <input type="text" id="vehicle-board-number" class="form-input" placeholder="e.g. TN 64 R 3319" required>
+    <div class="modal-content" style="max-width:560px; width:92%; background:white; border-radius:16px; box-shadow:0 25px 50px -12px rgba(15, 23, 42, 0.25); padding:0; overflow:hidden; border:1px solid #E2E8F0;">
+      
+      <!-- Modal Header -->
+      <div style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); padding:20px 24px; color:white; display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="background:rgba(255,255,255,0.1); width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.3rem;">
+            🚛
           </div>
-          <div class="form-group mb-3">
-            <label class="form-label">Capacity (Liters)</label>
-            <input type="number" id="vehicle-capacity" class="form-input" placeholder="e.g. 5000" value="5000">
+          <div>
+            <h3 id="vehicle-modal-title" style="margin:0; font-size:1.1rem; font-weight:800; color:white; letter-spacing:-0.01em;">Add New Vehicle</h3>
+            <p style="margin:2px 0 0 0; font-size:0.8rem; color:#94A3B8; font-weight:500;">Configure fleet vehicle properties & operational status</p>
           </div>
         </div>
+        <button id="vehicle-modal-close" style="background:rgba(255,255,255,0.1); border:none; color:#94A3B8; width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:1rem; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.color='white';this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.color='#94A3B8';this.style.background='rgba(255,255,255,0.1)'">✕</button>
+      </div>
 
-        <div class="form-grid-2">
-          <div class="form-group mb-3">
-            <label class="form-label">Compartments</label>
-            <input type="number" id="vehicle-compartments" class="form-input" value="2" min="1" max="4">
+      <!-- Modal Body / Form -->
+      <form id="vehicle-form" style="padding:24px;">
+        <input type="hidden" id="vehicle-id">
+        
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:18px;">
+          <!-- Board Number -->
+          <div class="form-group">
+            <label style="display:block; font-size:0.83rem; font-weight:700; color:#334155; margin-bottom:6px;">Vehicle Board Number <span style="color:#EF4444;">*</span></label>
+            <div style="position:relative;">
+              <input type="text" id="vehicle-board-number" class="form-input" placeholder="e.g. TN 64 R 3319" required style="width:100%; padding:10px 14px; border:1px solid #CBD5E1; border-radius:10px; font-size:0.9rem; font-weight:600; color:#0F172A; transition:all 0.2s;" onfocus="this.style.borderColor='#2563EB';this.style.boxShadow='0 0 0 3px rgba(37,99,235,0.15)'" onblur="this.style.borderColor='#CBD5E1';this.style.boxShadow='none'">
+            </div>
           </div>
-          <div class="form-group mb-3">
-            <label class="form-label">Status</label>
-            <select id="vehicle-status" class="form-input">
-              <option value="true">Active</option>
-              <option value="false">Inactive</option>
+
+          <!-- Capacity -->
+          <div class="form-group">
+            <label style="display:block; font-size:0.83rem; font-weight:700; color:#334155; margin-bottom:6px;">Capacity (Liters) <span style="color:#EF4444;">*</span></label>
+            <input type="number" id="vehicle-capacity" class="form-input" placeholder="e.g. 5000" value="5000" min="500" max="50000" required style="width:100%; padding:10px 14px; border:1px solid #CBD5E1; border-radius:10px; font-size:0.9rem; font-weight:600; color:#0F172A; transition:all 0.2s;" onfocus="this.style.borderColor='#2563EB';this.style.boxShadow='0 0 0 3px rgba(37,99,235,0.15)'" onblur="this.style.borderColor='#CBD5E1';this.style.boxShadow='none'">
+          </div>
+
+          <!-- Compartments -->
+          <div class="form-group">
+            <label style="display:block; font-size:0.83rem; font-weight:700; color:#334155; margin-bottom:6px;">Compartments</label>
+            <input type="number" id="vehicle-compartments" class="form-input" value="2" min="1" max="6" style="width:100%; padding:10px 14px; border:1px solid #CBD5E1; border-radius:10px; font-size:0.9rem; font-weight:600; color:#0F172A; transition:all 0.2s;" onfocus="this.style.borderColor='#2563EB';this.style.boxShadow='0 0 0 3px rgba(37,99,235,0.15)'" onblur="this.style.borderColor='#CBD5E1';this.style.boxShadow='none'">
+          </div>
+
+          <!-- Operational Status -->
+          <div class="form-group">
+            <label style="display:block; font-size:0.83rem; font-weight:700; color:#334155; margin-bottom:6px;">Operational Status</label>
+            <select id="vehicle-status" class="form-input" style="width:100%; padding:10px 14px; border:1px solid #CBD5E1; border-radius:10px; font-size:0.9rem; font-weight:600; color:#0F172A; background-color:white; transition:all 0.2s;" onfocus="this.style.borderColor='#2563EB';this.style.boxShadow='0 0 0 3px rgba(37,99,235,0.15)'" onblur="this.style.borderColor='#CBD5E1';this.style.boxShadow='none'">
+              <option value="true">🟢 Active (Ready for Dispatch)</option>
+              <option value="false">🔴 Inactive (Out of Service)</option>
             </select>
           </div>
         </div>
 
-        <div class="d-flex justify-content-end gap-2" style="margin-top: 24px;">
-          <button type="button" id="vehicle-cancel-btn" class="btn btn-outline">Cancel</button>
-          <button type="submit" id="vehicle-submit-btn" class="btn btn-primary">Save Vehicle</button>
+        <!-- Form Actions -->
+        <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:28px; padding-top:18px; border-top:1px solid #F1F5F9;">
+          <button type="button" id="vehicle-cancel-btn" style="padding:10px 20px; border:1px solid #CBD5E1; background:white; color:#475569; border-radius:10px; font-weight:700; font-size:0.88rem; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">Cancel</button>
+          <button type="submit" id="vehicle-submit-btn" style="padding:10px 24px; border:none; background:linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); color:white; border-radius:10px; font-weight:700; font-size:0.88rem; cursor:pointer; box-shadow:0 4px 12px rgba(37,99,235,0.25); transition:all 0.2s;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='none'">Save Vehicle</button>
         </div>
       </form>
     </div>

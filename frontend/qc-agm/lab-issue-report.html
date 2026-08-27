@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lab Issue Report — AAVIN Quality Assurance</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/worker.css">
+  <link rel="stylesheet" href="../css/qc.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="qc-shell">
+    <div id="qc-agm-sidebar-overlay" class="qc-sidebar-overlay"></div>
+
+    <!-- QC AGM Sidebar -->
+    <aside class="qc-sidebar" id="qc-agm-sidebar">
+      <div class="qs-logo">
+        <div class="qs-logo-inner">
+          <img src="/assets/aavin-logo.png" alt="AAVIN">
+          <div>
+            <span>QC AGM Desk</span>
+            <div class="qs-logo-badge" style="background:#0D9488;">QUALITY CONTROL</div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="qs-nav">
+        <a href="dashboard.html" class="qs-nav-item">
+          <span>📊</span> Dashboard Overview
+        </a>
+        <a href="excel-import.html" class="qs-nav-item">
+          <span>📥</span> Excel Import
+        </a>
+        <a href="lab-issue-report.html" class="qs-nav-item active">
+          <span>🚨</span> Lab Issue Report
+        </a>
+        <a href="profile.html" class="qs-nav-item">
+          <span>👤</span> My Profile
+        </a>
+        <div class="qs-nav-divider"></div>
+        <button id="logout-btn" class="qs-nav-item" style="color:#FCA5A5;">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="qc-main">
+      <header class="qc-header">
+        <div class="qc-header-left">
+          <button id="qc-agm-toggle-btn" class="qc-mobile-btn">☰</button>
+          <div class="qc-header-title">Quality Control Assistant General Manager Desk</div>
+        </div>
+        <div class="qc-header-right">
+          <div>Role: <strong>QC AGM</strong></div>
+          <div>User: <strong id="header-agm-name">Loading...</strong></div>
+        </div>
+      </header>
+
+      <main class="qc-content">
+        <div id="main-qc-agm-content" class="hidden">
+
+          <div class="qc-page-top" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; margin-bottom:24px;">
+            <div>
+              <h1 style="font-size:1.8rem; font-weight:800; color:#0F172A; margin:0;">LAB ISSUE REPORT 🚨</h1>
+              <p style="color:#64748B; margin:4px 0 0 0;">All test readings rejected by QC Manager with linked remarks</p>
+            </div>
+            
+            <div style="background:#FEF2F2; border:1px solid #FCA5A5; color:#991B1B; padding:8px 16px; border-radius:10px; font-weight:700; font-size:0.9rem; display:flex; align-items:center; gap:8px;">
+              <span>🚨</span> <span id="lab-issues-count-badge">0 Rejected Item(s)</span>
+            </div>
+          </div>
+
+          <!-- Lab Issues Table Section -->
+          <div class="qc-section">
+            <div class="qc-section-header" style="display:flex; justify-content:space-between; align-items:center;">
+              <div class="qc-section-title">
+                <span>📋</span> Rejected Test Readings & Rejection Remarks
+              </div>
+              <input type="text" id="lab-issue-search" class="qc-form-input" placeholder="🔍 Search BMC Code or Name..." style="max-width:280px; padding:6px 12px;">
+            </div>
+
+            <div class="qc-table-wrap">
+              <table class="qc-table">
+                <thead>
+                  <tr>
+                    <th style="width:50px;">S.No</th>
+                    <th>BMC Code</th>
+                    <th>BMC Name</th>
+                    <th>District</th>
+                    <th>Date</th>
+                    <th>Rejected Results</th>
+                    <th>QC Manager Remarks</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="lab-issues-tbody">
+                  <tr>
+                    <td colspan="8" style="text-align:center; padding:30px; color:#64748B;">
+                      Loading Lab Issue Report data...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/qc-agm-api.js"></script>
+  <script src="../js/qc-agm-lab-issues.js"></script>
+</body>
+</html>

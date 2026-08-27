@@ -1,6 +1,7 @@
 // gm-requirements.js — GM BMC Requirements Management
 
 let allRequirements = [];
+let allMasterBmcs = [];
 
 const REQ_FIELDS = [
   { key: 'acid_available',         label: 'Acids',        icon: '🧪' },
@@ -37,12 +38,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadBmcDropdown() {
   try {
     const res = await apiGetGmBmcs();
+    allMasterBmcs = res.bmcs || [];
     const select = document.getElementById('bmc-filter-select');
-    (res.bmcs || []).forEach(b => {
-      const opt = document.createElement('option');
-      opt.value = b.id;
-      opt.textContent = `${b.name} (${b.district})`;
-      select.appendChild(opt);
+    select.innerHTML = '<option value="">All BMCs</option>';
+
+    const groups = {};
+    allMasterBmcs.forEach(b => {
+      const rName = b.bmc_routes?.name || b.route_name || 'Unassigned Route';
+      if (!groups[rName]) groups[rName] = [];
+      groups[rName].push(b);
+    });
+
+    Object.keys(groups).forEach(rName => {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = `🛣️ Route: ${rName}`;
+      groups[rName].forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id || b.bmc_code;
+        opt.textContent = `${b.name} (${b.district})`;
+        optgroup.appendChild(opt);
+      });
+      select.appendChild(optgroup);
     });
   } catch (err) { console.error('BMC dropdown error:', err); }
 }
@@ -65,7 +81,15 @@ function renderRequirements() {
 
   let list = [...allRequirements].filter(hasFault);
 
-  if (bmcId) list = list.filter(r => String(r.bmc_id) === String(bmcId));
+  if (bmcId) {
+    const selectedBmc = allMasterBmcs.find(b => String(b.id) === String(bmcId) || String(b.bmc_code) === String(bmcId));
+    list = list.filter(r => {
+      const matchId = String(r.bmc_id) === String(bmcId);
+      const matchCode = selectedBmc && selectedBmc.bmc_code && String(r.bmc_code || r.bmc_id) === String(selectedBmc.bmc_code);
+      const matchName = selectedBmc && selectedBmc.name && String(r.bmc_name).toLowerCase() === String(selectedBmc.name).toLowerCase();
+      return matchId || matchCode || matchName;
+    });
+  }
   if (status !== 'all') {
     list = list.filter(r => {
       const done = r.status === 'completed' || (r.remarks && r.remarks.includes('[COMPLETED'));
@@ -92,36 +116,63 @@ function renderRequirements() {
     return;
   }
 
-  container.innerHTML = list.map(req => {
-    const isCompleted = req.status === 'completed' || (req.remarks && req.remarks.includes('[COMPLETED'));
-    const missing = getMissingItems(req);
+  // Group requirements by Route Name
+  const routeGroups = {};
+  list.forEach(req => {
+    const bmc = allMasterBmcs.find(b => String(b.id) === String(req.bmc_id) || String(b.bmc_code) === String(req.bmc_code) || String(b.name).toLowerCase() === String(req.bmc_name).toLowerCase());
+    const rName = bmc?.bmc_routes?.name || bmc?.route_name || 'Unassigned Route';
+    if (!routeGroups[rName]) routeGroups[rName] = [];
+    routeGroups[rName].push(req);
+  });
 
-    const pills = missing.map(f =>
-      `<span class="fault-pill">${f.icon} ${f.label} — Needed</span>`
-    ).join('');
+  let html = '';
+  Object.keys(routeGroups).forEach((rName, groupIdx) => {
+    const gList = routeGroups[rName];
+    html += `
+      <div style="grid-column: 1 / -1; margin-top: ${groupIdx === 0 ? '0' : '18px'}; margin-bottom: 8px; padding: 10px 16px; background: linear-gradient(135deg, #1e293b, #334155); color: #ffffff; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; font-weight: 700; box-shadow: 0 2px 4px rgba(0,0,0,0.06);">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.1rem;">🛣️</span>
+          <span style="font-size:1rem;">Route: ${esc(rName)}</span>
+        </div>
+        <span style="background: rgba(255,255,255,0.2); font-size: 0.78rem; padding: 3px 10px; border-radius: 20px; font-weight: 600;">
+          ${gList.length} Requirement${gList.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+    `;
 
-    return `
-      <div class="item-card">
-        <div>
-          <div class="item-card-header">
-            <div>
-              <div class="item-bmc-name">🏭 ${esc(req.bmc_name)}</div>
-              <div class="item-meta">📍 ${esc(req.bmc_location || req.bmc_district)} · 👷 ${esc(req.worker_name)} · ${new Date(req.created_at).toLocaleDateString()}</div>
+    html += gList.map(req => {
+      const isCompleted = req.status === 'completed' || (req.remarks && req.remarks.includes('[COMPLETED'));
+      const missing = getMissingItems(req);
+
+      const pills = missing.map(f =>
+        `<span class="fault-pill">${f.icon} ${f.label} — Needed</span>`
+      ).join('');
+
+      return `
+        <div class="item-card">
+          <div>
+            <div class="item-card-header">
+              <div>
+                <div class="item-bmc-name">🏭 ${esc(req.bmc_name)}</div>
+                <div class="item-meta">🛣️ <b>${esc(rName)}</b> · 📍 ${esc(req.bmc_location || req.bmc_district)} · 👷 ${esc(req.worker_name)} · ${new Date(req.created_at).toLocaleDateString()}</div>
+              </div>
+              <span class="badge ${isCompleted ? 'badge-success' : 'badge-warning'}">${isCompleted ? '✓ Done' : '● Pending'}</span>
             </div>
-            <span class="badge ${isCompleted ? 'badge-success' : 'badge-warning'}">${isCompleted ? '✓ Done' : '● Pending'}</span>
+            ${pills ? `<div class="fault-pills">${pills}</div>` : ''}
+            ${req.remarks && !req.remarks.includes('[COMPLETED') ? `<div class="item-remarks">💬 ${esc(req.remarks)}</div>` : ''}
           </div>
-          ${pills ? `<div class="fault-pills">${pills}</div>` : ''}
-          ${req.remarks && !req.remarks.includes('[COMPLETED') ? `<div class="item-remarks">💬 ${esc(req.remarks)}</div>` : ''}
-        </div>
-        <div class="item-footer">
-          <span class="text-xs text-muted">Trip: ${esc(req.trip_number || '—')}</span>
-          ${isCompleted
-            ? `<button class="btn btn-sm btn-outline" disabled style="opacity:0.5;">✓ Completed</button>`
-            : `<button class="btn btn-sm btn-primary" onclick="completeRequirement('${req.id}')">✓ Mark Complete</button>`
-          }
-        </div>
-      </div>`;
-  }).join('');
+          <div class="item-footer">
+            <span class="text-xs text-muted">Trip: ${esc(req.trip_number || '—')}</span>
+            ${isCompleted
+              ? `<button class="btn btn-sm btn-outline" disabled style="opacity:0.5;">✓ Completed</button>`
+              : `<button class="btn btn-sm btn-primary" onclick="completeRequirement('${req.id}')">✓ Mark Complete</button>`
+            }
+          </div>
+        </div>`;
+    }).join('');
+  });
+
+  container.innerHTML = html;
 }
 
 window.completeRequirement = async function(reqId) {

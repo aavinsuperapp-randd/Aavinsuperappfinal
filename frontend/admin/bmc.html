@@ -88,9 +88,14 @@
             </div>
           </div>
 
-          <!-- Filter Row -->
+          <!-- 3. BMC DETAILS: Search & Status Filters -->
           <div class="bmc-filter-row mb-2">
             <input type="text" id="bmc-search" class="form-input bmc-search" placeholder="Search by name or district…">
+            <select id="bmc-filter-route" class="form-select bmc-filter-select">
+              <option value="all">All Routes</option>
+              <option value="none">No Route</option>
+              <!-- Populated dynamically -->
+            </select>
             <select id="bmc-filter-status" class="form-select bmc-filter-select">
               <option value="all">All Status</option>
               <option value="active">Active Only</option>
@@ -132,12 +137,27 @@
           </div>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
+        <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div class="form-group" style="flex:1; min-width:150px;">
+            <label class="form-label" for="bmc-route">Route</label>
+            <div style="display:flex; gap:8px;">
+              <select id="bmc-route" class="form-select" style="flex:1;">
+                <option value="">No Route</option>
+              </select>
+              <button type="button" id="add-route-btn" class="btn btn-outline btn-sm" title="Create New Route">+</button>
+            </div>
+          </div>
+          <div class="form-group" style="flex:1; min-width:150px;">
+            <label class="form-label" for="bmc-code">BMC Code *</label>
+            <input type="text" id="bmc-code" class="form-input" placeholder="e.g. 1001">
+          </div>
+        </div>
+        <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div class="form-group" style="flex:2; min-width:200px;">
             <label class="form-label" for="bmc-name">BMC Name *</label>
             <input type="text" id="bmc-name" class="form-input" placeholder="e.g. Erode Central BMC">
           </div>
-          <div class="form-group">
+          <div class="form-group" style="flex:1; min-width:200px;">
             <label class="form-label" for="bmc-district">District *</label>
             <input type="text" id="bmc-district" class="form-input" placeholder="e.g. Erode">
           </div>
@@ -147,10 +167,6 @@
           <div class="form-group">
             <label class="form-label" for="bmc-contact">Contact Number *</label>
             <input type="tel" id="bmc-contact" class="form-input" placeholder="e.g. 9876543210" maxlength="15">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="bmc-code">BMC Code</label>
-            <input type="text" id="bmc-code" class="form-input" placeholder="e.g. BMC-001">
           </div>
         </div>
         <!-- Location Block -->

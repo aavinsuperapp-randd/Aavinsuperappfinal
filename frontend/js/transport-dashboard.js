@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSidebarToggle();
 
   // Setup logout
-  document.getElementById('logout-btn').addEventListener('click', handleLogout);
+  document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
 
   // Setup search filters
   document.getElementById('duty-search-input')?.addEventListener('input', filterDuties);

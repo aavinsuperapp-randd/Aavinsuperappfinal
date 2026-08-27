@@ -31,20 +31,11 @@
         <a href="dashboard.html" class="qs-nav-item active">
           <span>📊</span> Dashboard Overview
         </a>
-        <a href="all-tests.html" class="qs-nav-item">
-          <span>🔬</span> All Test Results
-        </a>
-        <a href="bmc-quality.html" class="qs-nav-item">
-          <span>🏭</span> BMC Quality Analysis
-        </a>
         <a href="excel-import.html" class="qs-nav-item">
           <span>📥</span> Excel Import
         </a>
-        <a href="import-history.html" class="qs-nav-item">
-          <span>📜</span> Import History
-        </a>
-        <a href="variance.html" class="qs-nav-item">
-          <span>⚠️</span> Variance Analysis
+        <a href="lab-issue-report.html" class="qs-nav-item">
+          <span>🚨</span> Lab Issue Report
         </a>
         <a href="profile.html" class="qs-nav-item">
           <span>👤</span> My Profile
@@ -78,28 +69,42 @@
               <p style="color:#64748B; margin:4px 0 0 0;">Compare Worker MACS readings with QC MACS readings date-wise</p>
             </div>
             
-            <!-- Date Selector -->
-            <div style="display:flex; align-items:center; gap:10px; background:white; padding:8px 16px; border-radius:10px; border:1px solid #CBD5E1; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-              <span style="font-weight:700; color:#334155; font-size:0.9rem;">Select Date:</span>
-              <select id="macs-date-select" class="qc-form-input" style="padding:6px 12px; border-radius:6px; font-weight:600; min-width:160px;">
-                <option value="">Loading dates...</option>
-              </select>
+            <!-- Date & Period Selector -->
+            <div style="display:flex; align-items:center; gap:10px; background:white; padding:8px 16px; border-radius:10px; border:1px solid #CBD5E1; box-shadow:0 1px 3px rgba(0,0,0,0.05); flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <button type="button" id="btn-quick-today" class="btn-qc btn-qc-outline" style="padding:6px 12px; font-weight:700; font-size:0.82rem; background:#F1F5F9;">Today</button>
+                <button type="button" id="btn-quick-yesterday" class="btn-qc btn-qc-outline" style="padding:6px 12px; font-weight:700; font-size:0.82rem; background:#F1F5F9;">Yesterday</button>
+              </div>
+
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span style="font-weight:700; color:#334155; font-size:0.88rem;">Date:</span>
+                <select id="macs-date-select" class="qc-form-input" style="padding:6px 12px; border-radius:6px; font-weight:600; min-width:140px;">
+                  <option value="">Loading dates...</option>
+                </select>
+              </div>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span style="font-weight:700; color:#334155; font-size:0.88rem;">Period:</span>
+                <select id="macs-period-select" class="qc-form-input" style="padding:6px 12px; border-radius:6px; font-weight:600; min-width:130px;">
+                  <option value="both" selected>Both (Morning &amp; Evening)</option>
+                  <option value="morning">Morning</option>
+                  <option value="evening">Evening</option>
+                </select>
+              </div>
+              <button type="button" id="btn-delete-macs" class="btn-qc" style="background:#EF4444; color:white; border:none; padding:6px 14px; border-radius:6px; font-weight:700; font-size:0.85rem; cursor:pointer; margin-left:auto; display:flex; align-items:center; gap:6px;" onclick="handleDeleteMacsData()">
+                🗑️ Clear / Delete MACS Data
+              </button>
             </div>
           </div>
 
           <!-- KPI Summary Cards -->
-          <div class="qc-stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:24px;">
+          <div class="qc-stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom:24px;">
             <div class="qc-stat-card">
               <div class="qc-stat-num" id="stat-total-bmcs">0</div>
-              <div class="qc-stat-lbl">Total BMCs</div>
-            </div>
-            <div class="qc-stat-card accent-blue">
-              <div class="qc-stat-num" id="stat-worker-readings">0</div>
-              <div class="qc-stat-lbl">Worker Readings</div>
+              <div class="qc-stat-lbl">Total BMC</div>
             </div>
             <div class="qc-stat-card accent-teal">
-              <div class="qc-stat-num" id="stat-qc-readings">0</div>
-              <div class="qc-stat-lbl">QC Readings</div>
+              <div class="qc-stat-num" id="stat-total-kg">0 KG</div>
+              <div class="qc-stat-lbl">Total Quantity Collected (KG)</div>
             </div>
           </div>
 
@@ -116,11 +121,11 @@
             </div>
           </div>
 
-          <!-- MACS Comparison Table -->
-          <div class="qc-section">
+          <!-- Table 1: Matched MACS BMCs Table -->
+          <div class="qc-section" style="margin-bottom:28px;">
             <div class="qc-section-header">
               <div class="qc-section-title">
-                <span>📋</span> MACS Quality Readings Comparison
+                <span>📋</span> Matched MACS Readings & Cross-Comparison
               </div>
             </div>
 
@@ -130,17 +135,45 @@
                   <tr>
                     <th>BMC Code</th>
                     <th>BMC Name</th>
-                    <th>Worker FAT</th>
-                    <th>Worker SNF</th>
-                    <th>QC FAT</th>
-                    <th>QC SNF</th>
-                    <th>Difference (QC - Worker)</th>
+                    <th>MACS Result</th>
+                    <th>Spot Analyzer</th>
+                    <th>Diary Result</th>
+                    <th>Difference</th>
                     <th>Action</th>
                   </tr>
                 </thead>
                 <tbody id="macs-readings-tbody">
                   <tr>
-                    <td colspan="8" style="text-align:center; padding:20px; color:#64748B;">Select a date to view MACS Readings...</td>
+                    <td colspan="7" style="text-align:center; padding:20px; color:#64748B;">Select a date to view MACS Readings...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Table 2: No MACS Data (Spot Analyzer Visits Only) -->
+          <div class="qc-section">
+            <div class="qc-section-header" style="background:#FFFBEB; border-bottom:1px solid #FCD34D;">
+              <div class="qc-section-title" style="color:#92400E;">
+                <span>⚠️</span> BMCs with No MACS Data (Spot Analyzer Visits Only)
+              </div>
+            </div>
+
+            <div class="qc-table-wrap">
+              <table class="qc-table">
+                <thead>
+                  <tr style="background:#FEF3C7; color:#78350F;">
+                    <th>BMC Code</th>
+                    <th>BMC Name</th>
+                    <th>Spot Analyzer Result</th>
+                    <th>Diary Result</th>
+                    <th>Difference</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="no-macs-readings-tbody">
+                  <tr>
+                    <td colspan="6" style="text-align:center; padding:20px; color:#92400E;">No Spot Analyzer visits recorded for BMCs missing MACS data.</td>
                   </tr>
                 </tbody>
               </table>
@@ -149,18 +182,6 @@
 
         </div>
       </main>
-
-      <!-- Detailed BMC View Modal -->
-      <div id="macs-detail-modal" class="qc-modal-backdrop hidden" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:999; justify-content:center; align-items:center;">
-        <div class="qc-modal" style="background:white; border-radius:16px; padding:24px; max-width:550px; width:90%; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);">
-          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #E2E8F0; padding-bottom:12px; margin-bottom:16px;">
-            <h3 style="margin:0; font-size:1.2rem; color:#0F172A;">MACS READING DETAILS</h3>
-            <button id="close-detail-modal" style="border:none; background:none; font-size:1.4rem; cursor:pointer;">✕</button>
-          </div>
-          
-          <div id="macs-detail-content"></div>
-        </div>
-      </div>
     </div>
   </div>
 

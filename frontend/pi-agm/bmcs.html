@@ -96,6 +96,11 @@
           <!-- 3. BMC DETAILS: Search & Status Filters -->
           <div class="bmc-filter-row mb-2">
             <input type="text" id="bmc-search" class="form-input bmc-search" placeholder="Search by name or district…">
+            <select id="bmc-filter-route" class="form-select bmc-filter-select">
+              <option value="all">All Routes</option>
+              <option value="none">No Route</option>
+              <!-- Populated dynamically -->
+            </select>
             <select id="bmc-filter-status" class="form-select bmc-filter-select">
               <option value="all">All Status</option>
               <option value="active">Active Only</option>
@@ -137,15 +142,24 @@
 
         <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
           <div class="form-group" style="flex:1; min-width:150px;">
+            <label class="form-label" for="bmc-route">Route</label>
+            <div style="display:flex; gap:8px;">
+              <select id="bmc-route" class="form-select" style="flex:1;">
+                <option value="">No Route</option>
+              </select>
+              <button type="button" id="add-route-btn" class="btn btn-outline btn-sm" title="Create New Route">+</button>
+            </div>
+          </div>
+          <div class="form-group" style="flex:1; min-width:150px;">
             <label class="form-label" for="bmc-code">BMC Code *</label>
             <input type="text" id="bmc-code" class="form-input" placeholder="e.g. 1001">
           </div>
+        </div>
+        <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
           <div class="form-group" style="flex:2; min-width:200px;">
             <label class="form-label" for="bmc-name">BMC Name *</label>
             <input type="text" id="bmc-name" class="form-input" placeholder="e.g. Erode Central BMC">
           </div>
-        </div>
-        <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
           <div class="form-group" style="flex:1; min-width:200px;">
             <label class="form-label" for="bmc-district">District *</label>
             <input type="text" id="bmc-district" class="form-input" placeholder="e.g. Erode">
@@ -208,6 +222,51 @@
       <div class="bmc-modal-footer">
         <button id="bmc-cancel-btn" class="btn btn-outline">Cancel</button>
         <button id="bmc-save-btn" class="btn btn-primary">Save BMC</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BMC VIEW & DAILY COMPARISON MODAL -->
+  <div id="bmc-view-modal" class="bmc-modal-overlay hidden" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); z-index:9999; justify-content:center; align-items:center; padding:16px;">
+    <div class="bmc-modal" style="max-width:900px; width:95%; max-height:90vh; overflow-y:auto; background:white; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);">
+      <div class="bmc-modal-header" style="display:flex; justify-content:space-between; align-items:center; padding:16px 24px; border-bottom:1px solid #E2E8F0;">
+        <div>
+          <h3 id="view-modal-bmc-title" style="margin:0; font-size:1.25rem; font-weight:800; color:#0F172A;">BMC Daily Records &amp; 3-Way Comparison</h3>
+          <p id="view-modal-bmc-subtitle" style="margin:2px 0 0 0; font-size:0.83rem; color:#64748B;">Code: -- | District: --</p>
+        </div>
+        <button id="view-modal-close" style="border:none; background:none; font-size:1.5rem; cursor:pointer; color:#64748B;">✕</button>
+      </div>
+
+      <div class="bmc-modal-body" style="padding:20px 24px;">
+        <!-- Filters -->
+        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; background:#F8FAFC; padding:12px 16px; border-radius:12px; border:1px solid #E2E8F0; margin-bottom:20px;">
+          <div>
+            <label style="font-weight:700; color:#334155; font-size:0.8rem; display:block; margin-bottom:4px;">From Date</label>
+            <input type="date" id="view-from-date" class="form-input" style="padding:6px 10px; font-size:0.88rem;">
+          </div>
+          <div>
+            <label style="font-weight:700; color:#334155; font-size:0.8rem; display:block; margin-bottom:4px;">To Date</label>
+            <input type="date" id="view-to-date" class="form-input" style="padding:6px 10px; font-size:0.88rem;">
+          </div>
+          <div>
+            <label style="font-weight:700; color:#334155; font-size:0.8rem; display:block; margin-bottom:4px;">Period</label>
+            <select id="view-period" class="form-select" style="padding:6px 10px; font-size:0.88rem; min-width:110px;">
+              <option value="all" selected>All</option>
+              <option value="morning">Morning</option>
+              <option value="evening">Evening</option>
+            </select>
+          </div>
+          <div style="margin-top:auto;">
+            <button id="btn-filter-comparison" class="btn btn-primary btn-sm" style="padding:8px 16px; font-weight:700;">
+              🔍 Filter Records
+            </button>
+          </div>
+        </div>
+
+        <!-- Comparison Table Area -->
+        <div id="comparison-table-container">
+          <div style="text-align:center; padding:40px; color:#64748B;">Select a BMC to view comparison...</div>
+        </div>
       </div>
     </div>
   </div>

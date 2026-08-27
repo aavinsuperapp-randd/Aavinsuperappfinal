@@ -12,6 +12,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('header-agm-name').textContent = profile.name;
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
+  const dateInput = document.getElementById('macs-import-date');
+  if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+
   await loadBmcMaster();
   setupDropZone();
   await loadImportHistory();
@@ -176,17 +179,70 @@ function parseMacsExcel(rows) {
       
       let fatCol = -1;
       let snfCol = -1;
+      let litreCol = -1;
+      let generalQtyCol = -1;
 
-      for (let sc = c; sc < Math.min(c + 8, headerRow.length); sc++) {
+      for (let sc = c; sc < Math.min(c + 10, headerRow.length); sc++) {
         const subHeaderVal = String(subHeaderRow[sc] || '').trim().toUpperCase();
-        if (subHeaderVal === 'FAT' || subHeaderVal === 'FAT %') fatCol = sc;
-        if (subHeaderVal === 'SNF' || subHeaderVal === 'SNF %') snfCol = sc;
+        const mainHeaderVal = String(headerRow[sc] || '').trim().toUpperCase();
+
+        // STRICT REQUIREMENT: Do NOT fetch from SOC, SOCIETY, or SHARE columns!
+        if (subHeaderVal.includes('SHARE') || mainHeaderVal.includes('SHARE') || 
+            subHeaderVal.startsWith('SOC') || mainHeaderVal.startsWith('SOC') ||
+            subHeaderVal.includes('SOCIETY') || mainHeaderVal.includes('SOCIETY')) {
+          continue;
+        }
+
+        if (subHeaderVal === 'FAT' || subHeaderVal === 'FAT %' || subHeaderVal.includes('FAT')) fatCol = sc;
+        if (subHeaderVal === 'SNF' || subHeaderVal === 'SNF %' || subHeaderVal.includes('SNF')) snfCol = sc;
+
+        // Match Column F / LIT / LIT. / LITRE / LITRES / LTR / QUANTITY
+        if (subHeaderVal === 'LIT' || subHeaderVal === 'LIT.' || subHeaderVal.startsWith('LIT') || 
+            subHeaderVal.includes('LITRE') || subHeaderVal.includes('LITER') || subHeaderVal.includes('LTR')) {
+          litreCol = sc;
+        } else if (subHeaderVal.includes('QTY') || subHeaderVal.includes('QUANTITY') || subHeaderVal.includes('VOL')) {
+          generalQtyCol = sc;
+        }
       }
+
+      // If no explicit Litre/Qty column subheader was found, pick Column F (index 5) or first valid non-SOC/SHARE, non-FAT/SNF column
+      let chosenQtyCol = -1;
+      if (litreCol !== -1) {
+        chosenQtyCol = litreCol;
+      } else if (generalQtyCol !== -1) {
+        chosenQtyCol = generalQtyCol;
+      } else {
+        // Check Column F (index 5) directly if available and valid
+        if (headerRow.length > 5) {
+          const colFSub = String(subHeaderRow[5] || '').trim().toUpperCase();
+          const colFMain = String(headerRow[5] || '').trim().toUpperCase();
+          if (!colFSub.includes('SHARE') && !colFSub.startsWith('SOC') && !colFSub.includes('FAT') && !colFSub.includes('SNF')) {
+            chosenQtyCol = 5;
+          }
+        }
+
+        if (chosenQtyCol === -1) {
+          for (let sc = c; sc < Math.min(c + 8, headerRow.length); sc++) {
+            const subHeaderVal = String(subHeaderRow[sc] || '').trim().toUpperCase();
+            const mainHeaderVal = String(headerRow[sc] || '').trim().toUpperCase();
+            if (subHeaderVal.includes('SHARE') || mainHeaderVal.includes('SHARE')) continue;
+            if (subHeaderVal.startsWith('SOC') || mainHeaderVal.startsWith('SOC')) continue;
+            if (sc === fatCol || sc === snfCol) continue;
+            if (subHeaderVal.includes('FAT') || subHeaderVal.includes('SNF')) continue;
+            
+            chosenQtyCol = sc;
+            break;
+          }
+        }
+      }
+
+      if (chosenQtyCol === -1) chosenQtyCol = 5; // Default to Column F (Col index 5)
 
       dateGroups[parsedDate].push({
         startCol: c,
         fatCol: fatCol !== -1 ? fatCol : c + 3,
-        snfCol: snfCol !== -1 ? snfCol : c + 4
+        snfCol: snfCol !== -1 ? snfCol : c + 4,
+        qtyCol: chosenQtyCol
       });
     }
   }
@@ -213,27 +269,38 @@ function parseMacsExcel(rows) {
     detectedDates.forEach(dateIso => {
       const blocks = dateGroups[dateIso];
       
+      // Explicitly target Column F (row[5]) for Litres as requested by user
+      const colFLit = parseNumericCell(row[5]);
+      
       // Block 0 = Worker MACS Reading
       if (blocks[0]) {
+        const detectedLit = parseNumericCell(row[blocks[0].qtyCol]);
+        const finalLit = colFLit !== null ? colFLit : detectedLit;
+
         parsedReadings.push({
           bmc_code: rawCode,
           bmc_name: rawName,
           reading_date: dateIso,
           source: 'worker',
           fat: parseNumericCell(row[blocks[0].fatCol]),
-          snf: parseNumericCell(row[blocks[0].snfCol])
+          snf: parseNumericCell(row[blocks[0].snfCol]),
+          quantity_liters: finalLit
         });
       }
 
       // Block 1 = QC MACS Reading
       if (blocks[1]) {
+        const detectedQcLit = parseNumericCell(row[blocks[1].qtyCol]);
+        const finalQcLit = detectedQcLit !== null ? detectedQcLit : colFLit;
+
         parsedReadings.push({
           bmc_code: rawCode,
           bmc_name: rawName,
           reading_date: dateIso,
           source: 'qc',
           fat: parseNumericCell(row[blocks[1].fatCol]),
-          snf: parseNumericCell(row[blocks[1].snfCol])
+          snf: parseNumericCell(row[blocks[1].snfCol]),
+          quantity_liters: finalQcLit
         });
       }
     });
@@ -319,10 +386,44 @@ function generatePreviewTable(detectedDates) {
 async function handleExecuteImport() {
   if (parsedMacsReadings.length === 0) return;
 
+  const importDate = document.getElementById('macs-import-date')?.value || new Date().toISOString().split('T')[0];
+  const period = document.getElementById('macs-import-period')?.value || 'both';
+
   try {
-    showToast('Saving MACS Readings into Supabase database...', 'info');
-    const res = await apiQcAgmImportMacsReadings(fileInfo.name, parsedMacsReadings, 'Uploaded via MACS Import Manager');
-    showToast(res.message, 'success');
+    showToast('Saving MACS Readings into database...', 'info');
+    
+    // Call API with date & period parameters
+    const token = await getQcAgmAuthToken();
+    const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'https://aavin-backend.onrender.com';
+    
+    const res = await fetch(`${baseUrl}/api/qc-agm/macs/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        file_name: fileInfo.name,
+        import_date: importDate,
+        period,
+        readings: parsedMacsReadings,
+        notes: `MACS Excel Import (${period.toUpperCase()} - ${importDate})`
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Import failed.');
+
+    const stats = data.stats || {};
+    const summaryMsg = `🎉 MACS Import Complete!\n\n` +
+      `📊 Total Excel Rows: ${stats.total_excel_rows || parsedMacsReadings.length}\n` +
+      `✅ Successfully Mapped: ${stats.successfully_mapped || 0}\n` +
+      `⚠️ BMC Code Missing: ${stats.bmc_code_missing || 0}\n` +
+      `❌ BMC Code Not Found: ${stats.bmc_code_not_found || 0}\n` +
+      `🔄 Duplicate / Updated Rows: ${stats.duplicate_conflicting || 0}`;
+
+    alert(summaryMsg);
+    showToast(data.message, 'success');
 
     resetImportState();
     await loadImportHistory();
@@ -381,11 +482,51 @@ function renderImportHistoryTable(imports) {
         <td><strong style="color:var(--qc-700);">${imp.total_rows}</strong></td>
         <td><span style="color:#16A34A; font-weight:700;">${imp.successful_rows}</span></td>
         <td><span style="color:#DC2626; font-weight:700;">${imp.failed_rows}</span></td>
-        <td><span class="qc-pill pill-approved">${esc(imp.status)}</span></td>
+        <td>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="qc-pill pill-approved">${esc(imp.status)}</span>
+            <button type="button" class="btn-delete-batch" onclick="deleteImportBatch('${imp.id}')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:6px; font-weight:700; font-size:0.75rem; cursor:pointer;" title="Delete Batch & Mapped Data">
+              🗑️ Delete
+            </button>
+          </div>
+        </td>
       </tr>
     `;
   }).join('');
 }
+
+window.deleteImportBatch = async function(batchId) {
+  if (!confirm('Are you sure you want to delete this MACS Excel import batch?\nAll mapped daily records and BMC data from this batch will be permanently deleted.')) {
+    return;
+  }
+
+  try {
+    const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : '';
+    const token = await getQcAgmAuthToken();
+    const res = await fetch(`${baseUrl}/api/qc-agm/macs/import-batch/${batchId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to delete import batch');
+
+    if (typeof showToast === 'function') {
+      showToast(data.message || 'MACS Excel batch and mapped data deleted.', 'success');
+    } else {
+      alert(data.message || 'MACS Excel batch and mapped data deleted.');
+    }
+
+    if (typeof loadImportHistory === 'function') {
+      await loadImportHistory();
+    }
+  } catch (err) {
+    console.error('Error deleting import batch:', err);
+    alert(err.message || 'Failed to delete import batch.');
+  }
+};
 
 function esc(str) {
   if (str === null || str === undefined) return '';

@@ -3,6 +3,7 @@
 let currentMacsReadings = [];
 let availableDates = [];
 let selectedDate = '';
+let masterBmcsList = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
   const profile = await checkAuth('qc_agm');
@@ -13,17 +14,67 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
   setupControls();
+  await loadMasterBmcs();
   await loadAvailableDates();
 });
 
+async function loadMasterBmcs() {
+  try {
+    const res = await apiQcAgmGetBmcs();
+    masterBmcsList = res.bmcs || [];
+  } catch (err) {
+    console.error('Error loading master BMCs:', err);
+  }
+}
+
+function updateQuickDateButtonsUI(dateStr) {
+  const btnToday = document.getElementById('btn-quick-today');
+  const btnYesterday = document.getElementById('btn-quick-yesterday');
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+  const activeStyle = 'background: #2563EB; color: #FFFFFF; border: 1px solid #1D4ED8; font-weight: 700; box-shadow: 0 2px 6px rgba(37,99,235,0.3);';
+  const inactiveStyle = 'background: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; font-weight: 700; box-shadow: none;';
+
+  if (btnToday) {
+    if (dateStr === todayStr) {
+      btnToday.setAttribute('style', `padding:6px 14px; font-size:0.82rem; border-radius:6px; cursor:pointer; transition:all 0.2s ease; ${activeStyle}`);
+      btnToday.classList.add('active');
+    } else {
+      btnToday.setAttribute('style', `padding:6px 14px; font-size:0.82rem; border-radius:6px; cursor:pointer; transition:all 0.2s ease; ${inactiveStyle}`);
+      btnToday.classList.remove('active');
+    }
+  }
+
+  if (btnYesterday) {
+    if (dateStr === yesterdayStr) {
+      btnYesterday.setAttribute('style', `padding:6px 14px; font-size:0.82rem; border-radius:6px; cursor:pointer; transition:all 0.2s ease; ${activeStyle}`);
+      btnYesterday.classList.add('active');
+    } else {
+      btnYesterday.setAttribute('style', `padding:6px 14px; font-size:0.82rem; border-radius:6px; cursor:pointer; transition:all 0.2s ease; ${inactiveStyle}`);
+      btnYesterday.classList.remove('active');
+    }
+  }
+}
+
 function setupControls() {
   const dateSelect = document.getElementById('macs-date-select');
+  const periodSelect = document.getElementById('macs-period-select');
   const searchInput = document.getElementById('macs-search-input');
-  const closeModalBtn = document.getElementById('close-detail-modal');
+  const btnToday = document.getElementById('btn-quick-today');
+  const btnYesterday = document.getElementById('btn-quick-yesterday');
 
   if (dateSelect) {
     dateSelect.addEventListener('change', (e) => {
       selectedDate = e.target.value;
+      updateQuickDateButtonsUI(selectedDate);
+      loadReadingsForDate(selectedDate);
+    });
+  }
+
+  if (periodSelect) {
+    periodSelect.addEventListener('change', () => {
       loadReadingsForDate(selectedDate);
     });
   }
@@ -32,16 +83,45 @@ function setupControls() {
     searchInput.addEventListener('input', () => renderFilteredReadings());
   }
 
-  if (closeModalBtn) {
-    closeModalBtn.addEventListener('click', closeDetailModal);
-  }
-
-  const modal = document.getElementById('macs-detail-modal');
-  if (modal) {
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) closeDetailModal();
+  if (btnToday) {
+    btnToday.addEventListener('click', () => {
+      const todayStr = new Date().toISOString().split('T')[0];
+      selectOrSetDate(todayStr);
     });
   }
+
+  if (btnYesterday) {
+    btnYesterday.addEventListener('click', () => {
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      selectOrSetDate(yesterday);
+    });
+  }
+}
+
+function selectOrSetDate(dateStr) {
+  const dateSelect = document.getElementById('macs-date-select');
+  if (!dateSelect) return;
+
+  let exists = false;
+  for (let i = 0; i < dateSelect.options.length; i++) {
+    if (dateSelect.options[i].value === dateStr) {
+      dateSelect.selectedIndex = i;
+      exists = true;
+      break;
+    }
+  }
+
+  if (!exists) {
+    const opt = document.createElement('option');
+    opt.value = dateStr;
+    opt.textContent = new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    dateSelect.appendChild(opt);
+    dateSelect.value = dateStr;
+  }
+
+  selectedDate = dateStr;
+  updateQuickDateButtonsUI(selectedDate);
+  loadReadingsForDate(selectedDate);
 }
 
 async function loadAvailableDates() {
@@ -52,18 +132,10 @@ async function loadAvailableDates() {
     const res = await apiQcAgmGetMacsDates();
     availableDates = res.dates || [];
 
-    if (availableDates.length === 0) {
-      dateSelect.innerHTML = `<option value="">No MACS Data Found</option>`;
-      document.getElementById('macs-readings-tbody').innerHTML = `
-        <tr>
-          <td colspan="8" style="text-align:center; padding:30px; color:#64748B;">
-            <div style="font-size:2rem; margin-bottom:8px;">📥</div>
-            <div>No MACS Readings imported yet.</div>
-            <div style="font-size:0.83rem; margin-top:4px;">Upload an Excel report using the <strong>Import MACS Excel</strong> button.</div>
-          </td>
-        </tr>
-      `;
-      return;
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    if (!availableDates.includes(todayStr)) {
+      availableDates.unshift(todayStr);
     }
 
     dateSelect.innerHTML = availableDates.map(d => {
@@ -71,10 +143,10 @@ async function loadAvailableDates() {
       return `<option value="${d}">${formatted}</option>`;
     }).join('');
 
-    // Default to latest date
     selectedDate = availableDates[0];
     dateSelect.value = selectedDate;
 
+    updateQuickDateButtonsUI(selectedDate);
     await loadReadingsForDate(selectedDate);
   } catch (err) {
     console.error('Error loading MACS dates:', err);
@@ -82,14 +154,30 @@ async function loadAvailableDates() {
   }
 }
 
+let currentNoMacsReadings = [];
+
 async function loadReadingsForDate(dateStr) {
   if (!dateStr) return;
 
+  updateQuickDateButtonsUI(dateStr);
+  const period = document.getElementById('macs-period-select')?.value || 'both';
+
   try {
     const res = await apiQcAgmGetMacsReadings(dateStr);
-    currentMacsReadings = res.readings || [];
+    let readings = res.readings || [];
+    let noMacsReadings = res.no_macs_readings || [];
 
-    updateSummaryCards(currentMacsReadings);
+    if (period !== 'both') {
+      readings = readings.filter(r => {
+        const p = (r.raw?.period || r.raw_data?.period || 'morning').toLowerCase();
+        return p === period.toLowerCase();
+      });
+    }
+
+    currentMacsReadings = readings;
+    currentNoMacsReadings = noMacsReadings;
+
+    await updateSummaryCards(dateStr, period);
     renderFilteredReadings();
   } catch (err) {
     console.error('Error loading MACS readings:', err);
@@ -97,80 +185,214 @@ async function loadReadingsForDate(dateStr) {
   }
 }
 
-function updateSummaryCards(readings) {
-  let totalBmcs = readings.length;
-  let workerReadings = 0;
-  let qcReadings = 0;
+async function updateSummaryCards(dateStr, periodStr) {
+  try {
+    const dashStats = await apiQcAgmGetDashboard(dateStr, periodStr);
+    if (document.getElementById('stat-total-bmcs')) {
+      document.getElementById('stat-total-bmcs').textContent = dashStats.total_bmcs || masterBmcsList.length || 0;
+    }
+    if (document.getElementById('stat-total-kg')) {
+      document.getElementById('stat-total-kg').textContent = `${(dashStats.total_quantity_kg || 0).toLocaleString('en-IN')} KG`;
+    }
+    if (document.getElementById('stat-macs-total-bmcs')) {
+      document.getElementById('stat-macs-total-bmcs').textContent = dashStats.macs_total_bmcs !== undefined ? dashStats.macs_total_bmcs : 0;
+    }
+  } catch (e) {
+    console.error('Error fetching dashboard summary:', e);
+  }
+}
 
-  readings.forEach(r => {
-    if (r.worker && (r.worker.fat !== null || r.worker.snf !== null)) workerReadings++;
-    if (r.qc && (r.qc.fat !== null || r.qc.snf !== null)) qcReadings++;
-  });
-
-  if (document.getElementById('stat-total-bmcs')) document.getElementById('stat-total-bmcs').textContent = totalBmcs;
-  if (document.getElementById('stat-worker-readings')) document.getElementById('stat-worker-readings').textContent = workerReadings;
-  if (document.getElementById('stat-qc-readings')) document.getElementById('stat-qc-readings').textContent = qcReadings;
+function getItemRouteName(item) {
+  if (item.bmc_routes && item.bmc_routes.name) return item.bmc_routes.name;
+  if (item.route_name) return item.route_name;
+  if (item.route) return item.route;
+  if (Array.isArray(masterBmcsList) && masterBmcsList.length > 0) {
+    const found = masterBmcsList.find(b =>
+      String(b.bmc_code) === String(item.bmc_code) ||
+      String(b.id) === String(item.bmc_id) ||
+      String(b.name).toLowerCase() === String(item.bmc_name).toLowerCase()
+    );
+    if (found) return found.bmc_routes?.name || found.route_name || 'Unassigned Route';
+  }
+  return 'Unassigned Route';
 }
 
 function renderFilteredReadings() {
-  const tbody = document.getElementById('macs-readings-tbody');
-  if (!tbody) return;
+  const tbody1 = document.getElementById('macs-readings-tbody');
+  const tbody2 = document.getElementById('no-macs-readings-tbody');
+  if (!tbody1) return;
 
-  const query = (document.getElementById('macs-search-input').value || '').trim().toLowerCase();
+  const query = (document.getElementById('macs-search-input')?.value || '').trim().toLowerCase();
 
-  const filtered = currentMacsReadings.filter(item => {
+  const filtered1 = currentMacsReadings.filter(item => {
     const codeMatch = String(item.bmc_code || '').toLowerCase().includes(query);
     const nameMatch = String(item.bmc_name || '').toLowerCase().includes(query);
-    return !query || codeMatch || nameMatch;
+    const routeMatch = String(getItemRouteName(item)).toLowerCase().includes(query);
+    return !query || codeMatch || nameMatch || routeMatch;
   });
 
-  if (filtered.length === 0) {
-    tbody.innerHTML = `
+  const filtered2 = currentNoMacsReadings.filter(item => {
+    const codeMatch = String(item.bmc_code || '').toLowerCase().includes(query);
+    const nameMatch = String(item.bmc_name || '').toLowerCase().includes(query);
+    const routeMatch = String(getItemRouteName(item)).toLowerCase().includes(query);
+    return !query || codeMatch || nameMatch || routeMatch;
+  });
+
+  const dash = `<span style="color:#94A3B8; font-weight:600;">-</span>`;
+
+  // Render Table 1: Matched MACS Readings
+  if (filtered1.length === 0) {
+    tbody1.innerHTML = `
       <tr>
-        <td colspan="8" style="text-align:center; padding:24px; color:#64748B;">
-          No MACS readings match your current search and filter criteria.
+        <td colspan="7" style="text-align:center; padding:30px; color:#64748B;">
+          No Data Available
         </td>
       </tr>
     `;
-    return;
+  } else {
+    // Group Table 1 by Route
+    const groups1 = {};
+    filtered1.forEach(item => {
+      const rName = getItemRouteName(item);
+      if (!groups1[rName]) groups1[rName] = [];
+      groups1[rName].push(item);
+    });
+
+    let html1 = '';
+    Object.keys(groups1).forEach(rName => {
+      const groupItems = groups1[rName];
+      html1 += `
+        <tr style="background: linear-gradient(135deg, #1e293b, #334155); color: #ffffff; font-weight: 700;">
+          <td colspan="7" style="padding: 10px 16px; border-radius: 4px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span>🛣️ Route: ${esc(rName)}</span>
+              <span style="font-size:0.75rem; background:rgba(255,255,255,0.2); padding:2px 10px; border-radius:12px;">${groupItems.length} BMC${groupItems.length !== 1 ? 's' : ''}</span>
+            </div>
+          </td>
+        </tr>
+      `;
+
+      html1 += groupItems.map(item => {
+        const w = item.worker || {};
+        const macsLit = item.macs?.quantity_liters ?? w.raw?.macs_quantity_liters ?? item.raw_data?.macs_quantity_liters;
+        const macsKg = item.macs?.quantity_kg ?? (macsLit ? parseFloat((macsLit * 1.03).toFixed(2)) : null);
+        const macsFat = w.fat ?? item.macs?.fat;
+        const macsSnf = w.snf ?? item.macs?.snf;
+
+        const macsStr = (macsLit !== null && macsLit !== undefined) 
+          ? `<div style="font-size:0.88rem; font-weight:800; color:#1E3A8A;">${macsLit} L <span style="font-size:0.75rem; color:#475569; font-weight:600;">(${macsKg} KG)</span></div><div style="font-size:0.78rem; color:#2563EB; font-weight:700; margin-top:2px;">F: ${macsFat ?? '-'}% | S: ${macsSnf ?? '-'}%</div>`
+          : dash;
+
+        const spot = item.spot || {};
+        const spotStr = spot.visited 
+          ? `<div style="font-size:0.88rem; font-weight:800; color:#92400E;">${spot.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#78350F; font-weight:600;">(${spot.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#D97706; font-weight:700; margin-top:2px;">F: ${spot.fat ?? '-'}% | S: ${spot.snf ?? '-'}%</div>`
+          : dash;
+
+        const diary = item.diary || {};
+        const diaryStr = diary.recorded 
+          ? `<div style="font-size:0.88rem; font-weight:800; color:#065F46;">${diary.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#047857; font-weight:600;">(${diary.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#059669; font-weight:700; margin-top:2px;">F: ${diary.fat ?? '-'}% | S: ${diary.snf ?? '-'}%</div>`
+          : dash;
+
+        let diffDisplay = dash;
+        if (item.fat_diff !== null && item.snf_diff !== null) {
+          const fDiffSign = item.fat_diff > 0 ? `+${item.fat_diff}` : item.fat_diff;
+          const sDiffSign = item.snf_diff > 0 ? `+${item.snf_diff}` : item.snf_diff;
+          diffDisplay = `<span style="font-size:0.8rem; background:#F1F5F9; padding:3px 8px; border-radius:4px; font-weight:600;">FAT: ${fDiffSign} | SNF: ${sDiffSign}</span>`;
+        }
+
+        return `
+          <tr style="cursor:pointer;" onclick="navigateToBmcDetails('${esc(item.bmc_code)}')">
+            <td><strong>${esc(item.bmc_code)}</strong></td>
+            <td><strong style="color:#0F172A;">${esc(item.bmc_name || 'N/A')}</strong></td>
+            <td>${macsStr}</td>
+            <td>${spotStr}</td>
+            <td>${diaryStr}</td>
+            <td>${diffDisplay}</td>
+            <td>
+              <button class="btn-qc btn-qc-outline btn-qc-sm" onclick="event.stopPropagation(); navigateToBmcDetails('${esc(item.bmc_code)}');">
+                👁️ View Details
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    });
+
+    tbody1.innerHTML = html1;
   }
 
-  tbody.innerHTML = filtered.map((item, idx) => {
-    const w = item.worker || {};
-    const q = item.qc || {};
+  // Render Table 2: BMCs with No MACS Data (Spot Analyzer Visits Only)
+  if (tbody2) {
+    if (filtered2.length === 0) {
+      tbody2.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align:center; padding:20px; color:#92400E;">
+            No Spot Analyzer visits recorded for BMCs missing MACS data.
+          </td>
+        </tr>
+      `;
+    } else {
+      const groups2 = {};
+      filtered2.forEach(item => {
+        const rName = getItemRouteName(item);
+        if (!groups2[rName]) groups2[rName] = [];
+        groups2[rName].push(item);
+      });
 
-    const wFatStr = w.fat !== null && w.fat !== undefined ? `${w.fat}%` : '--';
-    const wSnfStr = w.snf !== null && w.snf !== undefined ? `${w.snf}%` : '--';
-    const qFatStr = q.fat !== null && q.fat !== undefined ? `${q.fat}%` : '--';
-    const qSnfStr = q.snf !== null && q.snf !== undefined ? `${q.snf}%` : '--';
+      let html2 = '';
+      Object.keys(groups2).forEach(rName => {
+        const groupItems = groups2[rName];
+        html2 += `
+          <tr style="background: linear-gradient(135deg, #1e293b, #334155); color: #ffffff; font-weight: 700;">
+            <td colspan="6" style="padding: 10px 16px; border-radius: 4px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span>🛣️ Route: ${esc(rName)}</span>
+                <span style="font-size:0.75rem; background:rgba(255,255,255,0.2); padding:2px 10px; border-radius:12px;">${groupItems.length} BMC${groupItems.length !== 1 ? 's' : ''}</span>
+              </div>
+            </td>
+          </tr>
+        `;
 
-    let diffDisplay = '--';
-    if (item.fat_diff !== null && item.snf_diff !== null) {
-      const fDiffSign = item.fat_diff > 0 ? `+${item.fat_diff}` : item.fat_diff;
-      const sDiffSign = item.snf_diff > 0 ? `+${item.snf_diff}` : item.snf_diff;
-      diffDisplay = `<span style="font-size:0.8rem; background:#F1F5F9; padding:3px 8px; border-radius:4px; font-weight:600;">FAT: ${fDiffSign} | SNF: ${sDiffSign}</span>`;
+        html2 += groupItems.map(item => {
+          const spot = item.spot || {};
+          const spotStr = spot.visited 
+            ? `<div style="font-size:0.88rem; font-weight:800; color:#92400E;">${spot.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#78350F; font-weight:600;">(${spot.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#D97706; font-weight:700; margin-top:2px;">F: ${spot.fat ?? '-'}% | S: ${spot.snf ?? '-'}%</div>`
+            : dash;
+
+          const diary = item.diary || {};
+          const diaryStr = diary.recorded 
+            ? `<div style="font-size:0.88rem; font-weight:800; color:#065F46;">${diary.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#047857; font-weight:600;">(${diary.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#059669; font-weight:700; margin-top:2px;">F: ${diary.fat ?? '-'}% | S: ${diary.snf ?? '-'}%</div>`
+            : dash;
+
+          return `
+            <tr style="cursor:pointer;" onclick="navigateToBmcDetails('${esc(item.bmc_code)}')">
+              <td><strong>${esc(item.bmc_code)}</strong></td>
+              <td><strong style="color:#0F172A;">${esc(item.bmc_name || 'N/A')}</strong></td>
+              <td>${spotStr}</td>
+              <td>${diaryStr}</td>
+              <td>${dash}</td>
+              <td>
+                <button class="btn-qc btn-qc-outline btn-qc-sm" onclick="event.stopPropagation(); navigateToBmcDetails('${esc(item.bmc_code)}');">
+                  👁️ View Details
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      });
+
+      tbody2.innerHTML = html2;
     }
+  }
 
-    return `
-      <tr style="cursor:pointer;" onclick="openDetailModal(${idx})">
-        <td><strong>${esc(item.bmc_code)}</strong></td>
-        <td><strong style="color:#0F172A;">${esc(item.bmc_name || 'N/A')}</strong></td>
-        <td><strong style="color:#2563EB;">${esc(wFatStr)}</strong></td>
-        <td><strong style="color:#2563EB;">${esc(wSnfStr)}</strong></td>
-        <td><strong style="color:#059669;">${esc(qFatStr)}</strong></td>
-        <td><strong style="color:#059669;">${esc(qSnfStr)}</strong></td>
-        <td>${diffDisplay}</td>
-        <td>
-          <button class="btn-qc btn-qc-outline btn-qc-sm" onclick="event.stopPropagation(); openDetailModal(${idx});">
-            👁️ View Details
-          </button>
-        </td>
-      </tr>
-    `;
-  }).join('');
-
-  window._filteredMacsReadings = filtered;
+  window._filteredMacsReadings = filtered1;
 }
+
+window.navigateToBmcDetails = function(bmcCode) {
+  if (!bmcCode) return;
+  const dateParam = selectedDate ? `&date=${encodeURIComponent(selectedDate)}` : '';
+  window.location.href = `bmc-detail.html?code=${encodeURIComponent(bmcCode)}${dateParam}`;
+};
 
 window.openDetailModal = function(idx) {
   const item = (window._filteredMacsReadings || currentMacsReadings)[idx];
@@ -253,6 +475,42 @@ window.openDetailModal = function(idx) {
   modal.classList.remove('hidden');
 };
 
+window.handleDeleteMacsData = async function() {
+  const selectedDate = document.getElementById('macs-date-select')?.value;
+  
+  let confirmMsg = selectedDate 
+    ? `Are you sure you want to delete imported MACS software data for date: ${selectedDate}?`
+    : 'Are you sure you want to delete ALL imported MACS software data from the system?';
+
+  if (!confirm(confirmMsg)) return;
+
+  const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : '';
+  let deleteUrl = `${baseUrl}/api/qc-agm/macs/delete-all`;
+  if (selectedDate) {
+    deleteUrl = `${baseUrl}/api/qc-agm/macs/delete-date?date=${encodeURIComponent(selectedDate)}`;
+  }
+
+  try {
+    const token = await getQcAgmAuthToken();
+    const res = await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to delete MACS data');
+
+    showToast(data.message || 'Imported MACS data deleted successfully.', 'success');
+    await loadDatesDropdown();
+    await loadMacsReadings();
+  } catch (err) {
+    console.error('Error deleting MACS data:', err);
+    showToast(err.message || 'Failed to delete MACS data.', 'error');
+  }
+};
+
 function closeDetailModal() {
   const modal = document.getElementById('macs-detail-modal');
   if (modal) {
@@ -260,6 +518,11 @@ function closeDetailModal() {
     modal.classList.add('hidden');
   }
 }
+
+window.navigateToBmcDetails = function(bmcCode) {
+  if (!bmcCode) return;
+  window.location.href = `bmc-detail.html?code=${encodeURIComponent(bmcCode)}`;
+};
 
 function esc(str) {
   if (str === null || str === undefined) return '';

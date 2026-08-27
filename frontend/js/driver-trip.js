@@ -136,27 +136,20 @@ function renderTripInterface(trip) {
     case 'assigned':
     case 'accepted':
     case 'ready':
-      showEl('step-pretrip');
-      setupPreTripForm();
-      break;
     case 'in_progress':
     case 'returning':
+    case 'completed':
       showEl('step-active');
       renderActiveTripState(trip);
-      startElapsedTimer(trip.started_at);
-      setupCompleteBtn();
-      break;
-    case 'completed':
-      showEl('step-completed');
-      renderCompletionResult(trip);
+      if (trip.started_at) startElapsedTimer(trip.started_at);
       break;
     case 'cancelled':
       document.getElementById('page-title').textContent = 'Trip Cancelled';
       showToast('This trip has been cancelled.', 'info');
       break;
     default:
-      showEl('step-pretrip');
-      setupPreTripForm();
+      showEl('step-active');
+      renderActiveTripState(trip);
   }
 }
 

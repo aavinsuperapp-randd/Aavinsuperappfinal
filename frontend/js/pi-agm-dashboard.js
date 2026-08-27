@@ -675,9 +675,13 @@ window.openTripDetailModal = function(tripId) {
           <tr>
             <td><strong>${v.visit_sequence || '—'}</strong></td>
             <td><strong>${esc(v.bmc_name)}</strong></td>
-            <td>${esc(v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'))}</td>
-            <td><span>${esc(displayFtir)}</span></td>
-            <td><span>${esc(displayGerber)}</span></td>
+            <td>${esc(v.macs_result || '—')}</td>
+            <td>
+              <div class="text-xs">Qty: ${esc(v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'))}</div>
+              <div class="text-xs text-muted">FTIR: ${esc(displayFtir)}</div>
+              <div class="text-xs text-muted">Gerber: ${esc(displayGerber)}</div>
+            </td>
+            <td>${esc(v.diary_result || '—')}</td>
           </tr>
         `;
       }).join('');

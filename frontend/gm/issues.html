@@ -21,11 +21,13 @@
       </div>
       <nav class="admin-nav">
         <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Executive Overview</a>
-        
-        <a href="issues.html" class="admin-nav-item active"><span>⚠️</span> Complaints</a>
-        <a href="fleet.html" class="admin-nav-item"><span>👥</span> Fleet & Staff</a>
         <a href="bmcs.html" class="admin-nav-item"><span>🏭</span> BMC Management</a>
+        <a href="fleet.html" class="admin-nav-item"><span>👥</span> Fleet &amp; Staff</a>
+        <a href="../transport/duty.html" class="admin-nav-item"><span>📋</span> Duty Management</a>
+        <a href="issues.html" class="admin-nav-item active"><span>⚠️</span> Complaints &amp; Issues</a>
+        <a href="../qc-agm/dashboard.html" class="admin-nav-item"><span>🔬</span> Quality Control</a>
         <a href="analysis.html" class="admin-nav-item"><span>📈</span> Deep Analysis</a>
+        <a href="bmc-profile.html" class="admin-nav-item"><span>👤</span> Profile</a>
         <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
       </nav>
     </aside>
@@ -55,6 +57,7 @@
               <span class="filter-label" style="margin-left:6px;">Status:</span>
               <select id="status-filter-select" class="form-control form-control-sm" style="width:120px;">
                 <option value="all">All</option>
+                <option value="priority">⭐ Priority</option>
                 <option value="pending" selected>Pending</option>
                 <option value="completed">Resolved</option>
               </select>

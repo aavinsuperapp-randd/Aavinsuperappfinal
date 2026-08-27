@@ -602,12 +602,30 @@ function renderTripsTable(trips = []) {
             <button class="btn btn-sm btn-outline" style="color:#dc2626; border-color:#fca5a5;" onclick="event.stopPropagation(); exportSingleTripPDFById('${t.id}')" title="Download Single Trip PDF">
               📄
             </button>
+            <button class="btn btn-sm btn-outline" style="color:#ef4444; border-color:#fca5a5;" onclick="event.stopPropagation(); deleteTripByGm('${t.id}', '${esc(t.trip_name)}')" title="Delete Trip">
+              🗑️
+            </button>
           </div>
         </td>
       </tr>
     `;
   }).join('');
 }
+
+window.deleteTripByGm = async function(tripId, tripName) {
+  if (!confirm(`Are you sure you want to delete field trip "${tripName}"? This action cannot be undone.`)) return;
+  if (typeof toggleLoading === 'function') toggleLoading(true);
+  try {
+    await apiGmDeleteTrip(tripId);
+    if (typeof showToast === 'function') showToast('Trip deleted successfully.', 'success');
+    await loadDashboardData();
+    await loadPendingTrips();
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to delete trip.', 'error');
+  } finally {
+    if (typeof toggleLoading === 'function') toggleLoading(false);
+  }
+};
 
 let activeModalTripId = null;
 
@@ -673,9 +691,13 @@ window.openTripDetailModal = function(tripId) {
           <tr>
             <td><strong>${v.visit_sequence || '—'}</strong></td>
             <td><strong>${esc(v.bmc_name)}</strong></td>
-            <td>${esc(v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'))}</td>
-            <td><span>${esc(displayFtir)}</span></td>
-            <td><span>${esc(displayGerber)}</span></td>
+            <td>${esc(v.macs_result || '—')}</td>
+            <td>
+              <div class="text-xs">Qty: ${esc(v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'))}</div>
+              <div class="text-xs text-muted">FTIR: ${esc(displayFtir)}</div>
+              <div class="text-xs text-muted">Gerber: ${esc(displayGerber)}</div>
+            </td>
+            <td>${esc(v.diary_result || '—')}</td>
           </tr>
         `;
       }).join('');

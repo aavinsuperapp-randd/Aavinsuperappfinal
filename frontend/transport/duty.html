@@ -25,6 +25,7 @@
         <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Dashboard</a>
         <a href="vehicles.html" class="admin-nav-item"><span>🚛</span> Vehicles</a>
         <a href="duty.html" class="admin-nav-item active"><span>📋</span> Duty</a>
+        <a href="macs-data.html" class="admin-nav-item"><span>🥛</span> MACS Data</a>
         <a href="driver-analysis.html" class="admin-nav-item"><span>📈</span> Driver Analysis</a>
         <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
       </nav>
@@ -108,107 +109,366 @@
     </div>
   </div>
 
-      </main>
-    </div>
-  </div>
+  <!-- Custom Responsive & Professional UI Styles for Assign Duty Modal -->
+  <style>
+    .assign-duty-modal-content {
+      max-width: 840px !important;
+      width: 94% !important;
+      max-height: 90vh !important;
+      padding: 28px 32px !important;
+      border-radius: 20px !important;
+      box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25) !important;
+      border: 1px solid #E2E8F0 !important;
+      background: #FFFFFF !important;
+    }
+    .modal-header-box {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #E2E8F0;
+    }
+    .modal-title-main {
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: #0F172A;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .modal-subtitle {
+      font-size: 0.85rem;
+      color: #64748B;
+      margin-top: 4px;
+    }
+    .modal-close-icon {
+      background: #F1F5F9;
+      border: none;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      font-size: 1.1rem;
+      color: #64748B;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+    .modal-close-icon:hover {
+      background: #E2E8F0;
+      color: #0F172A;
+    }
+    .step-section-card {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+    }
+    .step-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .step-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #0F172A;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .macs-filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-bottom: 16px;
+      background: #FFFFFF;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid #E2E8F0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .input-label-styled {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.83rem;
+      font-weight: 700;
+      color: #334155;
+      margin-bottom: 6px;
+    }
+    .input-styled {
+      width: 100%;
+      height: 44px;
+      padding: 0 14px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #0F172A;
+      background: #FFFFFF;
+      border: 1.5px solid #CBD5E1;
+      border-radius: 10px;
+      outline: none;
+      transition: all 0.2s ease;
+      box-sizing: border-box;
+    }
+    .input-styled:focus {
+      border-color: #2563EB;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+    .input-styled:disabled {
+      background: #F1F5F9;
+      color: #94A3B8;
+      cursor: not-allowed;
+    }
+    .textarea-styled {
+      width: 100%;
+      padding: 12px 14px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #0F172A;
+      background: #FFFFFF;
+      border: 1.5px solid #CBD5E1;
+      border-radius: 10px;
+      outline: none;
+      transition: all 0.2s ease;
+      box-sizing: border-box;
+      font-family: inherit;
+      resize: vertical;
+    }
+    .textarea-styled:focus {
+      border-color: #2563EB;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+    .textarea-styled:disabled {
+      background: #F1F5F9;
+      color: #94A3B8;
+      cursor: not-allowed;
+    }
+    .bmc-list-scrollbox {
+      max-height: 180px;
+      overflow-y: auto;
+      border: 1.5px solid #E2E8F0;
+      border-radius: 12px;
+      padding: 10px;
+      background: #FFFFFF;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .bmc-list-scrollbox::-webkit-scrollbar {
+      width: 6px;
+    }
+    .bmc-list-scrollbox::-webkit-scrollbar-thumb {
+      background: #CBD5E1;
+      border-radius: 4px;
+    }
+    .form-grid-2col {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .form-group-custom {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .btn-confirm-bmc {
+      background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
+      color: #FFFFFF !important;
+      font-weight: 700 !important;
+      font-size: 0.88rem !important;
+      padding: 10px 20px !important;
+      border-radius: 10px !important;
+      border: none !important;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
+      cursor: pointer !important;
+      transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+    }
+    .btn-confirm-bmc:hover {
+      transform: translateY(-1px) !important;
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35) !important;
+    }
+    .btn-submit-duty {
+      background: linear-gradient(135deg, #16A34A 0%, #15803D 100%) !important;
+      color: #FFFFFF !important;
+      font-weight: 800 !important;
+      font-size: 0.95rem !important;
+      padding: 12px 28px !important;
+      border-radius: 10px !important;
+      border: none !important;
+      box-shadow: 0 4px 14px rgba(22, 163, 74, 0.28) !important;
+      cursor: pointer !important;
+      transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+    }
+    .btn-submit-duty:hover:not(:disabled) {
+      transform: translateY(-1px) !important;
+      box-shadow: 0 6px 18px rgba(22, 163, 74, 0.38) !important;
+    }
+    .btn-submit-duty:disabled {
+      opacity: 0.5 !important;
+      cursor: not-allowed !important;
+      transform: none !important;
+      box-shadow: none !important;
+    }
+    @media (max-width: 640px) {
+      .assign-duty-modal-content {
+        padding: 18px 16px !important;
+        width: 96% !important;
+        border-radius: 14px !important;
+      }
+      .macs-filter-grid {
+        grid-template-columns: 1fr !important;
+      }
+      .form-grid-2col {
+        grid-template-columns: 1fr !important;
+      }
+      .step-card-header {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+      }
+    }
+  </style>
 
   <!-- Create Trip Modal -->
   <div id="create-trip-modal" class="modal-overlay hidden">
-    <div class="modal-content modal-lg">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <h3 style="margin:0; font-weight:800; color:#0F172A;">➕ Assign Driver Duty</h3>
-        <button id="create-trip-modal-close" class="btn btn-ghost">✕</button>
+    <div class="modal-content assign-duty-modal-content">
+      <div class="modal-header-box">
+        <div>
+          <h3 class="modal-title-main">➕ Assign Driver Duty</h3>
+          <div class="modal-subtitle">Configure BMC route, select tanker compartments, driver and schedule</div>
+        </div>
+        <button type="button" id="create-trip-modal-close" class="modal-close-icon" title="Close">✕</button>
       </div>
+
       <form id="create-trip-form">
 
         <!-- STEP 1: BMC Selection Section -->
-        <div class="form-group mb-4" style="background:#F8FAFC; border:1px solid #CBD5E1; border-radius:12px; padding:16px;">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h4 style="margin:0; font-weight:700; color:#0F172A; font-size:0.98rem;">
-              Step 1: Select BMC List & Assign Compartments <span style="color:#EF4444;">*</span>
+        <div class="step-section-card">
+          <div class="step-card-header">
+            <h4 class="step-title">
+              📌 Step 1: Select Date, Period & BMC List <span style="color:#EF4444;">*</span>
             </h4>
-            <span class="badge badge-neutral" id="ct-selected-count">0 BMCs selected</span>
+            <span class="badge badge-blue" id="ct-selected-count" style="font-size:0.8rem; padding:4px 12px; font-weight:700;">0 BMCs selected</span>
           </div>
 
-          <div style="margin-bottom: 10px;">
-            <input type="text" id="ct-bmc-search" class="form-control form-control-sm" placeholder="🔍 Search BMC by name or location...">
+          <!-- Date and Period Selector for MACS Data -->
+          <div class="macs-filter-grid">
+            <div>
+              <label class="input-label-styled">📅 Select Date</label>
+              <input type="date" id="ct-macs-date" class="input-styled">
+            </div>
+            <div>
+              <label class="input-label-styled">🕒 Select Period</label>
+              <select id="ct-macs-period" class="input-styled">
+                <option value="morning">🌅 Morning</option>
+                <option value="evening">🌙 Evening</option>
+                <option value="both" selected>🌅🌙 Both (Morning + Evening)</option>
+              </select>
+            </div>
           </div>
 
-          <div id="ct-bmcs-container" style="max-height: 150px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 8px; padding: 8px; background: #FFF; display: flex; flex-direction: column; gap: 6px;">
-            <span class="text-muted text-sm">Loading available BMCs...</span>
+          <div style="margin-bottom: 12px;">
+            <label class="input-label-styled">🔍 Search Available BMCs</label>
+            <input type="text" id="ct-bmc-search" class="input-styled" placeholder="Type BMC name or location...">
           </div>
 
-          <!-- Selected BMCs with Order & Compartments -->
-          <div style="margin-top: 14px;">
-            <label class="form-label" style="font-size:0.85rem; font-weight:700; color:#1E293B; margin-bottom:6px; display:block;">
-              📋 Selected Visit Sequence:
+          <div id="ct-bmcs-container" class="bmc-list-scrollbox">
+            <span class="text-muted text-sm" style="padding:8px;">Loading available BMCs...</span>
+          </div>
+
+          <!-- Selected BMCs with Compartments Layout (FRONT | MID | BACK) -->
+          <div style="margin-top: 18px;">
+            <label class="input-label-styled" style="font-size:0.88rem; color:#0F172A; margin-bottom:10px;">
+              📋 Selected Visit Sequence &amp; Compartment Allocation:
             </label>
-            <div id="ct-selected-bmcs-list" style="min-height: 60px; border: 1px dashed #94A3B8; border-radius: 8px; padding: 10px; background: #FFF; display: flex; flex-direction: column; gap: 8px;">
+            <div id="ct-selected-bmcs-list" style="min-height: 80px;">
               <span class="text-muted text-sm" style="font-style: italic;">No BMCs selected yet. Search and click (+) Add above.</span>
             </div>
           </div>
 
           <!-- BUTTON 1: Save & Confirm BMC Details -->
-          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid #E2E8F0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #E2E8F0;">
             <div id="bmc-save-status-hint" style="font-size: 0.85rem; font-weight: 700; color: #DC2626;">
-              ⚠️ Select BMCs above and click "Save & Confirm BMC Details".
+              ⚠️ Select BMCs above and click "Save &amp; Confirm BMC Details".
             </div>
-            <button type="button" id="btn-save-bmcs" class="btn btn-secondary btn-sm" style="background:#2563EB; color:#FFF; font-weight:700; padding:8px 18px;">
-              💾 Save & Confirm BMC Details
+            <button type="button" id="btn-save-bmcs" class="btn-confirm-bmc">
+              💾 Save &amp; Confirm BMC Details
             </button>
           </div>
         </div>
 
         <!-- STEP 2: Duty Assignment Info (Driver, Vehicle, Route, etc.) -->
-        <div id="duty-assignment-step2" style="opacity: 0.5; pointer-events: none; transition: all 0.3s ease;">
-          <h4 style="margin:0 0 12px 0; font-weight:700; color:#0F172A; font-size:0.98rem;">
-            Step 2: Assign Driver, Vehicle & Schedule
+        <div id="duty-assignment-step2" class="step-section-card" style="opacity: 0.5; pointer-events: none; transition: all 0.3s ease; background: #FFFFFF;">
+          <h4 class="step-title" style="margin-bottom: 16px;">
+            🚛 Step 2: Assign Driver, Vehicle &amp; Schedule
           </h4>
 
-          <div class="two-col mb-3">
-            <div class="form-group">
-              <label class="form-label" style="font-weight:700;">Select Driver <span style="color:#EF4444;">*</span></label>
-              <select id="ct-driver" class="form-control" required disabled>
+          <div class="form-grid-2col">
+            <div class="form-group-custom">
+              <label class="input-label-styled">👤 Select Driver <span style="color:#EF4444;">*</span></label>
+              <select id="ct-driver" class="input-styled" required disabled>
                 <option value="">Select Driver...</option>
               </select>
             </div>
-            <div class="form-group">
-              <label class="form-label" style="font-weight:700;">Select Vehicle <span style="color:#EF4444;">*</span></label>
-              <select id="ct-vehicle" class="form-control" required disabled>
+            <div class="form-group-custom">
+              <label class="input-label-styled">🚛 Select Vehicle <span style="color:#EF4444;">*</span></label>
+              <select id="ct-vehicle" class="input-styled" required disabled>
                 <option value="">Select Vehicle...</option>
               </select>
+              
+              <!-- Real-time Vehicle Capacity & Utilization Badge -->
+              <div id="vehicle-utilization-card" style="margin-top:10px; padding:12px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; display:none;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-size:0.8rem; font-weight:700; color:#475569;">Vehicle Capacity: <strong id="util-vehicle-cap">10,000 KG</strong></span>
+                  <span id="utilization-badge" style="font-size:0.75rem; font-weight:800; padding:3px 10px; border-radius:12px; background:#DC2626; color:white;">0% Utilized</span>
+                </div>
+                <div style="background:#E2E8F0; height:8px; border-radius:4px; overflow:hidden;">
+                  <div id="utilization-bar" style="width:0%; height:100%; background:#DC2626; transition:width 0.4s ease;"></div>
+                </div>
+                <div style="font-size:0.78rem; color:#64748B; margin-top:6px;">Assigned BMC Milk: <strong id="util-assigned-kg" style="color:#0F172A;">0 KG</strong></div>
+              </div>
             </div>
           </div>
 
-          <div class="two-col mb-3">
-            <div class="form-group">
-              <label class="form-label" style="font-weight:700;">Route Name <span style="color:#EF4444;">*</span></label>
-              <input type="text" id="ct-route" class="form-control" placeholder="E.g., Madurai Route / Highway A1" required disabled>
+          <div class="form-grid-2col">
+            <div class="form-group-custom">
+              <label class="input-label-styled">🛣️ Route Name <span style="color:#EF4444;">*</span></label>
+              <input type="text" id="ct-route" class="input-styled" placeholder="E.g., Madurai Route / Highway A1" required disabled>
             </div>
-            <div class="form-group">
-              <label class="form-label" style="font-weight:700;">Duty Type <span style="color:#EF4444;">*</span></label>
-              <select id="ct-duty-type" class="form-control" required disabled>
+            <div class="form-group-custom">
+              <label class="input-label-styled">📋 Duty Type <span style="color:#EF4444;">*</span></label>
+              <select id="ct-duty-type" class="input-styled" required disabled>
                 <option value="Morning Duty" selected>🌅 Morning Duty</option>
                 <option value="Night Duty">🌙 Night Duty</option>
               </select>
             </div>
           </div>
 
-          <div class="form-group mb-3">
-            <label class="form-label" style="font-weight:700;">Trip Start Time <span style="color:#EF4444;">*</span></label>
-            <input type="datetime-local" id="ct-start-time" class="form-control" required disabled>
+          <div class="form-group-custom" style="margin-bottom: 16px;">
+            <label class="input-label-styled">⏰ Trip Start Time <span style="color:#EF4444;">*</span></label>
+            <input type="datetime-local" id="ct-start-time" class="input-styled" required disabled>
           </div>
 
-          <div class="form-group mb-4">
-            <label class="form-label" style="font-weight:700;">Remarks</label>
-            <textarea id="ct-remarks" class="form-control" rows="2" placeholder="Any instructions for the driver..." disabled></textarea>
+          <div class="form-group-custom" style="margin-bottom: 0;">
+            <label class="input-label-styled">📝 Remarks / Special Instructions</label>
+            <textarea id="ct-remarks" class="textarea-styled" rows="2" placeholder="Any instructions for the driver..." disabled></textarea>
           </div>
         </div>
 
         <!-- BUTTON 2: Final Assign Driver Duty Button -->
-        <div class="d-flex justify-content-between align-items-center" style="padding-top:16px; border-top:1px solid #E2E8F0;">
-          <button type="button" id="create-trip-cancel" class="btn btn-outline">Cancel</button>
-          <button type="submit" id="create-trip-submit" class="btn btn-primary" disabled style="padding:10px 24px; font-weight:700; opacity:0.5;">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:18px; border-top:1px solid #E2E8F0;">
+          <button type="button" id="create-trip-cancel" class="btn btn-outline" style="height:44px; padding:0 20px; font-weight:600; border-radius:10px;">Cancel</button>
+          <button type="submit" id="create-trip-submit" class="btn-submit-duty" disabled>
             🚀 Assign Driver Duty
           </button>
         </div>
@@ -218,23 +478,23 @@
 
   <!-- Compartment Selection Sub-Modal -->
   <div id="compartment-modal" class="modal-overlay hidden" style="z-index: 10050;">
-    <div class="modal-content" style="max-width: 400px; text-align: center;">
-      <h3 style="margin-top: 0; font-weight: 800; color: #0F172A;" id="comp-modal-bmc-name">Select Tanker Compartment</h3>
-      <p style="color: #64748B; font-size: 0.9rem; margin-bottom: 20px;">Choose which compartment this BMC's milk will be loaded into:</p>
+    <div class="modal-content" style="max-width: 440px; text-align: center; border-radius: 20px; padding: 28px;">
+      <h3 style="margin-top: 0; font-size: 1.25rem; font-weight: 800; color: #0F172A;" id="comp-modal-bmc-name">Select Tanker Compartment</h3>
+      <p style="color: #64748B; font-size: 0.88rem; margin-bottom: 22px;">Choose which compartment this BMC's milk will be loaded into:</p>
       
-      <div style="display: flex; flex-direction: column; gap: 10px;">
-        <button type="button" class="btn btn-outline btn-compartment" data-comp="Front" style="padding: 12px; font-weight: 700;">
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <button type="button" class="btn btn-outline btn-compartment" data-comp="Front" style="padding: 14px; font-weight: 700; font-size: 0.95rem; border-radius: 12px; border: 1.5px solid #FCA5A5; background: #FEF2F2; color: #991B1B;">
           🔴 Front Compartment
         </button>
-        <button type="button" class="btn btn-outline btn-compartment" data-comp="Mid" style="padding: 12px; font-weight: 700;">
+        <button type="button" class="btn btn-outline btn-compartment" data-comp="Mid" style="padding: 14px; font-weight: 700; font-size: 0.95rem; border-radius: 12px; border: 1.5px solid #FDE68A; background: #FFFBEB; color: #92400E;">
           🟡 Mid Compartment
         </button>
-        <button type="button" class="btn btn-outline btn-compartment" data-comp="Back" style="padding: 12px; font-weight: 700;">
+        <button type="button" class="btn btn-outline btn-compartment" data-comp="Back" style="padding: 14px; font-weight: 700; font-size: 0.95rem; border-radius: 12px; border: 1.5px solid #BFDBFE; background: #EFF6FF; color: #1E40AF;">
           🔵 Back Compartment
         </button>
       </div>
-      <div style="margin-top: 16px;">
-        <button type="button" id="comp-modal-cancel" class="btn btn-ghost btn-sm">Cancel</button>
+      <div style="margin-top: 20px;">
+        <button type="button" id="comp-modal-cancel" class="btn btn-ghost btn-sm" style="font-weight: 600;">Cancel</button>
       </div>
     </div>
   </div>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sample Queue — AAVIN QC Worker</title>
+  <title>Reports Testing — AAVIN QC Worker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="../css/global.css">
   <link rel="stylesheet" href="../css/worker.css">
@@ -31,11 +31,10 @@
         <a href="dashboard.html" class="qs-nav-item">
           <span>📊</span> Dashboard
         </a>
-
         <a href="history.html" class="qs-nav-item">
           <span>📜</span> Test History
         </a>
-        <a href="reports-testing.html" class="qs-nav-item">
+        <a href="reports-testing.html" class="qs-nav-item active">
           <span>🧪</span> Reports Testing
         </a>
         <a href="profile.html" class="qs-nav-item">
@@ -53,7 +52,7 @@
       <header class="qc-header">
         <div class="qc-header-left">
           <button id="qc-mobile-toggle-btn" class="qc-mobile-btn">☰</button>
-          <div class="qc-header-title">QC Samples Queue</div>
+          <div class="qc-header-title">AAVIN Quality Control Laboratory</div>
         </div>
         <div class="qc-header-right">
           <div>Role: <strong>QC Worker</strong></div>
@@ -63,41 +62,37 @@
 
       <main class="qc-content">
         <div id="main-qc-content" class="hidden">
-
           <div class="qc-page-top">
-            <h1>Milk Sample Testing Queue 🧪</h1>
-            <p>All completed BMC collection samples ready for laboratory analysis.</p>
+            <h1>Reports Testing 🧪</h1>
+            <p>Review and act upon reports denied by the QC AGM.</p>
           </div>
 
           <div class="qc-section">
-            <div class="qc-filter-bar">
-              <input type="text" id="sample-search-input" placeholder="🔍 Search Sample ID, BMC, or Field Worker..." style="min-width:260px;">
-              <select id="sample-status-filter">
-                <option value="all" selected>All Statuses</option>
-                <option value="pending">Pending Test</option>
-                <option value="in_progress">Testing in Progress</option>
-                <option value="submitted">Submitted</option>
-                <option value="returned">Returned for Correction</option>
-              </select>
+            <div class="qc-section-header">
+              <div class="qc-section-title">
+                <span>🚨</span> Denied Reports Action Queue
+              </div>
             </div>
 
             <div class="qc-table-wrap">
               <table class="qc-table">
                 <thead>
                   <tr>
-                    <th>Sample ID</th>
-                    <th>BMC Center</th>
-                    <th>Collection Date</th>
-                    <th>Collection Time</th>
-                    <th>Field Worker</th>
-                    <th>BMC Test Result</th>
+                    <th>BMC Name</th>
+                    <th>BMC Code</th>
+                    <th>Date</th>
+                    <th>MACS Result</th>
+                    <th>Spot Analyzer</th>
+                    <th>Diary Result</th>
+                    <th>Difference</th>
+                    <th>AGM Deny Reason</th>
                     <th>Status</th>
                     <th>Action</th>
                   </tr>
                 </thead>
-                <tbody id="samples-tbody">
+                <tbody id="reports-tbody">
                   <tr>
-                    <td colspan="8" style="text-align:center; padding:20px; color:#64748B;">Loading samples...</td>
+                    <td colspan="10" style="text-align:center; padding:20px; color:#64748B;">Loading denied reports...</td>
                   </tr>
                 </tbody>
               </table>
@@ -112,6 +107,6 @@
   <script src="../js/supabase.js"></script>
   <script src="../js/auth.js"></script>
   <script src="../js/qc-worker-api.js"></script>
-  <script src="../js/qc-worker-samples.js"></script>
+  <script src="../js/qc-worker-reports.js"></script>
 </body>
 </html>

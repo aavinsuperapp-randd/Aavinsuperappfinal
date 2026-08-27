@@ -33,20 +33,11 @@
         <a href="dashboard.html" class="qs-nav-item">
           <span>📊</span> Dashboard Overview
         </a>
-        <a href="all-tests.html" class="qs-nav-item">
-          <span>🔬</span> All Test Results
-        </a>
-        <a href="bmc-quality.html" class="qs-nav-item">
-          <span>🏭</span> BMC Quality Analysis
-        </a>
         <a href="excel-import.html" class="qs-nav-item active">
           <span>📥</span> Excel Import
         </a>
-        <a href="import-history.html" class="qs-nav-item">
-          <span>📜</span> Import History
-        </a>
-        <a href="variance.html" class="qs-nav-item">
-          <span>⚠️</span> Variance Analysis
+        <a href="lab-issue-report.html" class="qs-nav-item">
+          <span>🚨</span> Lab Issue Report
         </a>
         <a href="profile.html" class="qs-nav-item">
           <span>👤</span> My Profile
@@ -79,11 +70,27 @@
             <p>Upload MACS milk laboratory reports (.xlsx / .xls). System automatically extracts BMC codes, normalizes date groups, pairs Worker vs QC MACS readings (FAT &amp; SNF only), and saves to Supabase.</p>
           </div>
 
-          <!-- Step 1: Upload File Zone -->
+          <!-- Step 1: Upload File Zone & Date/Period Selector -->
           <div class="qc-form-card" id="excel-drop-zone-card">
             <div class="qc-form-title">
-              <span>📁</span> Step 1: Upload Spreadsheet
+              <span>📁</span> Step 1: Import Settings & Upload Spreadsheet
             </div>
+
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom:20px; background:#F8FAFC; padding:16px; border-radius:12px; border:1px solid #E2E8F0;">
+              <div>
+                <label style="font-weight:700; color:#334155; font-size:0.88rem; display:block; margin-bottom:6px;">Select Import Date *</label>
+                <input type="date" id="macs-import-date" class="qc-form-input" style="width:100%;">
+              </div>
+              <div>
+                <label style="font-weight:700; color:#334155; font-size:0.88rem; display:block; margin-bottom:6px;">Data Period *</label>
+                <select id="macs-import-period" class="qc-form-input" style="width:100%;">
+                  <option value="both" selected>Both (Morning &amp; Evening separately)</option>
+                  <option value="morning">Morning Only</option>
+                  <option value="evening">Evening Only</option>
+                </select>
+              </div>
+            </div>
+
             <div class="qc-import-zone" id="excel-drop-zone">
               <div class="qc-import-icon">📊</div>
               <div class="qc-import-text">Click or drag &amp; drop Excel file here</div>

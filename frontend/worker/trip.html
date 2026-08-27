@@ -72,6 +72,9 @@
               </div>
 
               <div class="d-flex gap-2 flex-wrap">
+                <button id="start-trip-btn" class="btn btn-primary btn-sm" style="display:none; background:#16A34A; border-color:#16A34A;">
+                  🚀 Start Trip Measurement
+                </button>
                 <button id="download-trip-btn" class="btn btn-outline btn-sm" onclick="downloadTripReport()" style="color:#2563EB; border-color:#93c5fd;">
                   📥 Download Report
                 </button>
@@ -87,6 +90,10 @@
               <div>🚛 Tanker: <strong id="meta-tanker">—</strong></div>
               <div>⏰ Out Time: <strong id="meta-out-time">—</strong></div>
               <div>🏢 Factory In Time: <strong id="meta-in-time">Not closed</strong></div>
+              <div>📍 OUT KM: <strong id="meta-out-km">Pending</strong></div>
+              <div>🏋️ OUT Weight: <strong id="meta-out-weight">Pending</strong></div>
+              <div>📍 IN KM: <strong id="meta-in-km">Pending</strong></div>
+              <div>🏁 Distance: <strong id="meta-distance">Pending</strong></div>
             </div>
           </div>
 
@@ -111,6 +118,38 @@
     </div>
   </div>
 
+  <!-- Start Trip Modal -->
+  <div id="start-trip-modal" class="search-overlay hidden">
+    <div class="search-box" style="max-width: 480px;">
+      <div class="search-box-header">
+        <h3 style="margin:0; font-size:1rem; font-weight:700;">🚀 Start Trip &amp; Pre-Trip Measurement</h3>
+      </div>
+      <div style="padding: 16px;">
+        <p class="text-sm text-muted mb-3">Record the initial tanker condition before leaving for milk collection.</p>
+
+        <div class="form-group mb-3">
+          <label class="form-label" for="worker-out-km">OUT KM (Odometer Reading) *</label>
+          <input type="number" id="worker-out-km" class="form-input" placeholder="e.g. 45200" required step="any">
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="form-label" for="worker-out-weight">OUT Tanker Weight (KG) *</label>
+          <input type="number" id="worker-out-weight" class="form-input" placeholder="e.g. 12000" required step="any">
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="form-label">OUT KM Odometer Photo Proof *</label>
+          <input type="file" id="worker-out-photo-input" class="form-input" accept="image/*">
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mt-4">
+          <button id="start-modal-cancel" class="btn btn-outline">Cancel</button>
+          <button id="confirm-start-trip-btn" class="btn btn-success" style="background:#16A34A; border-color:#16A34A;">Confirm Start Trip</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Add BMC Modal -->
   <div id="add-bmc-modal" class="search-overlay hidden">
     <div class="search-box">
@@ -127,12 +166,27 @@
 
   <!-- Close Trip Modal -->
   <div id="close-trip-modal" class="search-overlay hidden">
-    <div class="search-box" style="max-width: 440px;">
+    <div class="search-box" style="max-width: 480px;">
       <div class="search-box-header">
-        <h3 style="margin:0; font-size:1rem; font-weight:700;">Complete & Close Trip</h3>
+        <h3 style="margin:0; font-size:1rem; font-weight:700;">🏁 Complete Trip &amp; Post-Trip Measurement</h3>
       </div>
       <div style="padding: 16px;">
-        <p class="text-sm text-muted mb-3">Please record your Factory IN-time upon arrival to close out this collection trip.</p>
+        <p class="text-sm text-muted mb-3">Record arrival data and return weight at the factory.</p>
+
+        <div class="form-group mb-3">
+          <label class="form-label" for="worker-in-km">IN KM (Odometer Reading) *</label>
+          <input type="number" id="worker-in-km" class="form-input" placeholder="e.g. 45320" required step="any">
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="form-label" for="worker-empty-weight">Empty Tanker Weight (KG) <span class="text-muted">(Optional)</span></label>
+          <input type="number" id="worker-empty-weight" class="form-input" placeholder="Leave blank if not weighed (Will show Pending)" step="any">
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="form-label">IN KM Odometer Photo Proof *</label>
+          <input type="file" id="worker-in-photo-input" class="form-input" accept="image/*">
+        </div>
 
         <div class="form-group mb-3">
           <label class="form-label" for="factory-in-time">Factory IN Time *</label>
@@ -140,8 +194,8 @@
         </div>
 
         <div class="form-group mb-4">
-          <label class="form-label" for="trip-closing-remarks">Closing Remarks (Optional)</label>
-          <textarea id="trip-closing-remarks" class="form-input" rows="2" placeholder="e.g. All BMC milk successfully delivered to factory."></textarea>
+          <label class="form-label" for="trip-closing-remarks">Closing Remarks</label>
+          <textarea id="trip-closing-remarks" class="form-input" rows="2" placeholder="e.g. Returned to dairy, all BMC milk received."></textarea>
         </div>
 
         <div class="d-flex justify-content-end gap-2">

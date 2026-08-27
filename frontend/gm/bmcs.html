@@ -24,10 +24,13 @@
       </div>
       <nav class="admin-nav">
         <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Executive Overview</a>
-        <a href="issues.html" class="admin-nav-item"><span>⚠️</span> Complaints</a>
-        <a href="fleet.html" class="admin-nav-item"><span>👥</span> Fleet & Staff</a>
         <a href="bmcs.html" class="admin-nav-item active"><span>🏭</span> BMC Management</a>
+        <a href="fleet.html" class="admin-nav-item"><span>👥</span> Fleet &amp; Staff</a>
+        <a href="../transport/duty.html" class="admin-nav-item"><span>📋</span> Duty Management</a>
+        <a href="issues.html" class="admin-nav-item"><span>⚠️</span> Complaints &amp; Issues</a>
+        <a href="../qc-agm/dashboard.html" class="admin-nav-item"><span>🔬</span> Quality Control</a>
         <a href="analysis.html" class="admin-nav-item"><span>📈</span> Deep Analysis</a>
+        <a href="bmc-profile.html" class="admin-nav-item"><span>👤</span> Profile</a>
         <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
       </nav>
     </aside>
@@ -96,6 +99,11 @@
           <!-- 3. BMC DETAILS: Search & Status Filters -->
           <div class="bmc-filter-row mb-2">
             <input type="text" id="bmc-search" class="form-input bmc-search" placeholder="Search by name or district…">
+            <select id="bmc-filter-route" class="form-select bmc-filter-select">
+              <option value="all">All Routes</option>
+              <option value="none">No Route</option>
+              <!-- Populated dynamically -->
+            </select>
             <select id="bmc-filter-status" class="form-select bmc-filter-select">
               <option value="all">All Status</option>
               <option value="active">Active Only</option>
@@ -137,15 +145,24 @@
 
         <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
           <div class="form-group" style="flex:1; min-width:150px;">
+            <label class="form-label" for="bmc-route">Route</label>
+            <div style="display:flex; gap:8px;">
+              <select id="bmc-route" class="form-select" style="flex:1;">
+                <option value="">No Route</option>
+              </select>
+              <button type="button" id="add-route-btn" class="btn btn-outline btn-sm" title="Create New Route">+</button>
+            </div>
+          </div>
+          <div class="form-group" style="flex:1; min-width:150px;">
             <label class="form-label" for="bmc-code">BMC Code *</label>
             <input type="text" id="bmc-code" class="form-input" placeholder="e.g. 1001">
           </div>
+        </div>
+        <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
           <div class="form-group" style="flex:2; min-width:200px;">
             <label class="form-label" for="bmc-name">BMC Name *</label>
             <input type="text" id="bmc-name" class="form-input" placeholder="e.g. Erode Central BMC">
           </div>
-        </div>
-        <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
           <div class="form-group" style="flex:1; min-width:200px;">
             <label class="form-label" for="bmc-district">District *</label>
             <input type="text" id="bmc-district" class="form-input" placeholder="e.g. Erode">
