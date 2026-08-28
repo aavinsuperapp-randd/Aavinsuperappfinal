@@ -1,4 +1,12 @@
-// gm-api.js — API Helper for P&I AGM Portal
+// gm-api.js — API Helper for P&I AGM Portal / GM Portal
+
+async function getGmAuthToken() {
+  const client = await initSupabase();
+  if (!client) throw new Error('Supabase configuration missing.');
+  const { data: { session } } = await client.auth.getSession();
+  if (!session) throw new Error('No active session. Please log in.');
+  return session.access_token;
+}
 
 async function gmFetch(endpoint, options = {}) {
   const client = await initSupabase();
@@ -209,14 +217,15 @@ async function apiGmDeleteVehicle(vehicleId) {
   return { success: true };
 }
 
-// ── Sidebar Toggle (shared across all P&I AGM portal pages) ──────────────────
+// ── Sidebar Toggle (shared across all GM and P&I AGM portal pages) ──────────────────
 function initGmSidebarToggle() {
-  const toggleBtn = document.getElementById('sidebar-toggle-btn');
-  const sidebar = document.querySelector('.admin-sidebar');
-  const main = document.querySelector('.admin-main');
-  const overlay = document.getElementById('sidebar-overlay');
+  const toggleBtns = document.querySelectorAll('#sidebar-toggle-btn, .sidebar-toggle, #qc-agm-toggle-btn, .qc-mobile-btn');
+  const sidebar = document.querySelector('.admin-sidebar, .qc-sidebar, #gm-sidebar, #worker-sidebar, #transport-sidebar');
+  const main = document.querySelector('.admin-main, .qc-main, .worker-main, .transport-main');
+  const overlay = document.querySelector('#sidebar-overlay, #qc-agm-sidebar-overlay, .sidebar-overlay, .qc-sidebar-overlay');
 
-  function toggleSidebar() {
+  function toggleSidebar(e) {
+    if (e) e.stopPropagation();
     if (window.innerWidth > 900) {
       if (sidebar) sidebar.classList.toggle('collapsed');
       if (main) main.classList.toggle('expanded');
@@ -238,11 +247,18 @@ function initGmSidebarToggle() {
     }
   }
 
-  if (toggleBtn) toggleBtn.addEventListener('click', toggleSidebar);
-  if (overlay) overlay.addEventListener('click', closeSidebar);
+  toggleBtns.forEach(btn => {
+    btn.removeEventListener('click', toggleSidebar);
+    btn.addEventListener('click', toggleSidebar);
+  });
+
+  if (overlay) {
+    overlay.removeEventListener('click', closeSidebar);
+    overlay.addEventListener('click', closeSidebar);
+  }
 
   if (sidebar) {
-    sidebar.querySelectorAll('a').forEach(link => {
+    sidebar.querySelectorAll('a, button').forEach(link => {
       link.addEventListener('click', closeSidebar);
     });
   }

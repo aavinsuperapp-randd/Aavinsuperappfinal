@@ -24,7 +24,7 @@
         <span>AAVIN Admin</span>
       </div>
       <nav class="admin-nav">
-        <a href="dashboard.html" class="admin-nav-item">
+        <a href="dashboard.html" class="admin-nav-item active">
           <span>📊</span> Dashboard Home
         </a>
         <a href="verification.html" class="admin-nav-item">
@@ -49,7 +49,7 @@
     <div class="admin-main">
       <header class="admin-header">
         <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
-        <div class="admin-header-title">Control Panel</div>
+        <div class="admin-header-title">System Control Panel</div>
         <div class="admin-user-profile">
           <div class="admin-user-name">Administrator</div>
         </div>
@@ -58,17 +58,201 @@
       <main class="admin-content">
         <!-- Hidden by default, unhidden after successful authorization check -->
         <div id="main-admin-content" class="hidden">
-          <div class="card mb-2" style="max-width: 620px;">
-            <h2 class="mb-1" style="font-size: 1.3rem;">Welcome, Administrator 👋</h2>
-            <p class="text-muted text-sm">
-              Use this system panel to audit, approve, or reject incoming registration requests for field workers and General Manager executives.
-            </p>
-            <div class="mt-3">
-              <a href="verification.html" class="btn btn-blue">Go to Pending Approvals</a>
+          
+          <!-- Welcome & System Navigation Quick Cards -->
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <h2 style="font-size: 1.35rem; margin:0; font-weight:700;">Welcome, Administrator 👋</h2>
+              <p class="text-muted text-sm" style="margin-top:2px;">Manage user access, audit field operations, and control core system maintenance tools.</p>
             </div>
           </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px;">
+            <div class="card p-3 d-flex flex-column justify-content-between">
+              <div>
+                <div style="font-size: 1.5rem; margin-bottom: 8px;">📋</div>
+                <h4 style="margin: 0 0 4px 0; font-size: 1rem; font-weight: 700;">Users & Approvals</h4>
+                <p class="text-muted text-xs" style="margin:0;">Audit, approve, or reject new user registration requests.</p>
+              </div>
+              <div class="mt-3">
+                <a href="verification.html" class="btn btn-blue btn-sm btn-block">Review Approvals</a>
+              </div>
+            </div>
+
+            <div class="card p-3 d-flex flex-column justify-content-between">
+              <div>
+                <div style="font-size: 1.5rem; margin-bottom: 8px;">🚚</div>
+                <h4 style="margin: 0 0 4px 0; font-size: 1rem; font-weight: 700;">Trips Management</h4>
+                <p class="text-muted text-xs" style="margin:0;">Inspect live milk collection trips and QC testing records.</p>
+              </div>
+              <div class="mt-3">
+                <a href="trips.html" class="btn btn-outline btn-sm btn-block">View Field Trips</a>
+              </div>
+            </div>
+
+            <div class="card p-3 d-flex flex-column justify-content-between">
+              <div>
+                <div style="font-size: 1.5rem; margin-bottom: 8px;">🏭</div>
+                <h4 style="margin: 0 0 4px 0; font-size: 1rem; font-weight: 700;">BMC Management</h4>
+                <p class="text-muted text-xs" style="margin:0;">Manage BMC list, routes, and silo capacities.</p>
+              </div>
+              <div class="mt-3">
+                <a href="bmc.html" class="btn btn-outline btn-sm btn-block">Manage BMCs</a>
+              </div>
+            </div>
+
+            <div class="card p-3 d-flex flex-column justify-content-between">
+              <div>
+                <div style="font-size: 1.5rem; margin-bottom: 8px;">👔</div>
+                <h4 style="margin: 0 0 4px 0; font-size: 1rem; font-weight: 700;">Executive Officers</h4>
+                <p class="text-muted text-xs" style="margin:0;">Assign EOs to BMC locations and routes.</p>
+              </div>
+              <div class="mt-3">
+                <a href="executive-officers.html" class="btn btn-outline btn-sm btn-block">Manage EOs</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- WEBSITE DATA RESET SECTION -->
+          <div class="reset-section-card">
+            <div class="reset-header-banner">
+              <div>
+                <div class="d-flex align-items-center gap-2">
+                  <h3 style="margin:0; font-size: 1.2rem; font-weight: 800; color: #0F172A;">⚡ Website Operational Data Reset</h3>
+                  <span class="badge badge-danger">Admin Special Tool</span>
+                </div>
+                <p class="text-muted text-xs mt-1" style="margin-bottom:0;">
+                  Perform batch deletion of dynamic operational records (Excel imports, duty trips, MACS readings, spot analyzer data, and diary test logs) while preserving core master registries.
+                </p>
+              </div>
+              <div>
+                <button id="btn-master-reset" class="btn btn-danger-master">
+                  🗑️ Reset All Website Data
+                </button>
+              </div>
+            </div>
+
+            <!-- Preserved vs Resettable Rules Banner -->
+            <div class="reset-info-box">
+              <div class="info-column">
+                <h5 style="color: #15803D;">🛡️ Preserved Master Records (Never Deleted)</h5>
+                <div class="preserved-tags">
+                  <span class="tag-preserved">✓ List of BMCs (BMC Management)</span>
+                  <span class="tag-preserved">✓ Tankers Fleet</span>
+                  <span class="tag-preserved">✓ Drivers List</span>
+                  <span class="tag-preserved">✓ User Accounts & Profiles</span>
+                  <span class="tag-preserved">✓ EO Assignments</span>
+                </div>
+              </div>
+              <div class="info-column">
+                <h5 style="color: #B91C1C;">⚠️ Resettable Operational Data</h5>
+                <div class="resettable-tags">
+                  <span class="tag-resettable">✗ Excel Import Files & Rows</span>
+                  <span class="tag-resettable">✗ Driver & Worker Duty Trips</span>
+                  <span class="tag-resettable">✗ MACS Readings & Batches</span>
+                  <span class="tag-resettable">✗ Spot Analyzer Records</span>
+                  <span class="tag-resettable">✗ Diary / Dairy Test Logs</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Modular Category Resets Grid -->
+            <h4 style="font-size: 0.95rem; font-weight: 700; color: #1E293B; margin-bottom: 8px;">Targeted Category Resets</h4>
+            <div class="reset-modules-grid">
+              
+              <div class="reset-module-item">
+                <div>
+                  <div class="reset-module-icon">📊</div>
+                  <div class="reset-module-title">Excel Import Data</div>
+                  <div class="reset-module-desc">Clears imported Excel spreadsheets (`qc_excel_imports`, `qc_excel_import_rows`).</div>
+                </div>
+                <button class="btn btn-outline btn-sm btn-block btn-category-reset" data-scope="excel">
+                  Reset Excel Data
+                </button>
+              </div>
+
+              <div class="reset-module-item">
+                <div>
+                  <div class="reset-module-icon">🚚</div>
+                  <div class="reset-module-title">Duty Data</div>
+                  <div class="reset-module-desc">Clears driver duty logs & worker field trip entries (`driver_trips`, `trips`).</div>
+                </div>
+                <button class="btn btn-outline btn-sm btn-block btn-category-reset" data-scope="duty">
+                  Reset Duty Data
+                </button>
+              </div>
+
+              <div class="reset-module-item">
+                <div>
+                  <div class="reset-module-icon">📟</div>
+                  <div class="reset-module-title">MACS Data</div>
+                  <div class="reset-module-desc">Clears MACS instrument test readings (`macs_readings`, `macs_import_batches`).</div>
+                </div>
+                <button class="btn btn-outline btn-sm btn-block btn-category-reset" data-scope="macs">
+                  Reset MACS Data
+                </button>
+              </div>
+
+              <div class="reset-module-item">
+                <div>
+                  <div class="reset-module-icon">🔍</div>
+                  <div class="reset-module-title">Spot Analyzer</div>
+                  <div class="reset-module-desc">Clears daily spot analyzer measurements (`bmc_daily_records`).</div>
+                </div>
+                <button class="btn btn-outline btn-sm btn-block btn-category-reset" data-scope="spot">
+                  Reset Spot Analyzer
+                </button>
+              </div>
+
+              <div class="reset-module-item">
+                <div>
+                  <div class="reset-module-icon">🧪</div>
+                  <div class="reset-module-title">Diary Test Data</div>
+                  <div class="reset-module-desc">Clears FTIR, Gerber, quality check reviews, & visit logs (`qc_lab_tests`, `trip_bmc_visits`, etc.).</div>
+                </div>
+                <button class="btn btn-outline btn-sm btn-block btn-category-reset" data-scope="diary">
+                  Reset Diary Tests
+                </button>
+              </div>
+
+            </div>
+          </div>
+
         </div>
       </main>
+    </div>
+  </div>
+
+  <!-- RESET CONFIRMATION MODAL -->
+  <div id="reset-confirm-modal" class="admin-modal-overlay hidden">
+    <div class="admin-modal-box">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 id="reset-modal-title" style="margin:0; font-weight:800; color:#991B1B;">⚠️ Confirm Website Data Reset</h3>
+        <button id="reset-modal-close-btn" class="btn btn-ghost">✕</button>
+      </div>
+
+      <div style="background: #FEF2F2; border: 1px solid #FCA5A5; border-radius: 10px; padding: 14px; margin-bottom: 16px;">
+        <div style="font-weight: 700; color: #991B1B; font-size: 0.9rem;" id="reset-modal-summary-title">
+          Are you sure you want to proceed with Website Data Reset?
+        </div>
+        <div style="font-size: 0.8rem; color: #7F1D1D; margin-top: 6px; line-height: 1.4;" id="reset-modal-summary-desc">
+          This action will permanently delete operational data from the database. Master records (BMC Management list, Tanker Fleet, Drivers, User Accounts) will remain safe and untouched.
+        </div>
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <label style="font-size: 0.8rem; font-weight: 700; color: #374151; display: block; margin-bottom: 6px;">
+          Type <span style="color:#DC2626; font-family:monospace; background:#FEE2E2; padding:2px 6px; border-radius:4px;">RESET</span> below to authorize:
+        </label>
+        <input type="text" id="reset-confirm-input" class="form-input" placeholder="Type RESET to confirm..." autocomplete="off">
+      </div>
+
+      <div class="d-flex justify-content-end gap-2">
+        <button id="reset-modal-cancel-btn" class="btn btn-outline btn-sm">Cancel</button>
+        <button id="reset-modal-execute-btn" class="btn btn-danger btn-sm" disabled>
+          🗑️ Confirm & Delete Data
+        </button>
+      </div>
     </div>
   </div>
 

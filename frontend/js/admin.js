@@ -70,6 +70,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       setupVerificationPage();
       await loadUserRegistrations('pending');
     }
+
+    // Initialize Website Data Reset module if present on page
+    setupWebsiteDataReset();
   }
 
   // Attach logout handler
@@ -404,3 +407,105 @@ window.unassignBmcFromEo = async function(eoId, bmcId, bmcName) {
     showToast(err.message || 'Failed to remove BMC assignment.', 'error');
   }
 };
+
+// ─── WEBSITE DATA RESET CONTROLLER ───────────────────────────────────────────
+let activeResetScope = 'all';
+
+function setupWebsiteDataReset() {
+  const masterResetBtn = document.getElementById('btn-master-reset');
+  const categoryResetBtns = document.querySelectorAll('.btn-category-reset');
+  const modal = document.getElementById('reset-confirm-modal');
+  const closeBtn = document.getElementById('reset-modal-close-btn');
+  const cancelBtn = document.getElementById('reset-modal-cancel-btn');
+  const executeBtn = document.getElementById('reset-modal-execute-btn');
+  const confirmInput = document.getElementById('reset-confirm-input');
+
+  if (!modal) return;
+
+  const scopeTitles = {
+    all: { title: 'Master Website Data Reset', desc: 'Resets ALL dynamic operational data across Excel imports, Duty records, MACS readings, Spot analyzer data, and Diary quality test logs. Master BMCs, Tankers, and User profiles will be preserved.' },
+    excel: { title: 'Reset Excel Import Data', desc: 'Resets all imported Excel spreadsheets and parsed rows (`qc_excel_imports`, `qc_excel_import_rows`). Master BMCs, Tankers, and User profiles will be preserved.' },
+    duty: { title: 'Reset Duty & Field Trip Data', desc: 'Resets all driver duty logs and worker field trips (`driver_trips`, `trips`). Master BMCs, Tankers, and User profiles will be preserved.' },
+    macs: { title: 'Reset MACS Readings Data', desc: 'Resets all MACS instrument readings and batch imports (`macs_readings`, `macs_import_batches`). Master BMCs, Tankers, and User profiles will be preserved.' },
+    spot: { title: 'Reset Spot Analyzer Data', desc: 'Resets all daily spot analyzer measurements (`bmc_daily_records`). Master BMCs, Tankers, and User profiles will be preserved.' },
+    diary: { title: 'Reset Diary / Quality Test Data', desc: 'Resets all FTIR tests, Gerber tests, quality reviews, & visit logs (`qc_lab_tests`, `trip_bmc_visits`, etc.). Master BMCs, Tankers, and User profiles will be preserved.' }
+  };
+
+  const openModal = (scope = 'all') => {
+    activeResetScope = scope;
+    const meta = scopeTitles[scope] || scopeTitles.all;
+    
+    const modalTitle = document.getElementById('reset-modal-title');
+    const summaryTitle = document.getElementById('reset-modal-summary-title');
+    const summaryDesc = document.getElementById('reset-modal-summary-desc');
+
+    if (modalTitle) modalTitle.textContent = `⚠️ Confirm ${meta.title}`;
+    if (summaryTitle) summaryTitle.textContent = `Are you sure you want to proceed with: ${meta.title}?`;
+    if (summaryDesc) summaryDesc.textContent = meta.desc;
+
+    if (confirmInput) {
+      confirmInput.value = '';
+    }
+    if (executeBtn) {
+      executeBtn.disabled = true;
+    }
+    modal.classList.remove('hidden');
+    if (confirmInput) confirmInput.focus();
+  };
+
+  const closeModal = () => {
+    modal.classList.add('hidden');
+  };
+
+  if (masterResetBtn) {
+    masterResetBtn.addEventListener('click', () => openModal('all'));
+  }
+
+  categoryResetBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const scope = btn.getAttribute('data-scope');
+      openModal(scope);
+    });
+  });
+
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+
+  if (confirmInput) {
+    confirmInput.addEventListener('input', (e) => {
+      const val = (e.target.value || '').trim().toUpperCase();
+      if (executeBtn) {
+        executeBtn.disabled = (val !== 'RESET');
+      }
+    });
+  }
+
+  if (executeBtn) {
+    executeBtn.addEventListener('click', async () => {
+      if (confirmInput && confirmInput.value.trim().toUpperCase() !== 'RESET') {
+        showToast('Please type RESET to authorize this action.', 'error');
+        return;
+      }
+
+      executeBtn.disabled = true;
+      executeBtn.innerHTML = '⏳ Resetting Data...';
+
+      try {
+        const result = await adminFetch('/api/admin/website-data-reset', {
+          method: 'POST',
+          body: JSON.stringify({ scope: activeResetScope })
+        });
+
+        showToast(result.message || 'Website data reset completed successfully!', 'success');
+        closeModal();
+      } catch (err) {
+        console.error('Website reset error:', err);
+        showToast(err.message || 'Failed to reset website data.', 'error');
+      } finally {
+        executeBtn.disabled = false;
+        executeBtn.innerHTML = '🗑️ Confirm & Delete Data';
+      }
+    });
+  }
+}
+

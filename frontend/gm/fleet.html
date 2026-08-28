@@ -40,7 +40,6 @@
         </div>
         <div class="header-right">
           <div class="header-user">
-            <div class="header-avatar">GM</div>
             <div class="header-user-info">
               <div class="header-user-name" id="header-gm-name">General Manager</div>
               <div class="header-user-role">Super Admin Command</div>
@@ -54,10 +53,11 @@
 
           <div class="table-card">
             <div style="padding: 16px 20px 0;">
-              <div class="fleet-tabs-bar">
+              <div class="fleet-tabs-bar" style="display:flex; gap:8px; border-bottom:1px solid #E2E8F0; padding-bottom:8px; flex-wrap:wrap;">
                 <button class="fleet-tab-btn active" data-tab="tab-workers">Workers / Staff (<span id="count-workers">0</span>)</button>
                 <button class="fleet-tab-btn" data-tab="tab-drivers">Drivers (<span id="count-drivers">0</span>)</button>
                 <button class="fleet-tab-btn" data-tab="tab-vehicles">Tanker Vehicles (<span id="count-vehicles">0</span>)</button>
+                <button class="fleet-tab-btn" data-tab="tab-mileage" style="background:#EFF6FF; color:#1D4ED8; font-weight:700;">⛽ Fuel &amp; Mileage Dashboard</button>
               </div>
             </div>
 
@@ -117,6 +117,86 @@
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            <!-- Tab 4: Fuel & Mileage Analytics -->
+            <div id="tab-mileage" class="fleet-tab-content hidden" style="padding:20px;">
+              
+              <!-- KPI Metric Cards -->
+              <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:20px;">
+                <div style="background:#F8FAFC; border:1px solid #E2E8F0; padding:16px; border-radius:12px;">
+                  <div style="font-size:0.8rem; font-weight:700; color:#64748B;">Total Distance Driven</div>
+                  <div style="font-size:1.6rem; font-weight:800; color:#0F172A; margin-top:4px;" id="mileage-stat-distance">0 KM</div>
+                </div>
+                <div style="background:#EFF6FF; border:1px solid #BFDBFE; padding:16px; border-radius:12px;">
+                  <div style="font-size:0.8rem; font-weight:700; color:#1E40AF;">Total Diesel Consumption</div>
+                  <div style="font-size:1.6rem; font-weight:800; color:#1D4ED8; margin-top:4px;" id="mileage-stat-diesel">0 Litres</div>
+                </div>
+                <div style="background:#ECFDF5; border:1px solid #A7F3D0; padding:16px; border-radius:12px;">
+                  <div style="font-size:0.8rem; font-weight:700; color:#065F46;">Average Fleet Mileage</div>
+                  <div style="font-size:1.6rem; font-weight:800; color:#059669; margin-top:4px;" id="mileage-stat-avg">0 KM/L</div>
+                </div>
+              </div>
+
+              <!-- Filters -->
+              <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; background:#F8FAFC; padding:12px 16px; border-radius:12px; border:1px solid #E2E8F0; margin-bottom:20px;">
+                <div>
+                  <label style="font-weight:700; color:#334155; font-size:0.8rem; display:block; margin-bottom:4px;">From Date</label>
+                  <input type="date" id="mileage-from-date" class="form-input" style="padding:6px 10px; font-size:0.88rem;">
+                </div>
+                <div>
+                  <label style="font-weight:700; color:#334155; font-size:0.8rem; display:block; margin-bottom:4px;">To Date</label>
+                  <input type="date" id="mileage-to-date" class="form-input" style="padding:6px 10px; font-size:0.88rem;">
+                </div>
+                <div>
+                  <label style="font-weight:700; color:#334155; font-size:0.8rem; display:block; margin-bottom:4px;">Trip Status</label>
+                  <select id="mileage-filter-status" class="form-select" style="padding:6px 10px; font-size:0.88rem; min-width:130px;">
+                    <option value="all">All Trips</option>
+                    <option value="in_transit">In Transit</option>
+                    <option value="done">Done (Completed)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-weight:700; color:#334155; font-size:0.8rem; display:block; margin-bottom:4px;">Driver</label>
+                  <select id="mileage-filter-driver" class="form-select" style="padding:6px 10px; font-size:0.88rem; min-width:140px;">
+                    <option value="all">All Drivers</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-weight:700; color:#334155; font-size:0.8rem; display:block; margin-bottom:4px;">Vehicle</label>
+                  <select id="mileage-filter-vehicle" class="form-select" style="padding:6px 10px; font-size:0.88rem; min-width:140px;">
+                    <option value="all">All Vehicles</option>
+                  </select>
+                </div>
+                <div style="margin-top:auto;">
+                  <button id="btn-filter-mileage" class="btn btn-primary btn-sm" style="padding:8px 16px; font-weight:700;">
+                    🔍 Filter Mileage
+                  </button>
+                </div>
+              </div>
+
+              <!-- Mileage Table -->
+              <div class="table-responsive">
+                <table class="gm-table-v2">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Trip #</th>
+                      <th>Vehicle Number</th>
+                      <th>Driver Name</th>
+                      <th>OUT KM</th>
+                      <th>IN KM</th>
+                      <th>Distance (KM)</th>
+                      <th>Diesel (L)</th>
+                      <th>Mileage (KM/L)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="mileage-table-body">
+                    <tr><td colspan="9" class="text-center text-muted" style="padding:24px;">Loading mileage data...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
             </div>
 
           </div>

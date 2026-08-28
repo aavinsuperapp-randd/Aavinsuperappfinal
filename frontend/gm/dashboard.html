@@ -6,9 +6,11 @@
   <title>Executive Overview — P&I AGM Portal</title>
   <meta name="description" content="P&I AGM Dashboard — AAVIN operational metrics, trip assignment, field worker management and analytics.">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="/css/gm-portal.css">
   <link rel="stylesheet" href="../css/gm-portal.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -137,10 +139,9 @@
         </div>
         <div class="header-right">
           <div class="header-user">
-            <div class="header-avatar">GM</div>
             <div class="header-user-info">
               <div class="header-user-name" id="header-gm-name">General Manager</div>
-              <div class="header-user-role">Super Admin Command</div>
+              <div class="header-user-role">Executive Operational Command</div>
             </div>
           </div>
         </div>
@@ -151,21 +152,23 @@
 
           <!-- Top Controls & Date Selector -->
           <div class="top-controls-bar">
-            <div class="filter-controls-wrap">
+            <div class="date-presets-row">
               <button class="date-preset-btn active" id="btn-preset-today">Today</button>
               <button class="date-preset-btn" id="btn-preset-yesterday">Yesterday</button>
-              <div class="date-range-group">
+            </div>
+            <div class="date-range-row">
+              <div class="date-input-item">
                 <span class="filter-label">From:</span>
                 <input type="date" id="gm-from-date" class="date-picker-input">
+              </div>
+              <div class="date-input-item">
                 <span class="filter-label">To:</span>
                 <input type="date" id="gm-to-date" class="date-picker-input">
-                <button id="btn-date-search" class="btn-search-filter">🔍 Search</button>
               </div>
             </div>
-            <div class="report-export-group">
-              <button id="export-pdf-btn" class="btn-export-pdf">
-                <span>📄</span> Download as PDF
-              </button>
+            <div class="date-actions-row">
+              <button id="btn-date-search" class="btn-search-filter">🔍 Search</button>
+              <button id="export-pdf-btn" class="btn-export-pdf"><span>📄</span> Download as PDF</button>
             </div>
           </div>
 
@@ -203,18 +206,15 @@
 
           <!-- ── FIELD OPERATIONS TRIPS (Clean Blue Trip Boxes) ────── -->
           <div class="dashboard-section" id="sec-trips" style="margin-top: 24px;">
-            <div class="section-title-bar mb-3" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-              <h3 style="font-size: 1.15rem; font-weight: 700; color: #0F172A; margin: 0; display: flex; align-items: center; gap: 8px;">
+            <div class="field-ops-header">
+              <h3 class="field-ops-title">
                 🚛 Field Trip Operations
               </h3>
-              <div class="table-filter-controls" style="display: flex; gap: 10px; flex-wrap: wrap;">
-                <input type="text" id="trip-search-input" class="table-search-input" placeholder="🔍 Search route, driver, tanker, BMC...">
-                <select id="trip-status-filter" class="table-select-filter">
-                  <option value="">All Statuses</option>
-                  <option value="active">Active Trips Only</option>
-                  <option value="completed">Finished Trips Only</option>
-                </select>
-              </div>
+              <select id="trip-status-filter" class="subtle-status-select">
+                <option value="">All Statuses</option>
+                <option value="in_transmit">In Transmit</option>
+                <option value="completed">Finished Trips</option>
+              </select>
             </div>
 
             <!-- Clean Blue Trip Boxes Container -->
@@ -275,6 +275,30 @@
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- ── Live Tracking of Spot Analyzer ── -->
+      <div id="trip-map-section" class="hidden" style="margin-top: 20px;">
+        <h4 style="font-weight: 700; color: #0F172A; margin-bottom: 8px;">📡 Spot Analyzer Live Tracking</h4>
+        
+        <!-- Status Box -->
+        <div style="background: #F8FAFC; padding: 12px 16px; border-radius: 10px; border: 1px solid #E2E8F0; margin-bottom: 12px; font-size: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-weight: 600; color: #475569;">Tracking Status:</span>
+            <span id="trip-map-status-text" style="font-weight: 700; color: #16A34A;">—</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #475569;">Last Recorded Location:</span>
+            <span id="trip-map-last-update" style="font-weight: 600; color: #0F172A;">—</span>
+          </div>
+          <div id="trip-map-interruptions-container" class="hidden" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #CBD5E1; color: #DC2626; font-size: 0.82rem;">
+            <strong>Interruptions Recorded:</strong>
+            <ul id="trip-map-interruptions-list" style="margin: 4px 0 0; padding-left: 16px;"></ul>
+          </div>
+        </div>
+
+        <!-- Leaflet Map Container -->
+        <div id="spot-analyzer-journey-map" style="height: 320px; width: 100%; border-radius: 12px; border: 1px solid #CBD5E1; background: #E2E8F0; overflow: hidden;"></div>
       </div>
       <div class="d-flex justify-content-between align-items-center" style="margin-top: 20px;">
         <div class="d-flex gap-2">

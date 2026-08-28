@@ -649,3 +649,16 @@ a.ws-nav-item.active {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .quick-actions { grid-template-columns: repeat(3, 1fr); }
 }
+
+@media (max-width: 480px) {
+  .worker-content { padding: 12px !important; }
+  .stats-grid { grid-template-columns: 1fr !important; gap: 10px !important; }
+  .quick-actions { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
+  .atb-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .atb-meta { flex-direction: column; gap: 6px; }
+  .compartment-selector { flex-direction: column; }
+  .comp-btn { width: 100%; min-width: 0; box-sizing: border-box; }
+  .header-user-role { display: none; }
+  .header-user-name { font-size: 0.8rem !important; }
+  .modal-content { max-width: 94vw !important; padding: 16px !important; }
+}

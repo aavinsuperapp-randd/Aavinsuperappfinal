@@ -13,10 +13,32 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('header-agm-name').textContent = profile.name;
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
+  setupQcAgmSidebarToggle();
   setupControls();
   await loadMasterBmcs();
   await loadAvailableDates();
 });
+
+function setupQcAgmSidebarToggle() {
+  const toggleBtn = document.getElementById('qc-agm-toggle-btn') || document.getElementById('sidebar-toggle-btn');
+  const sidebar = document.getElementById('qc-agm-sidebar') || document.querySelector('.qc-sidebar');
+  const overlay = document.getElementById('qc-agm-sidebar-overlay') || document.querySelector('.qc-sidebar-overlay');
+
+  if (toggleBtn && sidebar) {
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sidebar.classList.toggle('open');
+      if (overlay) overlay.classList.toggle('show');
+    });
+  }
+
+  if (overlay && sidebar) {
+    overlay.addEventListener('click', () => {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('show');
+    });
+  }
+}
 
 async function loadMasterBmcs() {
   try {

@@ -454,11 +454,6 @@
             </div>
           </div>
 
-          <div class="form-group-custom" style="margin-bottom: 16px;">
-            <label class="input-label-styled">⏰ Trip Start Time <span style="color:#EF4444;">*</span></label>
-            <input type="datetime-local" id="ct-start-time" class="input-styled" required disabled>
-          </div>
-
           <div class="form-group-custom" style="margin-bottom: 0;">
             <label class="input-label-styled">📝 Remarks / Special Instructions</label>
             <textarea id="ct-remarks" class="textarea-styled" rows="2" placeholder="Any instructions for the driver..." disabled></textarea>
@@ -504,7 +499,12 @@
     <div class="modal-content modal-lg">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h3 style="margin:0; font-weight:800; color:#0F172A;">📋 Duty Details</h3>
-        <button id="duty-modal-close" class="btn btn-ghost">✕</button>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button id="duty-copy-top-btn" type="button" class="btn btn-primary btn-sm" style="font-weight:700; background:#2563EB; border-color:#2563EB; color:white; display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:8px; cursor:pointer;">
+            📋 Copy
+          </button>
+          <button id="duty-modal-close" class="btn btn-ghost">✕</button>
+        </div>
       </div>
 
       <div class="trip-detail-header-card">
@@ -593,9 +593,14 @@
       </div>
 
       <div class="d-flex justify-content-between align-items-center" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #E2E8F0;">
-        <button id="duty-delete-btn" type="button" class="btn btn-outline-danger btn-sm" style="color:#DC2626; border-color:#FCA5A5; font-weight:700;">
-          🗑️ Delete Duty
-        </button>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <button id="duty-delete-btn" type="button" class="btn btn-outline-danger btn-sm" style="color:#DC2626; border-color:#FCA5A5; font-weight:700;">
+            🗑️ Delete Duty
+          </button>
+          <button id="duty-copy-bottom-btn" type="button" class="btn btn-primary btn-sm" style="font-weight:700; background:#2563EB; border-color:#2563EB; color:white; display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:8px; cursor:pointer;">
+            📋 Copy Text
+          </button>
+        </div>
         <button id="duty-modal-dismiss-btn" type="button" class="btn btn-outline btn-sm">Close</button>
       </div>
     </div>

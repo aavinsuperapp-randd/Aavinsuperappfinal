@@ -239,6 +239,89 @@ app.delete('/api/admin/users/:id', requireAdminRole, async (req, res) => {
   res.json({ success: true, message: 'User profile deleted successfully.' });
 });
 
+// Helper function for safe table cleanup without builder syntax errors
+async function safeDeleteTable(client, tableName) {
+  try {
+    const dummyId = '00000000-0000-0000-0000-000000000000';
+    const { error } = await client.from(tableName).delete().neq('id', dummyId);
+    if (error) console.warn(`Notice deleting from ${tableName}:`, error.message);
+  } catch (err) {
+    console.warn(`Notice deleting from ${tableName}:`, err.message);
+  }
+}
+
+// ─── ADMIN WEBSITE DATA RESET ENDPOINT ─────────────────────────────────────
+// Deletes dynamic operational data (Excel imports, duty data, MACS readings, spot analyzer records, diary tests)
+// PRESERVES master entities: BMC management list, Tankers fleet, Drivers list, User profiles, EO assignments, etc.
+app.post('/api/admin/website-data-reset', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const { scope } = req.body || {};
+
+  try {
+    const targetScope = scope || 'all';
+
+    // 1. Diary / Dairy Tests & Quality Visit Data
+    if (targetScope === 'all' || targetScope === 'diary') {
+      await safeDeleteTable(adminClient, 'qc_test_reviews');
+      await safeDeleteTable(adminClient, 'qc_lab_tests');
+      await safeDeleteTable(adminClient, 'ftir_tests');
+      await safeDeleteTable(adminClient, 'gerber_tests');
+      await safeDeleteTable(adminClient, 'requirement_checks');
+      await safeDeleteTable(adminClient, 'bmc_issues');
+      await safeDeleteTable(adminClient, 'bmc_ratings');
+      await safeDeleteTable(adminClient, 'bmc_requirements');
+      await safeDeleteTable(adminClient, 'qc_audit_logs');
+      await safeDeleteTable(adminClient, 'trip_bmc_visits');
+    }
+
+    // 2. Excel Import Data
+    if (targetScope === 'all' || targetScope === 'excel') {
+      await safeDeleteTable(adminClient, 'qc_excel_import_rows');
+      await safeDeleteTable(adminClient, 'qc_excel_imports');
+    }
+
+    // 3. MACS Data
+    if (targetScope === 'all' || targetScope === 'macs') {
+      await safeDeleteTable(adminClient, 'macs_readings');
+      await safeDeleteTable(adminClient, 'macs_import_batches');
+    }
+
+    // 4. Spot Analyzer Data
+    if (targetScope === 'all' || targetScope === 'spot') {
+      await safeDeleteTable(adminClient, 'bmc_daily_records');
+    }
+
+    // 5. Duty Data (Worker Trips & Driver Trips)
+    if (targetScope === 'all' || targetScope === 'duty') {
+      await safeDeleteTable(adminClient, 'trip_bmc_visits');
+      await safeDeleteTable(adminClient, 'driver_trips');
+      await safeDeleteTable(adminClient, 'trips');
+    }
+
+    console.log(`🧹 Website Data Reset executed by Admin (${req.user?.email || 'admin'}). Scope: ${targetScope}`);
+
+    return res.json({
+      success: true,
+      message: targetScope === 'all' 
+        ? 'Website data reset completed successfully! All excel import data, duty data, macs readings, spot analyzer records, and diary test logs have been deleted.'
+        : `Website data reset for category '${targetScope}' completed successfully.`,
+      scope: targetScope,
+      preserved: [
+        'List of BMCs (BMC Management)',
+        'Tankers Fleet',
+        'Drivers List',
+        'User Profiles & Approvals',
+        'Executive Officer BMC Assignments',
+        'QC Variance Thresholds'
+      ]
+    });
+  } catch (err) {
+    console.error('❌ Website Data Reset Error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to execute website data reset.' });
+  }
+});
+
+
 // ─── ADMIN DRIVERS ENDPOINTS ─────────────────────────────────────────────────
 app.get('/api/admin/drivers', requireAdminRole, async (req, res) => {
   const { data: drivers, error } = await req.adminClient
@@ -634,13 +717,33 @@ async function requireTransportOfficer(req, res, next) {
     .from('profiles').select('*').eq('id', user.id).single();
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
-  if (profile.role !== 'transport_officer' && profile.role !== 'admin') {
+  if (profile.role !== 'transport_officer' && profile.role !== 'admin' && profile.role !== 'gm' && profile.role !== 'pi_agm') {
     return res.status(403).json({ error: 'Transport Officer access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
 
   req.user = user;
   req.profile = profile;
+  req.adminClient = adminClient;
+  next();
+}
+
+// ─── Any Authenticated User Middleware ──────────────────────────────────────
+async function requireAuthAny(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
+
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+
+  const { data: profile } = await adminClient
+    .from('profiles').select('*').eq('id', user.id).maybeSingle();
+
+  req.user = user;
+  req.profile = profile || { id: user.id, role: 'user' };
   req.adminClient = adminClient;
   next();
 }
@@ -909,8 +1012,8 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
   const startDateParam = req.query.startDate; // YYYY-MM-DD
   const endDateParam = req.query.endDate; // YYYY-MM-DD
 
-  // Calculate date range
-  let dayStartIso, dayEndIso, displayDateStr;
+  // Calculate date range & lookback
+  let dayStartIso, dayEndIso, displayDateStr, fetchStartIso;
   if (startDateParam && endDateParam) {
     dayStartIso = new Date(startDateParam + 'T00:00:00.000Z').toISOString();
     dayEndIso = new Date(endDateParam + 'T23:59:59.999Z').toISOString();
@@ -923,6 +1026,13 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
     dayStartIso = new Date('2020-01-01T00:00:00.000Z').toISOString();
     dayEndIso = new Date('2030-12-31T23:59:59.999Z').toISOString();
     displayDateStr = 'All Available Operations';
+  }
+
+  fetchStartIso = dayStartIso;
+  if (startDateParam || (dateParam && dateParam !== 'all')) {
+    const lookback = new Date(dayStartIso);
+    lookback.setDate(lookback.getDate() - 7);
+    fetchStartIso = lookback.toISOString();
   }
 
   // Also calculate last 7 days for trend charts
@@ -945,10 +1055,10 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
       tripsRes, driverTripsRes, trendTripsRes, visitsRes,
       profilesRes, driversRes, tankersRes, bmcsRes, macsRes
     ] = await Promise.all([
-      // Trips for selected date range (exclude status='deleted')
-      adminClient.from('trips').select('*').neq('status', 'deleted').neq('assignment_status', 'deleted').gte('created_at', dayStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
-      // Driver trips for selected date range (exclude status='deleted')
-      adminClient.from('driver_trips').select('*').neq('status', 'deleted').neq('assignment_status', 'deleted').gte('created_at', dayStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
+      // Trips for selected date range with lookback (exclude status='deleted')
+      adminClient.from('trips').select('*').neq('status', 'deleted').neq('assignment_status', 'deleted').gte('created_at', fetchStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
+      // Driver trips for selected date range with lookback (exclude status='deleted')
+      adminClient.from('driver_trips').select('*').neq('status', 'deleted').gte('created_at', fetchStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
       // Trips for trend (exclude status='deleted')
       adminClient.from('trips').select('id, status, created_at').neq('status', 'deleted').neq('assignment_status', 'deleted').gte('created_at', trendStartIso).lte('created_at', dayEndIso),
       // All BMC visits
@@ -966,7 +1076,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
     ]);
 
     const rawTrips = (tripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted');
-    const rawDriverTrips = (driverTripsRes.data || []).filter(dt => dt.status !== 'deleted' && dt.assignment_status !== 'deleted');
+    const rawDriverTrips = (driverTripsRes.data || []).filter(dt => dt.status !== 'deleted' && (dt.assignment_status ? dt.assignment_status !== 'deleted' : true));
     const trendTripList = (trendTripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted');
 
     // Build unified trip map, merging driver_trips (Transport Manager duties) with trips
@@ -1000,7 +1110,35 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
       }
     });
 
-    const tripList = Object.values(tripMapById);
+    let tripList = Object.values(tripMapById);
+
+    // Filter tripList based on Spot Analyzer start time (started_at || out_time || created_at)
+    function getTripOperationalDateStr(isoOrDateStr) {
+      if (!isoOrDateStr) return null;
+      try {
+        const d = new Date(isoOrDateStr);
+        if (isNaN(d.getTime())) return null;
+        return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      } catch (e) {
+        return null;
+      }
+    }
+
+    if (startDateParam && endDateParam) {
+      tripList = tripList.filter(t => {
+        const spotStartTime = t.started_at || t.out_time || t.created_at;
+        const dateStr = getTripOperationalDateStr(spotStartTime);
+        if (!dateStr) return true;
+        return dateStr >= startDateParam && dateStr <= endDateParam;
+      });
+    } else if (dateParam && dateParam !== 'all' && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      tripList = tripList.filter(t => {
+        const spotStartTime = t.started_at || t.out_time || t.created_at;
+        const dateStr = getTripOperationalDateStr(spotStartTime);
+        if (!dateStr) return true;
+        return dateStr === dateParam;
+      });
+    }
     const tripIds = tripList.map(t => t.id);
     const visitList = (visitsRes.data || []).filter(v => tripIds.includes(v.trip_id));
     const profilesList = profilesRes.data || [];
@@ -1014,6 +1152,8 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
     profilesList.forEach(p => profileMap[p.id] = p);
     const bmcMap = {};
     bmcsList.forEach(b => bmcMap[b.id] = b);
+    const driverMap = {};
+    driversList.forEach(d => driverMap[d.id] = d.name || d.driver_name);
 
     // ── KPIs ──
     const total_trips = tripList.length;
@@ -1023,23 +1163,26 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
 
     let total_milk_liters = 0;
     visitList.forEach(v => {
-      if (v.milk_quantity_liters) total_milk_liters += Number(v.milk_quantity_liters);
+      const milkVal = v.milk_quantity_kg || v.in_weight || v.milk_quantity_liters;
+      if (milkVal) total_milk_liters += Number(milkVal);
     });
 
-    // ── Fetch test data, issues, ratings for visits ──
+    // ── Fetch test data, issues, ratings, and QC lab tests for visits ──
     const visitIds = visitList.map(v => v.id);
-    let ftirList = [], gerberList = [], issueList = [], ratingList = [];
+    let ftirList = [], gerberList = [], issueList = [], ratingList = [], qcLabList = [];
     if (visitIds.length > 0) {
-      const [fRes, gRes, iRes, rRes] = await Promise.all([
+      const [fRes, gRes, iRes, rRes, qRes] = await Promise.all([
         adminClient.from('ftir_tests').select('*').in('visit_id', visitIds),
         adminClient.from('gerber_tests').select('*').in('visit_id', visitIds),
         adminClient.from('bmc_issues').select('*').in('visit_id', visitIds),
-        adminClient.from('bmc_ratings').select('*').in('visit_id', visitIds)
+        adminClient.from('bmc_ratings').select('*').in('visit_id', visitIds),
+        adminClient.from('qc_lab_tests').select('*').in('visit_id', visitIds)
       ]);
       ftirList = fRes.data || [];
       gerberList = gRes.data || [];
       issueList = iRes.data || [];
       ratingList = rRes.data || [];
+      qcLabList = qRes.data || [];
     }
 
     // Also fetch ALL open issues (not date-limited) for complaints section
@@ -1082,7 +1225,10 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
       }
 
       const worker = profileMap[t.worker_id] || { name: 'Unknown Worker' };
-      const driverName = profileMap[t.assigned_driver_id]?.name || t.driver_name || null;
+      const driverName = (t.assigned_driver_id && driverMap[t.assigned_driver_id]) || 
+                         (t.driver_id && driverMap[t.driver_id]) || 
+                         profileMap[t.assigned_driver_id]?.name || 
+                         t.driver_name || null;
       const tankerNumber = t.tanker_number || t.vehicle_number || null;
       const lastVisit = tVisits.length > 0 ? tVisits[tVisits.length - 1] : null;
       const lastBmc = lastVisit && bmcMap[lastVisit.bmc_id] ? bmcMap[lastVisit.bmc_id].name : '—';
@@ -1099,6 +1245,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
           const gerber = gerberList.find(g => g.visit_id === v.id);
           const vIssues = issueList.filter(i => i.visit_id === v.id);
           const vRating = ratingList.find(r => r.visit_id === v.id);
+          const qcTest = qcLabList.find(q => q.visit_id === v.id);
           const lastIssue = vIssues.length > 0 ? vIssues[vIssues.length - 1] : null;
 
           // FTIR: show actual saved values only, never fake 0
@@ -1127,23 +1274,46 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
             gerber_result = 'Pending';
           }
 
-          // MACS: match by bmc_id only (no cross-BMC contamination)
-          const bmcCode = bmcMap[v.bmc_id]?.bmc_code || '';
-          const macsData = macsList.find(m => m.bmc_id === v.bmc_id || (bmcCode && m.sample_ref === bmcCode));
+          // MACS: match by bmc_id, sample_ref (code), or bmc_name
+          const bmcCode = String(bmcMap[v.bmc_id]?.bmc_code || '').trim();
+          const bmcNameClean = String(bmcMap[v.bmc_id]?.name || '').trim().toLowerCase();
+          const macsData = macsList.find(m => 
+            (v.bmc_id && m.bmc_id === v.bmc_id) || 
+            (bmcCode && String(m.sample_ref || m.raw_data?.bmc_code || '').trim().toLowerCase() === bmcCode.toLowerCase()) ||
+            (bmcNameClean && String(m.bmc_name || m.raw_data?.bmc_name || '').trim().toLowerCase() === bmcNameClean)
+          );
           let macs_result = '—';
           if (macsData) {
             const liters = macsData.raw_data?.macs_quantity_liters ?? macsData.raw_data?.liters ?? macsData.raw_data?.quantity ?? macsData.liters ?? macsData.quantity ?? null;
-            const fat = macsData.fat !== null && macsData.fat !== undefined ? macsData.fat : null;
-            if (liters !== null || fat !== null) {
-              macs_result = `Qty: ${liters !== null ? liters : '—'} | FAT: ${fat !== null ? fat + '%' : '—'}`;
-            }
+            const fat = macsData.fat !== null && macsData.fat !== undefined ? macsData.fat : (macsData.raw_data?.fat ?? null);
+            const snf = macsData.snf !== null && macsData.snf !== undefined ? macsData.snf : (macsData.raw_data?.snf ?? null);
+            const parts = [];
+            if (liters !== null && liters !== undefined) parts.push(`Qty: ${liters} L`);
+            if (fat !== null && fat !== undefined) parts.push(`FAT: ${fat}%`);
+            if (snf !== null && snf !== undefined) parts.push(`SNF: ${snf}%`);
+            if (parts.length > 0) macs_result = parts.join(' | ');
           }
 
-          // Diary: per-visit milk weight, NOT trip-level in_weight
+          // Diary / QC Lab Test: combine QC AGM test result & visit milk weight
           let diary_result = '—';
           const visitMilkKg = v.milk_quantity_kg || v.in_weight || null;
+          const diaryParts = [];
           if (visitMilkKg !== null && visitMilkKg !== undefined) {
-            diary_result = `${visitMilkKg} kg`;
+            diaryParts.push(`${visitMilkKg} kg`);
+          }
+          if (qcTest) {
+            if (qcTest.fat !== null && qcTest.fat !== undefined) {
+              diaryParts.push(`FAT: ${qcTest.fat}%`);
+            }
+            if (qcTest.snf !== null && qcTest.snf !== undefined) {
+              diaryParts.push(`SNF: ${qcTest.snf}%`);
+            }
+            if (qcTest.clr !== null && qcTest.clr !== undefined) {
+              diaryParts.push(`CLR: ${qcTest.clr}`);
+            }
+          }
+          if (diaryParts.length > 0) {
+            diary_result = diaryParts.join(' | ');
           }
 
           return {
@@ -1168,7 +1338,11 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
             report: lastIssue?.description || null,
             report_priority: lastIssue?.severity || null,
             rating: vRating?.overall_rating ?? null,
-            rating_remarks: vRating?.remarks || null
+            rating_remarks: vRating?.remarks || null,
+            ftir_tests: ftir ? [ftir] : [],
+            gerber_tests: gerber ? [gerber] : [],
+            bmc_issues: vIssues || [],
+            bmc_ratings: vRating ? [vRating] : []
           };
         });
 
@@ -1185,6 +1359,14 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
         in_time: t.in_time,
         status: t.status,
         created_at: t.created_at,
+        started_at: t.started_at || null,
+        remarks: t.remarks || null,
+        start_lat: t.start_lat || null,
+        start_lng: t.start_lng || null,
+        end_lat: t.end_lat || null,
+        end_lng: t.end_lng || null,
+        journey_path: t.journey_path || null,
+        route_description: t.route_description || null,
         visits_count: tVisits.length,
         ftir_count: tFtir,
         gerber_count: tGerber,
@@ -2451,7 +2633,7 @@ app.get('/api/trips', requireWorker, async (req, res) => {
 });
 
 // ─── GET /api/trips/:id ───────────────────────────────────────────────────────
-app.get('/api/trips/:id', requireWorker, async (req, res) => {
+app.get('/api/trips/:id', requireAuthAny, async (req, res) => {
   const { adminClient } = req;
   
   // Try trips table first
@@ -2472,13 +2654,15 @@ app.get('/api/trips/:id', requireWorker, async (req, res) => {
     trip.selected_bmcs = dTrip.selected_bmcs || [];
     trip.route_description = trip.route_description || dTrip.route || dTrip.destination || '—';
     trip.trip_number = trip.trip_number || dTrip.trip_number || dTrip.id.slice(0, 8).toUpperCase();
+    if (!trip.driver_name && dTrip.driver_name) trip.driver_name = dTrip.driver_name;
+    if (!trip.tanker_number && (dTrip.vehicle_number || dTrip.tanker_number)) trip.tanker_number = dTrip.vehicle_number || dTrip.tanker_number;
   } else if (!trip && dTrip) {
     trip = {
       ...dTrip,
       trip_name: dTrip.route || dTrip.destination || dTrip.bmc_name || 'Planned Duty',
       trip_number: dTrip.trip_number || dTrip.id.slice(0, 8).toUpperCase(),
       driver_name: dTrip.driver_name,
-      tanker_number: dTrip.vehicle_number,
+      tanker_number: dTrip.vehicle_number || dTrip.tanker_number,
       route_description: dTrip.route || dTrip.destination || '—',
       out_time: dTrip.started_at || dTrip.scheduled_start_time,
       in_time: dTrip.completed_at,
@@ -2490,6 +2674,20 @@ app.get('/api/trips/:id', requireWorker, async (req, res) => {
   }
 
   if (!trip) return res.status(404).json({ error: 'Trip not found.' });
+
+  // Resolve driver_name if missing or generic
+  if (!trip.driver_name || trip.driver_name === 'Driver' || trip.driver_name === 'Assigned Driver' || trip.driver_name === '—') {
+    const driverId = trip.assigned_driver_id || trip.driver_id || dTrip?.assigned_driver_id || dTrip?.driver_id;
+    if (driverId) {
+      const { data: dRec } = await adminClient.from('drivers').select('name').eq('id', driverId).maybeSingle();
+      if (dRec && dRec.name) {
+        trip.driver_name = dRec.name;
+      } else {
+        const { data: pRec } = await adminClient.from('profiles').select('name').eq('id', driverId).maybeSingle();
+        if (pRec && pRec.name) trip.driver_name = pRec.name;
+      }
+    }
+  }
 
   const { data: dbVisits } = await adminClient
     .from('trip_bmc_visits')
@@ -3234,7 +3432,7 @@ async function requireTransportOfficer(req, res, next) {
     .from('profiles').select('*').eq('id', user.id).single();
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
-  if (profile.role !== 'transport_officer' && profile.role !== 'driver' && profile.role !== 'admin') {
+  if (profile.role !== 'transport_officer' && profile.role !== 'driver' && profile.role !== 'admin' && profile.role !== 'gm' && profile.role !== 'pi_agm') {
     return res.status(403).json({ error: 'Transport Officer or Driver access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
@@ -4890,7 +5088,7 @@ async function requireTripManager(req, res, next) {
   next();
 }
 
-// DELETE /api/gm/trips/:id, /api/transport/driver-trips/:id & /api/transport/duties/:id — Safely delete a driver trip duty
+// DELETE /api/gm/trips/:id, /api/transport/driver-trips/:id, /api/transport/duties/:id — Safely & permanently delete a duty from all tables
 const safeDeleteDutyHandler = async (req, res) => {
   const { adminClient } = req;
   const { id } = req.params;
@@ -4902,19 +5100,19 @@ const safeDeleteDutyHandler = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Trip ID is required.' });
     }
 
-    // 1. Authoritative lookup of both driver_trip and trip
     let driverTripId = id;
     let tripId = id;
 
+    // 1. Authoritative lookup of both driver_trips and trips
+    // Note: driver_trips does NOT have a driver_name column; we query valid columns only.
     const { data: dtExists, error: dtCheckErr } = await adminClient
       .from('driver_trips')
-      .select('id, created_at, driver_name, vehicle_number, assigned_driver_id, status')
+      .select('id, created_at, vehicle_number, assigned_driver_id, status')
       .eq('id', id)
       .maybeSingle();
 
     if (dtCheckErr) {
-      console.error(`Error checking driver_trips for ID ${id}:`, dtCheckErr);
-      throw dtCheckErr;
+      console.warn(`Warning checking driver_trips for ID ${id}:`, dtCheckErr.message);
     }
 
     const { data: tExists, error: tCheckErr } = await adminClient
@@ -4924,30 +5122,23 @@ const safeDeleteDutyHandler = async (req, res) => {
       .maybeSingle();
 
     if (tCheckErr) {
-      console.error(`Error checking trips for ID ${id}:`, tCheckErr);
-      throw tCheckErr;
-    }
-
-    if (!dtExists && !tExists) {
-      return res.status(404).json({ success: false, message: 'Trip not found.' });
+      console.warn(`Warning checking trips for ID ${id}:`, tCheckErr.message);
     }
 
     // Resolve linkage for legacy records where IDs may differ
     if (dtExists && !tExists) {
-      let dName = dtExists.driver_name;
-      if (!dName && dtExists.assigned_driver_id) {
-        const { data: p, error: pErr } = await adminClient.from('profiles').select('name').eq('id', dtExists.assigned_driver_id).maybeSingle();
-        if (pErr) throw pErr;
+      let dName = null;
+      if (dtExists.assigned_driver_id) {
+        const { data: p } = await adminClient.from('profiles').select('name').eq('id', dtExists.assigned_driver_id).maybeSingle();
         if (p) dName = p.name;
       }
       if (dName && dtExists.vehicle_number) {
-        const { data: candidates, error: candErr } = await adminClient
+        const { data: candidates } = await adminClient
           .from('trips')
           .select('id, created_at')
           .eq('driver_name', dName)
           .eq('tanker_number', dtExists.vehicle_number)
           .neq('status', 'deleted');
-        if (candErr) throw candErr;
 
         if (candidates && candidates.length > 0) {
           const dtTime = new Date(dtExists.created_at).getTime();
@@ -4955,7 +5146,7 @@ const safeDeleteDutyHandler = async (req, res) => {
           let minDiff = Infinity;
           for (const cand of candidates) {
             const diff = Math.abs(dtTime - new Date(cand.created_at).getTime());
-            if (diff < minDiff && diff < 5 * 60 * 1000) {
+            if (diff < minDiff && diff < 15 * 60 * 1000) {
               minDiff = diff;
               best = cand;
             }
@@ -4968,12 +5159,11 @@ const safeDeleteDutyHandler = async (req, res) => {
       }
     } else if (tExists && !dtExists) {
       if (tExists.driver_name && tExists.tanker_number) {
-        const { data: candidates, error: candErr } = await adminClient
+        const { data: candidates } = await adminClient
           .from('driver_trips')
           .select('id, created_at')
           .eq('vehicle_number', tExists.tanker_number)
           .neq('status', 'deleted');
-        if (candErr) throw candErr;
 
         if (candidates && candidates.length > 0) {
           const tTime = new Date(tExists.created_at).getTime();
@@ -4981,7 +5171,7 @@ const safeDeleteDutyHandler = async (req, res) => {
           let minDiff = Infinity;
           for (const cand of candidates) {
             const diff = Math.abs(tTime - new Date(cand.created_at).getTime());
-            if (diff < minDiff && diff < 5 * 60 * 1000) {
+            if (diff < minDiff && diff < 15 * 60 * 1000) {
               minDiff = diff;
               best = cand;
             }
@@ -4994,75 +5184,62 @@ const safeDeleteDutyHandler = async (req, res) => {
       }
     }
 
-    console.log(`[Trip Deletion Execute] Synchronizing deletion for driverTripId: ${driverTripId}, tripId: ${tripId}`);
+    const allTargetTripIds = [...new Set([id, tripId, driverTripId].filter(Boolean))];
+    console.log(`[Trip Deletion Execute] Target trip IDs for cleanup:`, allTargetTripIds);
 
-    // Clean up child records referencing trip_bmc_visits
-    const { data: visits, error: visitsErr } = await adminClient
+    // Helper to safely execute table deletes without blowing up if table/column missing
+    const safeDeleteRows = async (tableName, matchColumn, matchValues) => {
+      if (!matchValues || matchValues.length === 0) return;
+      try {
+        if (Array.isArray(matchValues)) {
+          await adminClient.from(tableName).delete().in(matchColumn, matchValues);
+        } else {
+          await adminClient.from(tableName).delete().eq(matchColumn, matchValues);
+        }
+      } catch (err) {
+        console.warn(`Safe delete notice for table ${tableName}:`, err.message);
+      }
+    };
+
+    // 2. Clean up child records referencing trip_bmc_visits
+    const { data: visits } = await adminClient
       .from('trip_bmc_visits')
       .select('id')
-      .eq('trip_id', tripId);
-    if (visitsErr) throw visitsErr;
+      .in('trip_id', allTargetTripIds);
 
     const visitIds = (visits || []).map(v => v.id);
 
     if (visitIds.length > 0) {
-      const { error: ftirErr } = await adminClient.from('ftir_tests').delete().in('visit_id', visitIds);
-      if (ftirErr) throw ftirErr;
-
-      const { error: gerberErr } = await adminClient.from('gerber_tests').delete().in('visit_id', visitIds);
-      if (gerberErr) throw gerberErr;
-
-      const { error: issueErr } = await adminClient.from('bmc_issues').delete().in('visit_id', visitIds);
-      if (issueErr) throw issueErr;
-
-      const { error: ratingErr } = await adminClient.from('bmc_ratings').delete().in('visit_id', visitIds);
-      if (ratingErr) throw ratingErr;
-
-      const { error: checkErr } = await adminClient.from('requirement_checks').delete().in('visit_id', visitIds);
-      if (checkErr) throw checkErr;
-
-      const { error: qcLabErr } = await adminClient.from('qc_lab_tests').delete().in('visit_id', visitIds);
-      if (qcLabErr) throw qcLabErr;
-
-      const { error: visitDeleteErr } = await adminClient.from('trip_bmc_visits').delete().in('id', visitIds);
-      if (visitDeleteErr) throw visitDeleteErr;
+      await safeDeleteRows('ftir_tests', 'visit_id', visitIds);
+      await safeDeleteRows('gerber_tests', 'visit_id', visitIds);
+      await safeDeleteRows('bmc_issues', 'visit_id', visitIds);
+      await safeDeleteRows('bmc_ratings', 'visit_id', visitIds);
+      await safeDeleteRows('requirement_checks', 'visit_id', visitIds);
+      await safeDeleteRows('qc_lab_tests', 'visit_id', visitIds);
+      await safeDeleteRows('qc_test_reviews', 'visit_id', visitIds);
+      await safeDeleteRows('qc_audit_logs', 'visit_id', visitIds);
+      await safeDeleteRows('trip_bmc_visits', 'id', visitIds);
     }
 
-    const { error: tripVisitErr } = await adminClient.from('trip_bmc_visits').delete().eq('trip_id', tripId);
-    if (tripVisitErr) throw tripVisitErr;
+    await safeDeleteRows('trip_bmc_visits', 'trip_id', allTargetTripIds);
 
-    // 2. Soft delete attempt (flag status as 'deleted')
+    // 3. Soft delete attempt (update status to deleted)
     try {
-      const { error: dtSoftErr } = await adminClient
-        .from('driver_trips')
-        .update({ status: 'deleted' })
-        .eq('id', driverTripId);
-      if (dtSoftErr) console.warn('Warning: driver_trips soft delete update notice:', dtSoftErr.message);
-
-      const { error: tSoftErr } = await adminClient
-        .from('trips')
-        .update({ status: 'deleted', assignment_status: 'deleted' })
-        .eq('id', tripId);
-      if (tSoftErr) console.warn('Warning: trips soft delete update notice:', tSoftErr.message);
+      await adminClient.from('driver_trips').update({ status: 'deleted' }).in('id', allTargetTripIds);
+      await adminClient.from('trips').update({ status: 'deleted', assignment_status: 'deleted' }).in('id', allTargetTripIds);
     } catch (softErr) {
       console.warn('Warning during soft delete phase:', softErr.message);
     }
 
-    // 3. Authoritative Hard Delete
-    const { error: dtHardErr } = await adminClient.from('driver_trips').delete().eq('id', driverTripId);
-    if (dtHardErr) {
-      console.error(`Failed to delete driver_trip ID ${driverTripId}:`, dtHardErr);
-      throw dtHardErr;
-    }
+    // 4. Authoritative Hard Delete from both driver_trips and trips
+    const { error: dtHardErr } = await adminClient.from('driver_trips').delete().in('id', allTargetTripIds);
+    if (dtHardErr) console.warn(`Notice deleting driver_trips: ${dtHardErr.message}`);
 
-    const { error: tHardErr } = await adminClient.from('trips').delete().eq('id', tripId);
-    if (tHardErr) {
-      console.error(`Failed to delete trip ID ${tripId}:`, tHardErr);
-      throw tHardErr;
-    }
+    const { error: tHardErr } = await adminClient.from('trips').delete().in('id', allTargetTripIds);
+    if (tHardErr) console.warn(`Notice deleting trips: ${tHardErr.message}`);
 
-    console.log(`[Trip Deletion Success] Successfully deleted trip driverTripId: ${driverTripId}, tripId: ${tripId}`);
-    return res.json({ success: true, message: 'Trip deleted successfully.', tripId: id });
+    console.log(`[Trip Deletion Success] Permanently deleted trip ${id} from driver_trips, trips, and visit tables.`);
+    return res.json({ success: true, message: 'Trip deleted permanently.', tripId: id });
   } catch (err) {
     console.error('❌ Error in safeDeleteDutyHandler:', err);
     return res.status(500).json({ success: false, message: err.message || 'Failed to delete driver trip duty.' });
@@ -5073,6 +5250,8 @@ app.delete('/api/gm/trips/:id', requireTripManager, safeDeleteDutyHandler);
 app.delete('/api/gm/pending-trips/:id', requireTripManager, safeDeleteDutyHandler);
 app.delete('/api/transport/driver-trips/:id', requireTripManager, safeDeleteDutyHandler);
 app.delete('/api/transport/duties/:id', requireTripManager, safeDeleteDutyHandler);
+app.delete('/api/pi-agm/trips/:id', requireTripManager, safeDeleteDutyHandler);
+app.delete('/api/admin/trips/:id', requireTripManager, safeDeleteDutyHandler);
 
 // GET /api/transport/drivers-list — Get driver-role users for assignment dropdown
 app.get('/api/transport/drivers-list', requireTransportOfficer, async (req, res) => {
@@ -6099,7 +6278,7 @@ app.post('/api/transport/create-trip', requireTransportOfficer, async (req, res)
       route_description: (route_description || '').trim() || null,
       bmc_id: bmc_id || null,
       out_time: out_time || new Date().toISOString(),
-      status: 'active'
+      status: 'planned'
     };
 
     const { data, error } = await adminClient.from('trips').insert(insertPayload).select().single();
@@ -6131,12 +6310,11 @@ app.get('/api/gm/pending-trips', requirePiAgm, async (req, res) => {
         .from('driver_trips')
         .select('*')
         .neq('status', 'deleted')
-        .neq('assignment_status', 'deleted')
         .order('created_at', { ascending: false })
     ]);
 
     const trips = (tripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted');
-    const driverTrips = (driverTripsRes.data || []).filter(dt => dt.status !== 'deleted' && dt.assignment_status !== 'deleted');
+    const driverTrips = (driverTripsRes.data || []).filter(dt => dt.status !== 'deleted' && (dt.assignment_status ? dt.assignment_status !== 'deleted' : true));
 
     const pendingMap = {};
     trips.forEach(t => {
@@ -9373,7 +9551,6 @@ app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
       .from('driver_trips')
       .select('*')
       .neq('status', 'deleted')
-      .neq('assignment_status', 'deleted')
       .order('created_at', { ascending: false });
 
     if (from_date) query = query.gte('created_at', `${from_date}T00:00:00`);
@@ -9400,7 +9577,7 @@ app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
 
     (trips || []).forEach(t => {
       const isDone = t.status === 'completed';
-      const isCancelled = t.status === 'cancelled' || t.status === 'deleted' || t.assignment_status === 'deleted';
+      const isCancelled = t.status === 'cancelled' || t.status === 'deleted' || (t.assignment_status && t.assignment_status === 'deleted');
       if (isCancelled) return;
 
       const normStatus = isDone ? 'done' : 'in_transit';

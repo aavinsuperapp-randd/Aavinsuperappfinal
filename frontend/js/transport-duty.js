@@ -141,6 +141,7 @@ function renderDutiesTable(duties) {
       <td><span class="badge badge-${getStatusBadge(duty.status)}">${formatStatus(duty.status)}</span></td>
       <td>
         <button class="btn btn-ghost btn-sm" onclick="viewDutyDetails('${duty.id}')">View</button>
+        <button class="btn btn-outline btn-sm" onclick="copyDutyDetailsById('${duty.id}')" style="margin-left:4px; font-weight:700; border-color:#CBD5E1; color:#2563EB;">📋 Copy</button>
       </td>
     </tr>
   `}).join('');
@@ -172,15 +173,6 @@ async function setupCreateTripModal() {
     isBmcSelectionSaved = false;
     if (dateInput && !dateInput.value) {
       dateInput.value = new Date().toISOString().split('T')[0];
-    }
-    
-    // Auto-populate Trip Start Time with current local time
-    const startTimeInput = document.getElementById('ct-start-time');
-    if (startTimeInput) {
-      const now = new Date();
-      const tzOffset = now.getTimezoneOffset() * 60000;
-      const localISOTime = new Date(now.getTime() - tzOffset).toISOString().slice(0, 16);
-      startTimeInput.value = localISOTime;
     }
 
     renderSelectedBmcs();
@@ -267,18 +259,18 @@ async function setupCreateTripModal() {
     const vehicleSelect = document.getElementById('ct-vehicle');
     const routeInput = document.getElementById('ct-route');
     const dutyTypeSelect = document.getElementById('ct-duty-type');
-    const startTimeInput = document.getElementById('ct-start-time');
 
     if (!driverSelect.value) { showToast('Please select a driver.', 'error'); return; }
     if (!vehicleSelect.value) { showToast('Please select a vehicle.', 'error'); return; }
     if (!routeInput.value.trim()) { showToast('Please enter a Route Name.', 'error'); return; }
-    if (!startTimeInput.value) { showToast('Please select a Trip Start Time.', 'error'); return; }
 
     btnSubmit.disabled = true;
     btnSubmit.textContent = 'Assigning...';
 
     const vehicleId = vehicleSelect.value;
     const vehicleObj = vehiclesList.find(v => v.id === vehicleId);
+
+    const nowIso = new Date().toISOString();
 
     const payload = {
       assigned_driver_id: driverSelect.value,
@@ -287,7 +279,7 @@ async function setupCreateTripModal() {
       selected_bmcs: selectedBmcs,
       route: routeInput.value.trim(),
       duty_type: dutyTypeSelect ? dutyTypeSelect.value : 'Morning Duty',
-      scheduled_start_time: startTimeInput.value,
+      scheduled_start_time: nowIso,
       remarks: document.getElementById('ct-remarks').value.trim()
     };
 
@@ -309,7 +301,7 @@ async function setupCreateTripModal() {
           tanker_number: tankerNum,
           route_description: routeInput.value.trim(),
           bmc_id: firstBmc ? firstBmc.bmc_id : null,
-          out_time: startTimeInput.value ? new Date(startTimeInput.value).toISOString() : new Date().toISOString()
+          out_time: nowIso
         });
       } catch (toErr) {
         console.warn('Transport trip record creation warning:', toErr.message);
@@ -765,18 +757,119 @@ async function viewDutyDetails(dutyId) {
   openModal('duty-detail-modal');
 }
 
+function formatDutyToCopyText(duty) {
+  if (!duty) return '';
+
+  const tripName = duty.route || duty.trip_name || duty.destination || duty.bmc_name || 'N/A';
+  
+  let rawRemarks = duty.remarks || '';
+  const cleanRemarks = rawRemarks.split('\n__BMC_DATA__=')[0].split('\n__JOURNEY_DATA__=')[0].trim() || 'No remarks';
+
+  let bmcsArray = [];
+
+  if (Array.isArray(duty.selected_bmcs) && duty.selected_bmcs.length > 0) {
+    bmcsArray = duty.selected_bmcs;
+  }
+  else if (duty.remarks && duty.remarks.includes('__BMC_DATA__=')) {
+    try {
+      const jsonStr = duty.remarks.split('__BMC_DATA__=')[1].split('\n')[0];
+      bmcsArray = JSON.parse(jsonStr);
+    } catch (e) {}
+  }
+  else if (duty.destination && duty.destination.startsWith('[{"')) {
+    try { bmcsArray = JSON.parse(duty.destination); } catch (e) {}
+  }
+
+  if (bmcsArray.length === 0 && (duty.bmc_name || duty.destination || duty.route)) {
+    const rawText = duty.bmc_name || duty.destination || duty.route || '';
+    if (rawText.includes(' — ') || rawText.includes(' | ') || rawText.includes(' ➔ ')) {
+      const parts = rawText.split(/\s*(?:\||➔)\s*/);
+      bmcsArray = parts.map(p => {
+        const clean = p.replace(/^\d+\.\s*/, '').trim();
+        const [name, comp] = clean.split(/\s*—\s*/);
+        return {
+          bmc_name: (name || clean).replace(/^BMC\s*[-–]?\s*/i, ''),
+          compartment: comp || 'Front'
+        };
+      });
+    } else if (rawText && !rawText.toLowerCase().includes('no route')) {
+      bmcsArray = [{ bmc_name: rawText.replace(/^BMC\s*[-–]?\s*/i, ''), compartment: 'Front' }];
+    }
+  }
+
+  let bmcSectionText = 'No BMCs listed';
+  if (bmcsArray.length > 0) {
+    const bmcLines = bmcsArray.map((b, idx) => {
+      const rawName = b.bmc_name || b.name || 'BMC';
+      const name = rawName.replace(/^BMC\s*[-–]?\s*/i, '').trim();
+      const comp = (b.compartment || 'Front').toLowerCase();
+      return `${idx + 1}. ${name} ( ${comp} )`;
+    });
+    bmcSectionText = bmcLines.join('\n');
+  }
+
+  return `trip name : ${tripName}\nremarks : ${cleanRemarks}\nbmc :\n\n${bmcSectionText}`;
+}
+
+window.copyDutyTextToClipboard = async function(duty) {
+  if (!duty) return;
+  const text = formatDutyToCopyText(duty);
+  
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    showToast('Duty details copied to clipboard!', 'success');
+  } catch (err) {
+    console.error('Failed to copy text:', err);
+    showToast('Failed to copy to clipboard', 'error');
+  }
+};
+
+window.copyDutyDetailsById = function(dutyId) {
+  let duty = allDuties.find(d => d.id === dutyId);
+  if (duty) {
+    copyDutyTextToClipboard(duty);
+  } else {
+    apiGetDriverTrip(dutyId).then(res => {
+      if (res?.trip) copyDutyTextToClipboard(res.trip);
+    }).catch(e => showToast('Failed to fetch duty details for copy', 'error'));
+  }
+};
+
 function setupDutyModal() {
   const modal = document.getElementById('duty-detail-modal');
   const closeBtn = document.getElementById('duty-modal-close');
   const dismissBtn = document.getElementById('duty-modal-dismiss-btn');
   const deleteBtn = document.getElementById('duty-delete-btn');
+  const copyTopBtn = document.getElementById('duty-copy-top-btn');
+  const copyBottomBtn = document.getElementById('duty-copy-bottom-btn');
 
-  closeBtn.addEventListener('click', () => closeModal('duty-detail-modal'));
-  dismissBtn.addEventListener('click', () => closeModal('duty-detail-modal'));
+  closeBtn?.addEventListener('click', () => closeModal('duty-detail-modal'));
+  dismissBtn?.addEventListener('click', () => closeModal('duty-detail-modal'));
 
-  modal.addEventListener('click', (e) => {
+  modal?.addEventListener('click', (e) => {
     if (e.target === modal) closeModal('duty-detail-modal');
   });
+
+  const handleCopyClick = () => {
+    if (currentDutyForDeletion) {
+      copyDutyTextToClipboard(currentDutyForDeletion);
+    }
+  };
+
+  copyTopBtn?.addEventListener('click', handleCopyClick);
+  copyBottomBtn?.addEventListener('click', handleCopyClick);
 
   if (deleteBtn) {
     deleteBtn.onclick = () => {

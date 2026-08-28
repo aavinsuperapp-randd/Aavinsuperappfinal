@@ -144,8 +144,9 @@ async function loadHistory() {
             <h3 style="margin: 0 0 4px 0; font-size: 1.05rem; font-weight: 700; color: #0F172A;">${esc(routeName)}</h3>
             ${metricsHtml}
           </div>
-          <div>
-            <button type="button" class="btn btn-primary" style="padding: 7px 16px; font-weight: 700; font-size: 0.83rem; background: #4F46E5; border-color: #4F46E5;" onclick="openEditTripModal('${t.id}')">✏️ EDIT METRICS</button>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-outline" style="padding: 7px 14px; font-weight: 700; font-size: 0.83rem;" onclick="openViewDutyModal('${t.id}')">👁️ VIEW</button>
+            <button type="button" class="btn btn-primary" style="padding: 7px 16px; font-weight: 700; font-size: 0.83rem; background: #4F46E5; border-color: #4F46E5;" onclick="openEditTripModal('${t.id}')">✏️ EDIT</button>
           </div>
         </div>
       `;
@@ -286,15 +287,6 @@ async function handleEditTripSubmit() {
     closeEditTripModal();
     await loadHistory();
   } catch (err) {
-    console.error('Failed to edit trip metrics:', err);
-    if (typeof showToast === 'function') showToast(err.message || 'Failed to edit trip metrics.', 'error');
-  } finally {
-    if (confirmBtn) {
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = 'SAVE CHANGES';
-    }
-  }
-}
     console.error('Failed to edit trip metrics:', err);
     if (typeof showToast === 'function') showToast(err.message || 'Failed to edit trip metrics.', 'error');
   } finally {

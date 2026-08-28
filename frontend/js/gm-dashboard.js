@@ -22,14 +22,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `${year}-${month}-${day}`;
   }
 
+  function syncPresetStateFromDates(sDate, eDate) {
+    const todayStr = getLocalDateStr();
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    const yStr = getLocalDateStr(y);
+
+    if (sDate === todayStr && eDate === todayStr) {
+      updatePresetButtonUI('today');
+    } else if (sDate === yStr && eDate === yStr) {
+      updatePresetButtonUI('yesterday');
+    } else {
+      updatePresetButtonUI('custom');
+    }
+  }
+
   const todayStr = getLocalDateStr();
-  const defaultFromDate = '2026-08-01'; // Default start of current operational period so data loads immediately
-  currentFilter = { preset: 'custom', startDate: defaultFromDate, endDate: todayStr };
+  currentFilter = { preset: 'today', startDate: todayStr, endDate: todayStr };
 
   const fromDateInput = document.getElementById('gm-from-date');
   const toDateInput = document.getElementById('gm-to-date');
-  if (fromDateInput) fromDateInput.value = defaultFromDate;
+  if (fromDateInput) fromDateInput.value = todayStr;
   if (toDateInput) toDateInput.value = todayStr;
+  updatePresetButtonUI('today');
+
+  const onDateInputChange = () => {
+    const sDate = fromDateInput?.value;
+    const eDate = toDateInput?.value;
+    if (sDate && eDate) {
+      syncPresetStateFromDates(sDate, eDate);
+    }
+  };
+
+  if (fromDateInput) fromDateInput.addEventListener('change', onDateInputChange);
+  if (toDateInput) toDateInput.addEventListener('change', onDateInputChange);
 
   // Presets
   const btnToday = document.getElementById('btn-preset-today');
@@ -74,7 +100,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       currentFilter = { preset: 'custom', startDate: sDate, endDate: eDate };
-      updatePresetButtonUI('custom');
+      syncPresetStateFromDates(sDate, eDate);
       loadDashboardData();
     });
   }
@@ -173,7 +199,8 @@ function exportToExcel() {
   const tripsData = (trips || []).map(t => {
     let totalMilkKg = 0;
     (t.visits || []).forEach(v => {
-      if (v.milk_quantity_liters) totalMilkKg += Number(v.milk_quantity_liters);
+      const milkVal = v.milk_quantity_kg || v.in_weight || v.milk_quantity_liters;
+      if (milkVal) totalMilkKg += Number(milkVal);
     });
 
     return {
@@ -232,92 +259,368 @@ function exportToExcel() {
 
 function exportToPDF() {
   if (!currentDashboardData || !window.jspdf) {
+    if (typeof showToast === 'function') showToast('PDF generator library not loaded. Printing page...', 'info');
     window.print();
     return;
   }
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('p', 'mm', 'a4');
-  const { date_formatted, kpis = {}, trips = [] } = currentDashboardData;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  const { kpis = {}, trips = [], tankers = [], workers = [], issues = [] } = currentDashboardData;
 
   const dateFilterStr = currentFilter.startDate === currentFilter.endDate
     ? `Date: ${currentFilter.startDate}`
     : `Date Range: ${currentFilter.startDate} to ${currentFilter.endDate}`;
 
-  // Header Banner
-  doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, 210, 28, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.text('MADURAI DISTRICT CO-OPERATIVE MILK PRODUCER\'S UNION LTD', 14, 12);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`GM PORTAL — Operational Overview Report (${dateFilterStr})`, 14, 20);
+  // Helper date/time formatters
+  const safeTime = (iso) => {
+    if (!iso) return '-';
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) { return iso; }
+  };
 
-  // Executive Summary Section
+  // Header Banner Rendering
+  function drawHeaderBanner(pageDoc) {
+    // Top dark banner
+    pageDoc.setFillColor(15, 23, 42); // Navy slate #0F172A
+    pageDoc.rect(0, 0, pageWidth, 28, 'F');
+
+    // Accent line
+    pageDoc.setFillColor(2, 132, 199); // Aavin blue #0284C7
+    pageDoc.rect(0, 27, pageWidth, 1.5, 'F');
+
+    // Header Text
+    pageDoc.setTextColor(255, 255, 255);
+    pageDoc.setFontSize(13);
+    pageDoc.setFont('helvetica', 'bold');
+    pageDoc.text('MADURAI DISTRICT CO-OPERATIVE MILK PRODUCER\'S UNION LTD', 14, 11);
+
+    pageDoc.setFontSize(10);
+    pageDoc.setFont('helvetica', 'bold');
+    pageDoc.setTextColor(56, 189, 248); // Light sky blue
+    pageDoc.text('AAVIN GM PORTAL — EXECUTIVE OPERATIONAL REPORT', 14, 18);
+
+    pageDoc.setFontSize(8.5);
+    pageDoc.setFont('helvetica', 'normal');
+    pageDoc.setTextColor(203, 213, 225); // Slate 300
+    pageDoc.text(dateFilterStr, 14, 24);
+  }
+
+  drawHeaderBanner(doc);
+
+  let currentY = 34;
+
+  // ── 1. DASHBOARD SUMMARY ───────────────────────────────────────────────────
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.text('Executive Summary KPIs', 14, 36);
+  doc.text('1. DASHBOARD SUMMARY', 14, currentY);
 
-  const kpiRows = [
-    ['Total Field Trips:', String(kpis.total_trips || trips.length), 'Active Trips:', String(kpis.active_trips || trips.filter(t => t.status === 'active').length)],
-    ['Finished Trips:', String(kpis.completed_trips || trips.filter(t => t.status === 'completed').length), 'Total Milk Collected:', `${(kpis.total_milk_liters || 0).toLocaleString()} kg`]
-  ];
+  const totalTripsVal = String(kpis.total_trips || trips.length || 0);
+  const activeTripsVal = String(kpis.active_trips || trips.filter(t => ['started', 'in_progress', 'active', 'returning'].includes(t.status)).length || 0);
+  const finishedTripsVal = String(kpis.completed_trips || trips.filter(t => ['completed', 'finished'].includes(t.status)).length || 0);
+  const milkCollectedVal = `${(kpis.total_milk_liters || 0).toLocaleString()} kg`;
 
-  doc.autoTable({
-    startY: 39,
-    body: kpiRows,
-    theme: 'plain',
-    styles: { fontSize: 9, cellPadding: 2 },
-    columnStyles: { 0: { fontStyle: 'bold' }, 2: { fontStyle: 'bold' } }
-  });
-
-  let currentY = doc.lastAutoTable.finalY + 8;
-
-  // Trips & BMC Sequence Section
-  doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Field Trip Operations & Visited BMC Sequence', 14, currentY);
-
-  const tableColumns = ['S.No', 'Route / Trip Name', 'Tanker', 'Driver', 'Status', 'Visits (In Sequence) & Quantities'];
-  const tableRows = (trips || []).map((t, idx) => {
-    const visits = (t.visits || []).slice().sort((a, b) => (a.visit_sequence || 0) - (b.visit_sequence || 0));
-    const visitsStr = visits.length === 0
-      ? 'No BMC visits'
-      : visits.map(v => `${v.visit_sequence || 1}. ${v.bmc_name} (${v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '-'})`).join('\n');
-
-    return [
-      String(idx + 1),
-      t.trip_name || '—',
-      t.tanker_number || '—',
-      t.driver_name || '—',
-      (t.status || 'pending').toUpperCase(),
-      visitsStr
-    ];
-  });
+  const kpiHeader = [['Total Trips', 'Active Trips', 'Finished Trips', 'Milk Collected']];
+  const kpiBody = [[totalTripsVal, activeTripsVal, finishedTripsVal, milkCollectedVal]];
 
   doc.autoTable({
     startY: currentY + 3,
-    head: [tableColumns],
-    body: tableRows,
-    theme: 'striped',
-    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-    styles: { fontSize: 8, cellPadding: 3, verticalAlignment: 'middle' },
-    columnStyles: {
-      0: { cellWidth: 12, halign: 'center' },
-      1: { cellWidth: 35, fontStyle: 'bold' },
-      2: { cellWidth: 25 },
-      3: { cellWidth: 25 },
-      4: { cellWidth: 20, fontStyle: 'bold' },
-      5: { cellWidth: 65 }
+    head: kpiHeader,
+    body: kpiBody,
+    theme: 'grid',
+    headStyles: { fillColor: [2, 132, 199], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 9 },
+    bodyStyles: { fontStyle: 'bold', halign: 'center', fontSize: 10, textColor: [15, 23, 42] },
+    styles: { cellPadding: 4 },
+    margin: { left: 14, right: 14 }
+  });
+
+  currentY = doc.lastAutoTable.finalY + 8;
+
+  // ── 2. TRIPS ───────────────────────────────────────────────────────────────
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('2. FIELD TRIP OPERATIONS & BMC READINGS', 14, currentY);
+
+  const tripsTableRows = [];
+  (trips || []).forEach((t, idx) => {
+    const outTimeStr = safeTime(t.out_time || t.started_at);
+    const inTimeStr = t.in_time ? safeTime(t.in_time) : '-';
+    const driverStr = t.driver_name && t.driver_name !== '-' ? ` | Driver: ${t.driver_name}` : '';
+    const tankerStr = t.tanker_number && t.tanker_number !== '-' ? ` | Tanker: ${t.tanker_number}` : '';
+
+    // Main Trip Header Row
+    tripsTableRows.push([
+      { content: `Trip ${idx + 1}`, styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [15, 23, 42] } },
+      { content: `${t.trip_name || 'Trip'}${driverStr}${tankerStr}`, styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [15, 23, 42] } },
+      { content: outTimeStr, styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [15, 23, 42], halign: 'center' } },
+      { content: inTimeStr, styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [15, 23, 42], halign: 'center' } }
+    ]);
+
+    // Sub-header for BMC details
+    tripsTableRows.push([
+      { content: 'BMC Name', styles: { fontStyle: 'bold', fillColor: [224, 242, 254], textColor: [3, 105, 161], fontSize: 7.5 } },
+      { content: 'MACS', styles: { fontStyle: 'bold', fillColor: [224, 242, 254], textColor: [3, 105, 161], fontSize: 7.5 } },
+      { content: 'Spot', styles: { fontStyle: 'bold', fillColor: [224, 242, 254], textColor: [3, 105, 161], fontSize: 7.5 } },
+      { content: 'Diary Readings', styles: { fontStyle: 'bold', fillColor: [224, 242, 254], textColor: [3, 105, 161], fontSize: 7.5 } }
+    ]);
+
+    const sortedVisits = (t.visits || []).slice().sort((a, b) => (a.visit_sequence || 0) - (b.visit_sequence || 0));
+
+    if (sortedVisits.length === 0) {
+      tripsTableRows.push([
+        { content: 'No BMC visits recorded', styles: { fontStyle: 'italic', textColor: [100, 116, 139] } },
+        { content: '-', styles: { halign: 'center', textColor: [100, 116, 139] } },
+        { content: '-', styles: { halign: 'center', textColor: [100, 116, 139] } },
+        { content: '-', styles: { halign: 'center', textColor: [100, 116, 139] } }
+      ]);
+    } else {
+      sortedVisits.forEach((v, vIdx) => {
+        const macsStr = v.macs_result && v.macs_result !== '—' ? v.macs_result : '-';
+        
+        let spotParts = [];
+        if (v.ftir_result && v.ftir_result !== '—' && v.ftir_result !== 'Pending') spotParts.push(`FTIR: ${v.ftir_result}`);
+        if (v.gerber_result && v.gerber_result !== '—' && v.gerber_result !== 'Pending') spotParts.push(`Gerber: ${v.gerber_result}`);
+        const spotStr = spotParts.length > 0 ? spotParts.join(' | ') : (v.ftir_result || v.gerber_result || '-');
+
+        const diaryStr = v.diary_result && v.diary_result !== '—' ? v.diary_result : (v.milk_quantity_kg ? `${v.milk_quantity_kg} kg` : '-');
+
+        tripsTableRows.push([
+          `${vIdx + 1}. ${v.bmc_name || 'BMC'}`,
+          macsStr,
+          spotStr,
+          diaryStr
+        ]);
+      });
     }
   });
 
-  const filename = `GM_Portal_Report_${currentFilter.startDate}_to_${currentFilter.endDate}.pdf`;
+  if (tripsTableRows.length === 0) {
+    tripsTableRows.push(['-', 'No trips found for selected period', '-', '-']);
+  }
+
+  doc.autoTable({
+    startY: currentY + 3,
+    head: [['S.No / BMC', 'Trip Name / MACS', 'OUT Time / Spot', 'IN Time / Diary']],
+    body: tripsTableRows,
+    theme: 'grid',
+    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+    styles: { fontSize: 8, cellPadding: 2.5, verticalAlignment: 'middle' },
+    columnStyles: {
+      0: { cellWidth: 35 },
+      1: { cellWidth: 55 },
+      2: { cellWidth: 46 },
+      3: { cellWidth: 46 }
+    },
+    margin: { left: 14, right: 14 }
+  });
+
+  currentY = doc.lastAutoTable.finalY + 8;
+
+  // ── 3. TANKERS ─────────────────────────────────────────────────────────────
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('3. TANKER FLEET PERFORMANCE', 14, currentY);
+
+  // Group trips by tanker to aggregate hours worked
+  const tankerMap = {};
+  (tankers || []).forEach(tk => {
+    const name = tk.tanker_number || tk.board_number || tk.vehicle_number;
+    if (name) {
+      tankerMap[name] = {
+        name,
+        hoursMs: 0,
+        distance: tk.distance_km != null ? tk.distance_km : null,
+        diesel: tk.diesel_liters != null ? tk.diesel_liters : null,
+        mileage: tk.mileage != null ? tk.mileage : null
+      };
+    }
+  });
+
+  (trips || []).forEach(t => {
+    const tkName = t.tanker_number;
+    if (tkName && tkName !== '-') {
+      if (!tankerMap[tkName]) {
+        tankerMap[tkName] = { name: tkName, hoursMs: 0, distance: null, diesel: null, mileage: null };
+      }
+      if (t.duration_ms) {
+        tankerMap[tkName].hoursMs += t.duration_ms;
+      }
+    }
+  });
+
+  const tankerRows = Object.values(tankerMap).map(tk => {
+    const hrs = tk.hoursMs > 0 ? `${(tk.hoursMs / 3600000).toFixed(1)} hrs` : '-';
+    const dist = tk.distance != null ? `${tk.distance} KM` : '-';
+    const diesel = tk.diesel != null ? `${tk.diesel} L` : '-';
+    let mileageStr = '-';
+    if (tk.mileage != null) {
+      mileageStr = `${tk.mileage} KM/L`;
+    } else if (tk.distance && tk.diesel) {
+      mileageStr = `${(tk.distance / tk.diesel).toFixed(1)} KM/L`;
+    }
+
+    return [tk.name, hrs, dist, diesel, mileageStr];
+  });
+
+  if (tankerRows.length === 0) {
+    tankerRows.push(['-', '-', '-', '-', '-']);
+  }
+
+  doc.autoTable({
+    startY: currentY + 3,
+    head: [['Tanker', 'Total Hours', 'Distance Covered', 'Diesel Consumption', 'Mileage']],
+    body: tankerRows,
+    theme: 'striped',
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+    styles: { fontSize: 8, cellPadding: 2.5, halign: 'center' },
+    columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 }
+  });
+
+  currentY = doc.lastAutoTable.finalY + 8;
+
+  // ── 4. FIELD WORKER / SPOT ANALYZER ───────────────────────────────────────
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('4. FIELD WORKER & SPOT ANALYZER PERFORMANCE', 14, currentY);
+
+  const workerStatsMap = {};
+  (workers || []).forEach(w => {
+    if (w.name) {
+      workerStatsMap[w.id || w.name] = {
+        name: w.name,
+        hoursMs: 0,
+        bmcVisited: 0,
+        totalReports: 0
+      };
+    }
+  });
+
+  (trips || []).forEach(t => {
+    const key = t.worker_id || t.worker_name;
+    if (key && key !== '-') {
+      if (!workerStatsMap[key]) {
+        workerStatsMap[key] = { name: t.worker_name || 'Worker', hoursMs: 0, bmcVisited: 0, totalReports: 0 };
+      }
+      if (t.duration_ms) workerStatsMap[key].hoursMs += t.duration_ms;
+      if (Array.isArray(t.visits)) {
+        workerStatsMap[key].bmcVisited += t.visits.length;
+        t.visits.forEach(v => {
+          if (v.report || (v.bmc_issues && v.bmc_issues.length > 0)) {
+            workerStatsMap[key].totalReports += (v.bmc_issues ? v.bmc_issues.length : 1);
+          }
+        });
+      }
+    }
+  });
+
+  const workerRows = Object.values(workerStatsMap).map(w => {
+    let hrsStr = '-';
+    if (w.hoursMs > 0) {
+      const h = Math.floor(w.hoursMs / 3600000);
+      const m = Math.round((w.hoursMs % 3600000) / 60000);
+      hrsStr = h > 0 ? `${h} hrs ${m} mins` : `${m} mins`;
+    }
+
+    return [w.name, hrsStr, String(w.bmcVisited), String(w.totalReports)];
+  });
+
+  if (workerRows.length === 0) {
+    workerRows.push(['-', '-', '0', '0']);
+  }
+
+  doc.autoTable({
+    startY: currentY + 3,
+    head: [['Name', 'Hours Worked', 'BMC Visited', 'Total Reports']],
+    body: workerRows,
+    theme: 'striped',
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+    styles: { fontSize: 8, cellPadding: 2.5, halign: 'center' },
+    columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 }
+  });
+
+  currentY = doc.lastAutoTable.finalY + 8;
+
+  // ── 5. REPORTS ─────────────────────────────────────────────────────────────
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('5. BMC ISSUES & FIELD REPORTS', 14, currentY);
+
+  const reportRows = [];
+  (issues || []).forEach(iss => {
+    reportRows.push([
+      iss.bmc_name || '-',
+      iss.description || iss.category || '-',
+      (iss.severity || iss.status || 'NORMAL').toUpperCase()
+    ]);
+  });
+
+  // Also collect trip visit reports if not already in issues list
+  (trips || []).forEach(t => {
+    (t.visits || []).forEach(v => {
+      if (v.report && !issues.some(i => i.description === v.report)) {
+        reportRows.push([
+          v.bmc_name || '-',
+          v.report,
+          (v.report_priority || 'NORMAL').toUpperCase()
+        ]);
+      }
+    });
+  });
+
+  if (reportRows.length === 0) {
+    reportRows.push(['-', 'No field reports submitted during this period', 'NORMAL']);
+  }
+
+  doc.autoTable({
+    startY: currentY + 3,
+    head: [['BMC Name', 'Report / Issue Description', 'Priority']],
+    body: reportRows,
+    theme: 'striped',
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+    styles: { fontSize: 8, cellPadding: 2.5 },
+    columnStyles: {
+      0: { cellWidth: 45, fontStyle: 'bold' },
+      1: { cellWidth: 105 },
+      2: { cellWidth: 32, halign: 'center', fontStyle: 'bold' }
+    },
+    margin: { left: 14, right: 14 }
+  });
+
+  // Page Numbers & Footer on all pages
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+
+    // Footer border line
+    doc.setDrawColor(226, 232, 240);
+    doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Madurai District Co-operative Milk Producer\'s Union Ltd (AAVIN)', 14, pageHeight - 7);
+    doc.text(`Page ${i} of ${pageCount}`, pageWidth - 14, pageHeight - 7, { align: 'right' });
+  }
+
+  const filename = `Aavin_GM_Operational_Report_${currentFilter.startDate}_to_${currentFilter.endDate}.pdf`;
   doc.save(filename);
-  if (typeof showToast === 'function') showToast('PDF operational report downloaded successfully!', 'success');
+
+  if (typeof showToast === 'function') {
+    showToast('Aavin operational PDF report generated successfully!', 'success');
+  }
 }
 
 // ── Pending Trips (Transport Manager trips awaiting worker assignment) ─────────
@@ -556,14 +859,25 @@ function renderTripBoxes(trips = []) {
       (t.driver_name || '').toLowerCase().includes(searchVal) ||
       (t.tanker_number || '').toLowerCase().includes(searchVal) ||
       (t.route || '').toLowerCase().includes(searchVal) ||
+      (t.route_description || '').toLowerCase().includes(searchVal) ||
       (t.visits || []).some(v => (v.bmc_name || '').toLowerCase().includes(searchVal));
-    const matchStatus = !statusFilter || (t.status || '').toLowerCase() === statusFilter;
+
+    let matchStatus = true;
+    const st = (t.status || '').toLowerCase();
+    if (statusFilter === 'in_transmit' || statusFilter === 'active') {
+      matchStatus = ['started', 'in_progress', 'active', 'returning', 'in_transit'].includes(st);
+    } else if (statusFilter === 'completed' || statusFilter === 'finished') {
+      matchStatus = ['completed', 'finished'].includes(st);
+    } else if (statusFilter) {
+      matchStatus = st === statusFilter;
+    }
+
     return matchSearch && matchStatus;
   });
 
   if (filtered.length === 0) {
     container.innerHTML = `
-      <div class="content-card text-center text-muted" style="padding:40px;">
+      <div class="content-card text-center text-muted" style="padding:40px; border-radius:12px;">
         🔍 No field trips found matching the selected filter criteria.
       </div>
     `;
@@ -574,68 +888,32 @@ function renderTripBoxes(trips = []) {
     const sNo = idx + 1;
     const statusClass = (t.status || 'pending').toLowerCase();
     const isCompleted = statusClass === 'completed';
-    const statusBadge = isCompleted
-      ? `<span class="badge badge-success" style="font-size:0.8rem; font-weight:700;">✅ FINISHED</span>`
-      : `<span class="badge badge-blue" style="font-size:0.8rem; font-weight:700;">🔄 ACTIVE</span>`;
+    const isStarted = statusClass === 'in_progress' || statusClass === 'active';
 
-    const visits = (t.visits || []).slice().sort((a, b) => (a.visit_sequence || 0) - (b.visit_sequence || 0));
+    let statusBadge = '';
+    if (isCompleted) {
+      statusBadge = `<span class="badge badge-success" style="font-size:0.75rem; font-weight:800; padding:5px 12px; border-radius:12px;">✅ FINISHED</span>`;
+    } else if (isStarted) {
+      statusBadge = `<span class="badge badge-blue" style="font-size:0.75rem; font-weight:800; padding:5px 12px; border-radius:12px;">🔄 IN TRANSIT</span>`;
+    } else {
+      statusBadge = `<span class="badge badge-warning" style="font-size:0.75rem; font-weight:800; padding:5px 12px; border-radius:12px;">⏳ PLANNED</span>`;
+    }
 
-    const bmcRowsHtml = visits.length === 0
-      ? `<div class="text-xs text-muted" style="padding:10px;">No BMC visits recorded yet for this trip.</div>`
-      : visits.map((v, vIdx) => {
-          const seqNum = v.visit_sequence || (vIdx + 1);
-          const qtyText = v.milk_quantity_formatted && v.milk_quantity_formatted !== '—' ? v.milk_quantity_formatted : (v.milk_quantity_liters ? `${v.milk_quantity_liters} L` : '—');
-          const ftirText = v.ftir_result && v.ftir_result !== '—' && v.ftir_result !== 'Pending' ? v.ftir_result : '—';
-          const gerberText = v.gerber_result && v.gerber_result !== '—' && v.gerber_result !== 'Pending' ? v.gerber_result : '—';
-          const compartmentText = v.compartment ? v.compartment.charAt(0).toUpperCase() + v.compartment.slice(1) : '';
-          const visitStatusBadge = v.status === 'completed' || v.status === 'visited'
-            ? `<span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:700;">✅ Visited</span>`
-            : `<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:700;">⏳ Pending</span>`;
-
-          return `
-            <div class="bmc-sequence-item">
-              <div class="bmc-item-left">
-                <span class="bmc-seq-num">${seqNum}</span>
-                <span class="bmc-item-name">${esc(v.bmc_name)}</span>
-                ${compartmentText ? `<span style="background:#EFF6FF;color:#1E40AF;padding:1px 6px;border-radius:6px;font-size:0.68rem;font-weight:600;margin-left:4px;">${esc(compartmentText)}</span>` : ''}
-                ${visitStatusBadge}
-              </div>
-              <div class="bmc-item-data">
-                <span class="bmc-data-pill">🥛 Qty: <strong>${esc(qtyText)}</strong></span>
-                <span class="bmc-data-pill">🔬 FTIR: <strong>${esc(ftirText)}</strong></span>
-                <span class="bmc-data-pill">🧪 Gerber: <strong>${esc(gerberText)}</strong></span>
-              </div>
-            </div>
-          `;
-        }).join('');
+    const routeName = t.route && t.route !== '—' ? t.route : (t.route_description || t.trip_name || 'Planned Route');
 
     return `
       <div class="trip-blue-box" id="trip-box-${t.id}">
-        <div class="trip-box-header">
-          <div class="trip-box-header-left">
-            <span class="trip-sno-badge">S.No: ${sNo}</span>
-            <h4 class="trip-route-title">${esc(t.trip_name || 'Route Trip')}</h4>
-          </div>
-          <div class="d-flex align-items-center gap-2" style="gap:8px;">
-            ${statusBadge}
-            <button class="btn btn-sm btn-outline" onclick="openTripDetailModal('${t.id}')" title="View Trip Details">🔍 Details</button>
-            <button class="btn btn-sm btn-outline" style="color:#ef4444; border-color:#fca5a5;" onclick="deleteTripByGm('${t.id}')" title="Delete Trip">🗑️ Delete</button>
+        <div class="trip-box-left">
+          <span class="trip-sno-badge">S.No: ${sNo}</span>
+          <div class="trip-route-content">
+            <span class="trip-route-label">Route Name</span>
+            <h4 class="trip-route-title">${esc(routeName)}</h4>
           </div>
         </div>
-
-        <div class="trip-box-meta-grid">
-          <div class="trip-meta-tag">🗺️ <strong>Route Name:</strong> ${esc(t.route && t.route !== '—' ? t.route : (t.trip_name || '-'))}</div>
-          <div class="trip-meta-tag">🚛 <strong>Tanker:</strong> ${esc(t.tanker_number && t.tanker_number !== 'Unassigned' ? t.tanker_number : '-')}</div>
-          <div class="trip-meta-tag">👨‍✈️ <strong>Driver:</strong> ${esc(t.driver_name && t.driver_name !== 'Unassigned' ? (t.driver_name === 'driver' ? 'Driver' : t.driver_name) : '-')}</div>
-          <div class="trip-meta-tag">👷 <strong>Worker:</strong> ${esc(t.worker_name && t.worker_name !== 'Unknown Worker' ? t.worker_name : '-')}</div>
-          <div class="trip-meta-tag">⏱️ <strong>Out:</strong> ${formatTime(t.out_time)} | <strong>In:</strong> ${t.in_time ? formatTime(t.in_time) : 'Active'}</div>
-        </div>
-
-        <div class="bmc-visit-sequence-container">
-          <div class="bmc-sequence-header">📍 BMC Visited (In Actual Sequence):</div>
-          <div class="bmc-sequence-list">
-            ${bmcRowsHtml}
-          </div>
+        <div class="trip-box-right">
+          ${statusBadge}
+          <button class="btn-trip-details" onclick="openTripDetailModal('${t.id}')" title="View Details">🔍 Details</button>
+          <button class="btn-trip-delete" onclick="deleteTripByGm('${t.id}')" title="Delete Trip">🗑️ Delete</button>
         </div>
       </div>
     `;
@@ -681,6 +959,7 @@ function setupTripDetailModal() {
   function closeModal() {
     if (modal) modal.classList.add('hidden');
     activeModalTripId = null;
+    if (gmTripMapInterval) clearInterval(gmTripMapInterval);
   }
 
   if (closeBtn) closeBtn.addEventListener('click', closeModal);
@@ -748,7 +1027,181 @@ window.openTripDetailModal = function(tripId) {
 
   activeModalTripId = tripId;
   modal.classList.remove('hidden');
+  setupTripMap(trip);
 };
+
+let gmTripMap = null;
+let gmTripMapPolyline = null;
+let gmTripMapMarker = null;
+let gmTripMapInterval = null;
+
+function formatTime(isoStr) {
+  if (!isoStr) return '—';
+  try {
+    return new Date(isoStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return isoStr; }
+}
+
+function formatDateTime(isoStr) {
+  if (!isoStr) return '—';
+  try {
+    return new Date(isoStr).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+  } catch (e) { return isoStr; }
+}
+
+async function setupTripMap(trip) {
+  const mapSection = document.getElementById('trip-map-section');
+  if (!mapSection) return;
+
+  // Clear any existing polling interval
+  if (gmTripMapInterval) { clearInterval(gmTripMapInterval); gmTripMapInterval = null; }
+
+  if (!trip) {
+    mapSection.classList.add('hidden');
+    return;
+  }
+
+  // Always show the map section for non-pending trips — let updateTripMapData handle the data
+  const isActive = ['started', 'in_progress', 'active', 'returning', 'completed'].includes(trip.status);
+  const hasLocalMapData = (trip.journey_path && trip.journey_path.length > 0) ||
+                          trip.start_lat ||
+                          (trip.remarks && trip.remarks.includes('__JOURNEY_DATA__='));
+
+  if (isActive || hasLocalMapData) {
+    mapSection.classList.remove('hidden');
+
+    setTimeout(() => {
+      // Destroy and recreate map to avoid stale container issues on re-open
+      if (gmTripMap) {
+        gmTripMap.remove();
+        gmTripMap = null;
+      }
+
+      if (typeof L !== 'undefined') {
+        gmTripMap = L.map('spot-analyzer-journey-map').setView([11.1271, 78.6569], 7);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© OpenStreetMap'
+        }).addTo(gmTripMap);
+      }
+
+      if (gmTripMap) gmTripMap.invalidateSize();
+
+      // First data fetch
+      updateTripMapData(trip.id);
+
+      // Live polling every 15s for active trips
+      if (['started', 'in_progress', 'active', 'returning'].includes(trip.status)) {
+        gmTripMapInterval = setInterval(() => updateTripMapData(trip.id), 15000);
+      }
+    }, 300);
+  } else {
+    mapSection.classList.add('hidden');
+  }
+}
+
+async function updateTripMapData(tripId) {
+  try {
+    // Always fetch fresh data from driver_trips endpoint (same as Transport Manager)
+    let trip = null;
+    try {
+      const data = await gmFetch(`/api/transport/driver-trips/${tripId}`);
+      if (data && data.trip) trip = data.trip;
+    } catch (e) {
+      console.warn('GM map: driver-trips fetch failed, falling back to dashboard data', e.message);
+    }
+
+    // Fallback to dashboard data if API call failed
+    if (!trip) {
+      trip = currentDashboardData?.trips?.find(t => t.id === tripId);
+    }
+    if (!trip) return;
+
+    let remarks = trip.remarks || '';
+    let interruptions = [];
+    if (remarks.includes('__INTERRUPTIONS_DATA__=')) {
+      try {
+        const iStr = remarks.split('__INTERRUPTIONS_DATA__=')[1].split('\n')[0];
+        interruptions = JSON.parse(iStr);
+      } catch (e) {}
+    }
+
+    let journey = [];
+    if (remarks.includes('__JOURNEY_DATA__=')) {
+      try {
+        const jStr = remarks.split('__JOURNEY_DATA__=')[1].split('\n')[0];
+        journey = JSON.parse(jStr);
+      } catch (e) {}
+    } else if (Array.isArray(trip.journey_path)) {
+      journey = trip.journey_path;
+    }
+
+    let latestLoc = null;
+
+    if (trip.end_lat && trip.end_lng) {
+      latestLoc = { lat: trip.end_lat, lng: trip.end_lng, timestamp: trip.updated_at };
+    } else if (journey.length > 0) {
+      latestLoc = journey[journey.length - 1];
+    } else if (trip.start_lat && trip.start_lng) {
+      latestLoc = { lat: trip.start_lat, lng: trip.start_lng, timestamp: trip.started_at };
+      journey.push(latestLoc);
+    }
+
+    // Status UI
+    const isTrackingOff = interruptions.length > 0 && (interruptions[interruptions.length - 1].status || '').includes('OFF');
+    const mapStatusEl = document.getElementById('trip-map-status-text');
+    const mapUpdateEl = document.getElementById('trip-map-last-update');
+
+    if (mapStatusEl) {
+      mapStatusEl.textContent = trip.status === 'completed' ? 'Trip Completed (Tracking Stopped)' : isTrackingOff ? '🔴 Tracking OFF' : '🟢 Tracking ON';
+      mapStatusEl.style.color = trip.status === 'completed' ? '#475569' : isTrackingOff ? '#DC2626' : '#16A34A';
+    }
+    if (mapUpdateEl) {
+      mapUpdateEl.textContent = latestLoc ? formatDateTime(latestLoc.timestamp) : 'No data';
+    }
+
+    // Interruptions list
+    const intrContainer = document.getElementById('trip-map-interruptions-container');
+    const intrList = document.getElementById('trip-map-interruptions-list');
+    if (intrContainer && intrList) {
+      if (interruptions.length > 0) {
+        intrContainer.classList.remove('hidden');
+        intrList.innerHTML = interruptions.map(i => `<li>${formatTime(i.timestamp)}: ${i.status}</li>`).join('');
+      } else {
+        intrContainer.classList.add('hidden');
+      }
+    }
+
+    // Draw Map Elements
+    if (!gmTripMap) return;
+    if (gmTripMapPolyline) gmTripMap.removeLayer(gmTripMapPolyline);
+    if (gmTripMapMarker) gmTripMap.removeLayer(gmTripMapMarker);
+    gmTripMapPolyline = null;
+    gmTripMapMarker = null;
+
+    const latlngs = journey.map(point => [Number(point.lat), Number(point.lng)]).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+    if (latestLoc && !isNaN(latestLoc.lat) && !isNaN(latestLoc.lng)) {
+      const lastPt = latlngs.length > 0 ? latlngs[latlngs.length - 1] : null;
+      if (!lastPt || lastPt[0] !== Number(latestLoc.lat) || lastPt[1] !== Number(latestLoc.lng)) {
+        latlngs.push([Number(latestLoc.lat), Number(latestLoc.lng)]);
+      }
+    }
+
+    if (latlngs.length > 0) {
+      gmTripMapPolyline = L.polyline(latlngs, { color: '#DC2626', weight: 4, opacity: 0.9 }).addTo(gmTripMap);
+      gmTripMap.fitBounds(gmTripMapPolyline.getBounds());
+    }
+
+    if (latestLoc && !isNaN(latestLoc.lat) && !isNaN(latestLoc.lng)) {
+      const isLive = trip.status !== 'completed' && latestLoc.timestamp && (Date.now() - new Date(latestLoc.timestamp).getTime() < 10 * 60 * 1000);
+      const timeStr = isLive ? `🟢 Live Location (Updated: ${formatTime(latestLoc.timestamp)})` : `📍 Last Location (${formatDateTime(latestLoc.timestamp)})`;
+      gmTripMapMarker = L.marker([Number(latestLoc.lat), Number(latestLoc.lng)]).addTo(gmTripMap);
+      gmTripMapMarker.bindPopup(`<div style="font-family:'Outfit',sans-serif; padding:2px;"><b>🔬 Spot Analyzer: ${trip.worker_name || 'Worker'}</b><br><span style="font-size:0.82rem; color:#475569;">👨‍✈️ Driver: ${trip.driver_name || 'Driver'} (${trip.vehicle_number || trip.tanker_number || 'Tanker'})</span><br><span style="font-size:0.8rem; color:#0F172A; font-weight:600;">${timeStr}</span></div>`).openPopup();
+    }
+  } catch (err) {
+    console.error('Error updating GM Spot Analyzer map:', err);
+  }
+}
 
 window.exportSingleTripExcelById = function(tripId) {
   if (!currentDashboardData || !currentDashboardData.trips) return;
@@ -961,7 +1414,7 @@ function exportSingleTripPDF(trip) {
     const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 12 : 140;
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
-    const totalMilk = visits.reduce((acc, v) => acc + (Number(v.milk_quantity_liters) || 0), 0);
+    const totalMilk = visits.reduce((acc, v) => acc + (Number(v.milk_quantity_kg || v.in_weight || v.milk_quantity_liters) || 0), 0);
     doc.text(`Total Milk Collected on Trip: ${totalMilk.toLocaleString()} kg`, 14, finalY);
 
     const filename = `AAVIN_Single_Trip_${(trip.trip_name || trip.id).replace(/\s+/g, '_')}_Report.pdf`;

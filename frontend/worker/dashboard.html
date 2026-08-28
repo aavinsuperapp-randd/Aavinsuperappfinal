@@ -39,7 +39,6 @@
         </div>
         <div class="header-right">
           <div class="header-user">
-            <div class="header-avatar" id="header-worker-avatar">FW</div>
             <div class="header-user-info">
               <div class="header-user-name" id="header-worker-name">Loading...</div>
               <div class="header-user-role">Field Operations</div>
@@ -118,50 +117,61 @@
 
   <!-- VIEW DUTY MODAL -->
   <div id="view-duty-modal" class="modal-overlay hidden">
-    <div class="modal-content modal-lg">
+    <div class="modal-content modal-lg" style="border-radius: 16px; padding: 24px;">
       <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
-        <h3 style="margin:0; font-weight:800; color:#0F172A;">📋 Duty Details</h3>
+        <h3 style="margin:0; font-weight:800; color:#0F172A; font-size:1.2rem; display:flex; align-items:center; gap:8px;">
+          <span>📋</span> Duty Details &amp; Operational Overview
+        </h3>
         <button type="button" class="btn btn-ghost" onclick="closeViewDutyModal()" aria-label="Close">✕</button>
       </div>
 
       <div class="modal-body" style="padding:0;">
-        <div class="trip-detail-grid mb-3">
-          <div class="detail-item-box" style="grid-column: span 2;">
-            <div class="lbl">Route Name</div>
-            <div class="val" id="vd-route-name">—</div>
+        
+        <!-- Metadata Cards Grid -->
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; background: #F8FAFC; padding: 16px; border-radius: 12px; border: 1px solid #E2E8F0;">
+          <div style="background: #FFFFFF; padding: 10px 14px; border-radius: 8px; border: 1px solid #E2E8F0;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #64748B; text-transform: uppercase;">Route Name</div>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #0F172A; margin-top: 2px;" id="vd-route-name">—</div>
           </div>
-          <div class="detail-item-box">
-            <div class="lbl">Driver Name</div>
-            <div class="val" id="vd-driver-name">—</div>
+          <div style="background: #FFFFFF; padding: 10px 14px; border-radius: 8px; border: 1px solid #E2E8F0;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #64748B; text-transform: uppercase;">Driver Name</div>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #0F172A; margin-top: 2px;" id="vd-driver-name">—</div>
           </div>
-          <div class="detail-item-box">
-            <div class="lbl">Tanker / Vehicle</div>
-            <div class="val" id="vd-tanker-number">—</div>
+          <div style="background: #FFFFFF; padding: 10px 14px; border-radius: 8px; border: 1px solid #E2E8F0;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #64748B; text-transform: uppercase;">Tanker Number</div>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #0F172A; margin-top: 2px;" id="vd-tanker-number">—</div>
           </div>
-          <div class="detail-item-box">
-            <div class="lbl">Planned OUT Time</div>
-            <div class="val" id="vd-out-time">—</div>
+          <div style="background: #FFFFFF; padding: 10px 14px; border-radius: 8px; border: 1px solid #E2E8F0;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #64748B; text-transform: uppercase;">Duty Date</div>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #0F172A; margin-top: 2px;" id="vd-duty-date">—</div>
           </div>
-          <div class="detail-item-box">
-            <div class="lbl">Duty Date</div>
-            <div class="val" id="vd-duty-date">—</div>
+          <div style="background: #FFFFFF; padding: 10px 14px; border-radius: 8px; border: 1px solid #E2E8F0;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #64748B; text-transform: uppercase;">OUT Time (Start)</div>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #16A34A; margin-top: 2px;" id="vd-out-time">—</div>
           </div>
-          <div class="detail-item-box" style="grid-column: span 2;">
-            <div class="lbl">Trip Status</div>
-            <div class="val"><span id="vd-status-pill" class="badge badge-warning">Planned</span></div>
+          <div style="background: #FFFFFF; padding: 10px 14px; border-radius: 8px; border: 1px solid #E2E8F0;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #64748B; text-transform: uppercase;">IN Time (End)</div>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #2563EB; margin-top: 2px;" id="vd-in-time">—</div>
+          </div>
+          <div style="background: #FFFFFF; padding: 10px 14px; border-radius: 8px; border: 1px solid #E2E8F0; grid-column: 1 / -1; display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size: 0.78rem; font-weight: 700; color: #64748B; text-transform: uppercase;">Trip Operational Status:</span>
+            <span id="vd-status-pill" class="badge badge-warning">Planned</span>
           </div>
         </div>
 
-        <h4 style="margin: 20px 0 10px 0; font-size: 1rem; font-weight: 700; color: #0F172A;">🏢 BMCs to be Visited</h4>
-        <div class="table-responsive" style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
-          <table class="gm-table" style="width: 100%; min-width: 550px;">
+        <!-- BMC Visits Heading & Table -->
+        <h4 style="margin: 24px 0 12px 0; font-size: 1.05rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 8px;">
+          <span>🏢</span> BMC Visits
+        </h4>
+        <div class="table-responsive" style="overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid #E2E8F0; border-radius: 10px; margin-bottom: 24px;">
+          <table class="gm-table" style="width: 100%; min-width: 580px; margin: 0;">
             <thead>
-              <tr>
-                <th style="width: 60px;">Seq</th>
-                <th>BMC Name &amp; Code</th>
+              <tr style="background: #F1F5F9;">
+                <th style="width: 60px; text-align: center;">S.No</th>
+                <th>BMC Name</th>
                 <th>Compartment</th>
                 <th>Status</th>
-                <th style="text-align: right; min-width: 140px;">Action</th>
+                <th style="text-align: right; min-width: 180px;">Action</th>
               </tr>
             </thead>
             <tbody id="vd-bmc-table-body">
@@ -169,11 +179,68 @@
             </tbody>
           </table>
         </div>
+
+        <!-- Reports & Review Section -->
+        <div>
+          <h4 style="margin: 0 0 12px 0; font-size: 1.05rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 8px;">
+            <span>📝</span> Reports &amp; Review
+          </h4>
+          <div id="vd-reports-review-container">
+            <div class="text-muted" style="font-size: 0.88rem; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px 16px;">
+              Loading reports and review...
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top" id="vd-modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeViewDutyModal()">Close</button>
         <button type="button" class="btn btn-primary" id="btn-trigger-start-trip">🚀 START TRIP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW TEST RESULTS MODAL -->
+  <div id="view-test-modal" class="modal-overlay hidden" style="z-index: 1060;">
+    <div class="modal-content" style="max-width: 580px; border-radius: 16px; padding: 24px;">
+      <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+        <h3 style="margin:0; font-weight:800; color:#0F172A; font-size:1.15rem; display:flex; align-items:center; gap:8px;">
+          <span>🧪</span> Quality Test Results — <span id="vt-bmc-name" style="color:#2563EB;">BMC</span>
+        </h3>
+        <button type="button" class="btn btn-ghost" onclick="closeViewTestModal()" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body" style="padding: 10px 0 0 0;">
+        <!-- FTIR Test Results Box -->
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h4 style="margin: 0; font-weight: 800; font-size: 0.95rem; color: #1E40AF; display: flex; align-items: center; gap: 6px;">
+              🔬 FTIR Test Results
+            </h4>
+            <span id="vt-ftir-status" class="badge badge-neutral">—</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;" id="vt-ftir-grid">
+            <!-- FTIR Values -->
+          </div>
+        </div>
+
+        <!-- Gerber Test Results Box -->
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h4 style="margin: 0; font-weight: 800; font-size: 0.95rem; color: #065F46; display: flex; align-items: center; gap: 6px;">
+              🧪 Gerber Test Results
+            </h4>
+            <span id="vt-gerber-status" class="badge badge-neutral">—</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;" id="vt-gerber-grid">
+            <!-- Gerber Values -->
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-end mt-4 pt-3 border-top">
+        <button type="button" class="btn btn-outline" onclick="closeViewTestModal()">Close</button>
       </div>
     </div>
   </div>

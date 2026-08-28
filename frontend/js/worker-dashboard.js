@@ -288,11 +288,12 @@ window.openViewDutyModal = async function(tripId) {
   if (!modal) return;
 
   // Reset fields to loading state
-  document.getElementById('vd-route-name').textContent = 'Loading...';
-  document.getElementById('vd-driver-name').textContent = 'Loading...';
-  document.getElementById('vd-tanker-number').textContent = 'Loading...';
-  document.getElementById('vd-out-time').textContent = 'Loading...';
-  document.getElementById('vd-duty-date').textContent = 'Loading...';
+  if (document.getElementById('vd-route-name')) document.getElementById('vd-route-name').textContent = 'Loading...';
+  if (document.getElementById('vd-driver-name')) document.getElementById('vd-driver-name').textContent = 'Loading...';
+  if (document.getElementById('vd-tanker-number')) document.getElementById('vd-tanker-number').textContent = 'Loading...';
+  if (document.getElementById('vd-out-time')) document.getElementById('vd-out-time').textContent = 'Loading...';
+  if (document.getElementById('vd-in-time')) document.getElementById('vd-in-time').textContent = 'Loading...';
+  if (document.getElementById('vd-duty-date')) document.getElementById('vd-duty-date').textContent = 'Loading...';
   
   const statusPill = document.getElementById('vd-status-pill');
   if (statusPill) {
@@ -301,7 +302,10 @@ window.openViewDutyModal = async function(tripId) {
   }
 
   const tbody = document.getElementById('vd-bmc-table-body');
-  if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-3">Loading BMC list...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-3">Loading BMC list...</td></tr>`;
+
+  const reportContainer = document.getElementById('vd-reports-review-container');
+  if (reportContainer) reportContainer.innerHTML = `<div class="text-muted" style="font-size:0.88rem; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; padding:14px 16px;">Loading reports & review...</div>`;
 
   modal.classList.remove('hidden');
 
@@ -310,18 +314,28 @@ window.openViewDutyModal = async function(tripId) {
     activeTripData = { trip, visits };
 
     // Fill metadata
-    document.getElementById('vd-route-name').textContent = trip.route_description || trip.trip_name || 'Planned Duty';
-    document.getElementById('vd-driver-name').textContent = trip.driver_name || (trip.driver ? trip.driver.name : 'Assigned Driver');
-    document.getElementById('vd-tanker-number').textContent = trip.tanker_number || (trip.tanker ? trip.tanker.board_number : 'Unassigned');
-    document.getElementById('vd-out-time').textContent = formatOutTime(trip.out_time || trip.scheduled_start_time);
+    if (document.getElementById('vd-route-name')) document.getElementById('vd-route-name').textContent = trip.route_description || trip.trip_name || 'Planned Duty';
+    if (document.getElementById('vd-driver-name')) document.getElementById('vd-driver-name').textContent = trip.driver_name || (trip.driver ? trip.driver.name : 'Assigned Driver');
+    if (document.getElementById('vd-tanker-number')) document.getElementById('vd-tanker-number').textContent = trip.tanker_number || (trip.tanker ? trip.tanker.board_number : 'Unassigned');
+    
+    // OUT Time (Start Time) & IN Time (End Time)
+    const outTimeStr = formatOutTime(trip.started_at || trip.out_time || trip.scheduled_start_time || trip.created_at);
+    const inTimeStr = (trip.in_time || trip.completed_at) ? formatOutTime(trip.in_time || trip.completed_at) : (trip.status === 'completed' ? 'Finished' : 'In Transit / Active');
+    
+    if (document.getElementById('vd-out-time')) document.getElementById('vd-out-time').textContent = outTimeStr;
+    if (document.getElementById('vd-in-time')) document.getElementById('vd-in-time').textContent = inTimeStr;
     
     const d = new Date(trip.out_time || trip.created_at || new Date());
-    document.getElementById('vd-duty-date').textContent = d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+    if (document.getElementById('vd-duty-date')) document.getElementById('vd-duty-date').textContent = d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
 
     // Status pill
+    const isCompleted = trip.status === 'completed';
     const isStarted = trip.status === 'in_progress' || trip.status === 'active';
     if (statusPill) {
-      if (isStarted) {
+      if (isCompleted) {
+        statusPill.className = 'badge badge-success';
+        statusPill.textContent = '✓ Finished';
+      } else if (isStarted) {
         statusPill.className = 'badge badge-blue';
         statusPill.textContent = 'In Progress';
       } else {
@@ -333,7 +347,12 @@ window.openViewDutyModal = async function(tripId) {
     // Modal Footer Button
     const footer = document.getElementById('vd-modal-footer');
     if (footer) {
-      if (isStarted) {
+      if (isCompleted) {
+        footer.innerHTML = `
+          <button type="button" class="btn btn-outline" onclick="closeViewDutyModal()">Close</button>
+          <span style="align-self:center; font-weight:700; color:#16A34A; font-size:0.88rem;">✓ Duty Completed &amp; Finished</span>
+        `;
+      } else if (isStarted) {
         footer.innerHTML = `
           <button type="button" class="btn btn-outline" onclick="closeViewDutyModal()">Close</button>
           <span style="align-self:center; font-weight:700; color:#2563EB; font-size:0.88rem;">● Trip Currently In Progress</span>
@@ -346,10 +365,10 @@ window.openViewDutyModal = async function(tripId) {
       }
     }
 
-    // Render BMCs list selected by Transport Manager
+    // Render BMCs list
     if (tbody) {
       if (visits.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-3">No BMCs selected by Transport Manager for this route.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-3">No BMCs selected for this route.</td></tr>`;
       } else {
         tbody.innerHTML = visits.map((v, idx) => {
           const bmcName = v.bmc ? v.bmc.name : (v.bmc_name || 'BMC');
@@ -363,18 +382,25 @@ window.openViewDutyModal = async function(tripId) {
             ? '<span class="badge badge-success" style="font-weight:700;">✓ Visited</span>'
             : (v.status === 'in_progress' ? '<span class="badge badge-blue">In Progress</span>' : '<span class="badge badge-warning">Pending</span>');
 
-          const visitBtn = isVisited
-            ? `<button type="button" class="btn btn-success btn-sm" style="padding: 5px 14px; font-weight:700; font-size:0.8rem; background-color:#16A34A; border-color:#16A34A; color:#FFFFFF;" onclick="openBmcVisitModal('${v.id}', '${selectedTripId}', '${v.bmc_id || (v.bmc ? v.bmc.id : '')}', '${v.bmc ? (v.bmc.bmc_code || v.bmc.code || '') : (v.bmc_code || '')}')">✓ VISITED</button>`
-            : `<button type="button" class="btn btn-primary btn-sm" style="padding: 5px 14px; font-weight:700; font-size:0.8rem;" onclick="openBmcVisitModal('${v.id || ('virtual-' + idx)}', '${selectedTripId}', '${v.bmc_id || (v.bmc ? v.bmc.id : '')}', '${v.bmc ? (v.bmc.bmc_code || v.bmc.code || '') : (v.bmc_code || '')}')">📍 VISIT</button>`;
+          // Action Buttons: Always show View Test button, plus Visit button if in_progress
+          const viewTestBtn = `<button type="button" class="btn btn-outline btn-sm" style="padding: 5px 12px; font-weight:700; font-size:0.78rem; border-color:#3B82F6; color:#1D4ED8;" onclick="openViewTestModal(${idx})">🧪 View Test</button>`;
+
+          let visitBtn = '';
+          if (isStarted) {
+            visitBtn = isVisited
+              ? `<button type="button" class="btn btn-success btn-sm" style="padding: 5px 12px; font-weight:700; font-size:0.78rem; background-color:#16A34A; border-color:#16A34A; color:#FFFFFF;" onclick="openBmcVisitModal('${v.id}', '${selectedTripId}', '${v.bmc_id || (v.bmc ? v.bmc.id : '')}', '${v.bmc ? (v.bmc.bmc_code || v.bmc.code || '') : (v.bmc_code || '')}')">✓ VISITED</button>`
+              : `<button type="button" class="btn btn-primary btn-sm" style="padding: 5px 12px; font-weight:700; font-size:0.78rem;" onclick="openBmcVisitModal('${v.id || ('virtual-' + idx)}', '${selectedTripId}', '${v.bmc_id || (v.bmc ? v.bmc.id : '')}', '${v.bmc ? (v.bmc.bmc_code || v.bmc.code || '') : (v.bmc_code || '')}')">📍 VISIT</button>`;
+          }
 
           return `
             <tr>
-              <td><strong>${v.visit_sequence || (idx + 1)}</strong></td>
+              <td style="text-align: center;"><strong>${v.visit_sequence || (idx + 1)}</strong></td>
               <td><strong>${esc(bmcName)}</strong>${codeText}</td>
               <td><span class="badge badge-neutral">${esc(comp)}</span></td>
               <td>${statusBadge}</td>
               <td style="text-align: right; white-space: nowrap;">
-                <div style="display: inline-flex; gap: 6px; align-items: center;">
+                <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
+                  ${viewTestBtn}
                   ${visitBtn}
                 </div>
               </td>
@@ -384,11 +410,164 @@ window.openViewDutyModal = async function(tripId) {
       }
     }
 
+    // Render Reports & Review Section
+    renderReportsAndReview(visits);
+
   } catch (err) {
     console.error('Failed to load view duty details:', err);
     if (typeof showToast === 'function') showToast(err.message || 'Failed to load duty details.', 'error');
   }
 };
+
+window.openViewTestModal = function(visitIdx) {
+  if (!activeTripData || !activeTripData.visits || !activeTripData.visits[visitIdx]) {
+    if (typeof showToast === 'function') showToast('Visit test data not found.', 'error');
+    return;
+  }
+
+  const v = activeTripData.visits[visitIdx];
+  const bmcName = v.bmc ? v.bmc.name : (v.bmc_name || 'BMC');
+  const modal = document.getElementById('view-test-modal');
+  if (!modal) return;
+
+  if (document.getElementById('vt-bmc-name')) document.getElementById('vt-bmc-name').textContent = bmcName;
+
+  // FTIR Test Data (FAT & SNF only)
+  const ftirObj = Array.isArray(v.ftir_tests) ? v.ftir_tests[0] : (v.ftir_tests || null);
+  const ftirGrid = document.getElementById('vt-ftir-grid');
+  const ftirStatusPill = document.getElementById('vt-ftir-status');
+
+  if (ftirObj || v.ftir_result) {
+    const fatVal = ftirObj?.fat !== undefined ? `${ftirObj.fat}%` : (v.ftir_result && v.ftir_result.includes('FAT:') ? v.ftir_result.split('FAT:')[1].split(',')[0].trim() : '—');
+    const snfVal = ftirObj?.snf !== undefined ? `${ftirObj.snf}%` : (v.ftir_result && v.ftir_result.includes('SNF:') ? v.ftir_result.split('SNF:')[1].trim() : '—');
+    const overallRes = ftirObj?.overall_result || (v.ftir_result && v.ftir_result.includes('[FAIL]') ? 'FAIL' : (v.ftir_result && v.ftir_result !== '—' && v.ftir_result !== 'Pending' ? 'PASS' : 'Pending'));
+
+    if (ftirStatusPill) {
+      ftirStatusPill.className = `badge ${overallRes.toLowerCase() === 'pass' ? 'badge-success' : (overallRes.toLowerCase() === 'fail' ? 'badge-danger' : 'badge-neutral')}`;
+      ftirStatusPill.textContent = overallRes.toUpperCase();
+    }
+
+    if (ftirGrid) {
+      ftirGrid.innerHTML = `
+        <div style="background:#FFF; padding:10px 14px; border-radius:8px; border:1px solid #E2E8F0;"><div style="font-size:0.75rem; color:#64748B; font-weight:700;">FAT (%)</div><div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-top:2px;">${fatVal}</div></div>
+        <div style="background:#FFF; padding:10px 14px; border-radius:8px; border:1px solid #E2E8F0;"><div style="font-size:0.75rem; color:#64748B; font-weight:700;">SNF (%)</div><div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-top:2px;">${snfVal}</div></div>
+      `;
+    }
+  } else {
+    if (ftirStatusPill) { ftirStatusPill.className = 'badge badge-neutral'; ftirStatusPill.textContent = 'Not Tested'; }
+    if (ftirGrid) ftirGrid.innerHTML = `<div style="grid-column: 1 / -1; font-size: 0.85rem; color:#64748B; font-style:italic;">No FTIR test performed for this BMC visit.</div>`;
+  }
+
+  // Gerber Test Data (FAT, SNF & Lacto only)
+  const gerberObj = Array.isArray(v.gerber_tests) ? v.gerber_tests[0] : (v.gerber_tests || null);
+  const gerberGrid = document.getElementById('vt-gerber-grid');
+  const gerberStatusPill = document.getElementById('vt-gerber-status');
+
+  if (gerberObj || v.gerber_result) {
+    const gFatVal = gerberObj?.fat_percentage !== undefined ? `${gerberObj.fat_percentage}%` : (v.gerber_result && v.gerber_result.includes('FAT:') ? v.gerber_result.split('FAT:')[1].split(',')[0].trim() : '—');
+    const gSnfVal = gerberObj?.snf !== undefined ? `${gerberObj.snf}%` : (v.gerber_result && v.gerber_result.includes('SNF:') ? v.gerber_result.split('SNF:')[1].trim() : '—');
+    const gLactoVal = gerberObj?.clr !== undefined ? gerberObj.clr : (v.gerber_result && v.gerber_result.includes('CLR:') ? v.gerber_result.split('CLR:')[1].split(' ')[0].trim() : '—');
+    const gOverallRes = gerberObj?.overall_result || (v.gerber_result && v.gerber_result.includes('[FAIL]') ? 'FAIL' : (v.gerber_result && v.gerber_result !== '—' && v.gerber_result !== 'Pending' ? 'PASS' : 'Pending'));
+
+    if (gerberStatusPill) {
+      gerberStatusPill.className = `badge ${gOverallRes.toLowerCase() === 'pass' ? 'badge-success' : (gOverallRes.toLowerCase() === 'fail' ? 'badge-danger' : 'badge-neutral')}`;
+      gerberStatusPill.textContent = gOverallRes.toUpperCase();
+    }
+
+    if (gerberGrid) {
+      gerberGrid.innerHTML = `
+        <div style="background:#FFF; padding:10px 14px; border-radius:8px; border:1px solid #E2E8F0;"><div style="font-size:0.75rem; color:#64748B; font-weight:700;">FAT (%)</div><div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-top:2px;">${gFatVal}</div></div>
+        <div style="background:#FFF; padding:10px 14px; border-radius:8px; border:1px solid #E2E8F0;"><div style="font-size:0.75rem; color:#64748B; font-weight:700;">SNF (%)</div><div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-top:2px;">${gSnfVal}</div></div>
+        <div style="background:#FFF; padding:10px 14px; border-radius:8px; border:1px solid #E2E8F0;"><div style="font-size:0.75rem; color:#64748B; font-weight:700;">LACTO</div><div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-top:2px;">${gLactoVal}</div></div>
+      `;
+    }
+  } else {
+    if (gerberStatusPill) { gerberStatusPill.className = 'badge badge-neutral'; gerberStatusPill.textContent = 'Not Tested'; }
+    if (gerberGrid) gerberGrid.innerHTML = `<div style="grid-column: 1 / -1; font-size: 0.85rem; color:#64748B; font-style:italic;">No Gerber test performed for this BMC visit.</div>`;
+  }
+
+  modal.classList.remove('hidden');
+};
+
+window.closeViewTestModal = function() {
+  const modal = document.getElementById('view-test-modal');
+  if (modal) modal.classList.add('hidden');
+};
+
+function renderReportsAndReview(visits = []) {
+  const container = document.getElementById('vd-reports-review-container');
+  if (!container) return;
+
+  const allIssues = [];
+  const allRatings = [];
+
+  visits.forEach(v => {
+    const bmcName = v.bmc ? v.bmc.name : (v.bmc_name || 'BMC');
+    if (v.bmc_issues && Array.isArray(v.bmc_issues) && v.bmc_issues.length > 0) {
+      v.bmc_issues.forEach(i => allIssues.push({ ...i, bmc_name: bmcName }));
+    }
+    if (v.bmc_ratings) {
+      const rList = Array.isArray(v.bmc_ratings) ? v.bmc_ratings : [v.bmc_ratings];
+      rList.forEach(r => allRatings.push({ ...r, bmc_name: bmcName }));
+    }
+  });
+
+  if (allIssues.length === 0 && allRatings.length === 0) {
+    container.innerHTML = `
+      <div style="font-size: 0.88rem; color: #64748B; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px 16px; font-style: italic;">
+        No issues reported or reviews submitted for this trip.
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+
+  if (allIssues.length > 0) {
+    html += `
+      <div style="margin-bottom: 14px;">
+        <div style="font-size: 0.85rem; font-weight: 800; color: #DC2626; margin-bottom: 8px;">⚠️ Reported Issues / Non-Conformances (${allIssues.length})</div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          ${allIssues.map(issue => `
+            <div style="background: #FEF2F2; border: 1px solid #FCA5A5; border-radius: 8px; padding: 10px 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 0.82rem; font-weight: 800; color: #991B1B;">🏢 ${esc(issue.bmc_name)} — ${esc(issue.issue_type || 'General Issue')}</span>
+                <span class="badge badge-danger" style="font-size: 0.72rem;">${esc(issue.severity || 'Medium').toUpperCase()}</span>
+              </div>
+              <div style="font-size: 0.85rem; color: #7F1D1D; margin-top: 4px;">${esc(issue.description || issue.remarks || 'No detailed description')}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  if (allRatings.length > 0) {
+    html += `
+      <div>
+        <div style="font-size: 0.85rem; font-weight: 800; color: #059669; margin-bottom: 8px;">⭐ BMC Reviews (${allRatings.length})</div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          ${allRatings.map(rating => {
+            const score = Number(rating.overall_rating || rating.behaviour || rating.cleanliness || 5);
+            const starsStr = '⭐'.repeat(Math.min(5, Math.max(1, Math.round(score))));
+
+            return `
+              <div style="background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 8px; padding: 10px 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <span style="font-size: 0.82rem; font-weight: 800; color: #065F46;">🏢 ${esc(rating.bmc_name)}</span>
+                  <span style="font-size: 0.88rem; letter-spacing: 1px;">${starsStr} (${score}/5)</span>
+                </div>
+                ${rating.remarks ? `<div style="font-size: 0.84rem; color: #047857; font-weight: 500; margin-top: 4px;">Remarks: "${esc(rating.remarks)}"</div>` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+}
 
 window.closeViewDutyModal = function() {
   const modal = document.getElementById('view-duty-modal');
