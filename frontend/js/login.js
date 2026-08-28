@@ -120,9 +120,10 @@ document.addEventListener('DOMContentLoaded', () => {
               window.location.href = getPath('qc-worker/dashboard.html');
             } else if (profile.role === 'qc_agm') {
               window.location.href = getPath('qc-agm/dashboard.html');
+            } else if (profile.role === 'user') {
+              window.location.href = getPath('worker/dashboard.html');
             } else {
-              // Default to worker for 'user' role
-              window.location.href = getPath('worker.html');
+              showToast("Your role does not have an assigned dashboard.", "error");
             }
           }, 800);
         }

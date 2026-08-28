@@ -38,6 +38,10 @@ async function apiQcGetDashboardStats(date = '') {
   const url = date ? `/api/qc-worker/dashboard-stats?date=${date}` : '/api/qc-worker/dashboard-stats';
   return qcWorkerFetch(url);
 }
+async function apiQcWorkerGetDashboardTrips(startDate = '', endDate = '') {
+  const url = `/api/qc-worker/dashboard-trips?startDate=${startDate}&endDate=${endDate}`;
+  return qcWorkerFetch(url);
+}
 async function apiQcGetSamples(date = '') {
   const url = date ? `/api/qc-worker/samples?date=${date}` : '/api/qc-worker/samples';
   return qcWorkerFetch(url);

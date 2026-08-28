@@ -94,27 +94,27 @@ function renderAllTestsTable(tests) {
   }
 
   tbody.innerHTML = tests.map(s => {
-    const bmcName = s.bmc ? s.bmc.name : 'Unknown BMC';
+    const bmcName = s.bmc ? s.bmc.name : 'BMC';
     const workerName = s.trip && s.trip.worker ? s.trip.worker.name : 'Field Worker';
-    const collDate = s.visit_end_time ? new Date(s.visit_end_time).toLocaleDateString() : 'N/A';
+    const collDate = s.visit_end_time ? new Date(s.visit_end_time).toLocaleDateString() : '—';
 
     const ftir = Array.isArray(s.ftir_tests) ? s.ftir_tests[0] : s.ftir_tests;
     const gerber = Array.isArray(s.gerber_tests) ? s.gerber_tests[0] : s.gerber_tests;
-    const bmcFat = (ftir && ftir.fat) ?? (gerber && gerber.fat_percentage) ?? 'N/A';
-    const bmcSnf = (ftir && ftir.snf) ?? (gerber && gerber.snf) ?? 'N/A';
+    const bmcFat = (ftir && ftir.fat !== null && ftir.fat !== undefined) ? ftir.fat : ((gerber && gerber.fat_percentage !== null && gerber.fat_percentage !== undefined) ? gerber.fat_percentage : '—');
+    const bmcSnf = (ftir && ftir.snf !== null && ftir.snf !== undefined) ? ftir.snf : ((gerber && gerber.snf !== null && gerber.snf !== undefined) ? gerber.snf : '—');
 
     const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
-    const qcFat = qcTest && qcTest.fat !== null ? `${qcTest.fat}%` : 'Pending';
-    const qcSnf = qcTest && qcTest.snf !== null ? `${qcTest.snf}%` : 'Pending';
-    const qcWorkerName = qcTest && qcTest.qc_worker ? qcTest.qc_worker.name : '--';
+    const qcFat = qcTest && qcTest.fat !== null && qcTest.fat !== undefined ? `${qcTest.fat}%` : 'Pending';
+    const qcSnf = qcTest && qcTest.snf !== null && qcTest.snf !== undefined ? `${qcTest.snf}%` : 'Pending';
+    const qcWorkerName = qcTest && qcTest.qc_worker ? qcTest.qc_worker.name : '—';
 
     const macs = s.macs_qc || s.macs_worker || null;
-    const macsFatStr = macs && macs.fat !== null && macs.fat !== undefined ? `${macs.fat}%` : 'N/A';
-    const macsSnfStr = macs && macs.snf !== null && macs.snf !== undefined ? `${macs.snf}%` : 'N/A';
+    const macsFatStr = macs && macs.fat !== null && macs.fat !== undefined ? `${macs.fat}%` : '—';
+    const macsSnfStr = macs && macs.snf !== null && macs.snf !== undefined ? `${macs.snf}%` : '—';
 
     let hasVariance = false;
     let fatDiff = '';
-    if (qcTest && qcTest.fat !== null && bmcFat !== 'N/A') {
+    if (qcTest && qcTest.fat !== null && bmcFat !== '—') {
       const diff = (parseFloat(qcTest.fat) - parseFloat(bmcFat)).toFixed(2);
       fatDiff = `(${diff > 0 ? '+' : ''}${diff}%)`;
       if (Math.abs(parseFloat(diff)) >= 0.3) hasVariance = true;
@@ -138,7 +138,7 @@ function renderAllTestsTable(tests) {
         <td><strong>${esc(bmcName)}</strong></td>
         <td>${esc(collDate)}</td>
         <td>${esc(workerName)}</td>
-        <td><span style="color:#1D4ED8; font-weight:700;">${esc(bmcFat)}${bmcFat !== 'N/A' ? '%' : ''} / ${esc(bmcSnf)}${bmcSnf !== 'N/A' ? '%' : ''}</span></td>
+        <td><span style="color:#1D4ED8; font-weight:700;">${esc(bmcFat)}${bmcFat !== '—' ? '%' : ''} / ${esc(bmcSnf)}${bmcSnf !== '—' ? '%' : ''}</span></td>
         <td><span style="color:#0F766E; font-weight:700;">${esc(qcFat)} / ${esc(qcSnf)}</span></td>
         <td><span style="color:#D97706; font-weight:700;">${esc(macsFatStr)} / ${esc(macsSnfStr)}</span></td>
         <td>${esc(qcWorkerName)}</td>

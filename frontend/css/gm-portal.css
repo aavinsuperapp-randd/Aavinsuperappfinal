@@ -1387,4 +1387,245 @@ a.admin-nav-item.active span:first-child {
   }
 }
 
+/* ── Clean Blue Trip Box Layout & Mobile Enhancements ── */
+.trips-boxes-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.trip-blue-box {
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  border-left: 6px solid #2563EB;
+  border-radius: 14px;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.06);
+  padding: 20px;
+  transition: all 0.2s ease-in-out;
+}
+
+.trip-blue-box:hover {
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.12);
+  border-color: #93C5FD;
+}
+
+.trip-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #E2E8F0;
+  margin-bottom: 16px;
+}
+
+.trip-box-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.trip-sno-badge {
+  background: #2563EB;
+  color: #FFFFFF;
+  font-weight: 800;
+  font-size: 0.82rem;
+  padding: 4px 10px;
+  border-radius: 8px;
+  letter-spacing: 0.02em;
+}
+
+.trip-route-title {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #0F172A;
+  margin: 0;
+}
+
+.trip-box-meta-grid {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: #334155;
+  margin-bottom: 14px;
+}
+
+.trip-meta-tag {
+  background: #F1F5F9;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #E2E8F0;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trip-meta-tag strong {
+  color: #0F172A;
+}
+
+/* Visited BMC Sequence Inside Trip Box */
+.bmc-visit-sequence-container {
+  background: #F8FAFC;
+  border-radius: 12px;
+  border: 1px solid #E2E8F0;
+  padding: 14px 16px;
+}
+
+.bmc-sequence-header {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #1E293B;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bmc-sequence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bmc-sequence-item {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.86rem;
+}
+
+.bmc-item-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bmc-seq-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #DBEAFE;
+  color: #1D4ED8;
+  font-weight: 700;
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bmc-item-name {
+  font-weight: 700;
+  color: #0F172A;
+}
+
+.bmc-item-data {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.bmc-data-pill {
+  background: #F1F5F9;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.bmc-data-pill strong {
+  color: #0F172A;
+}
+
+.btn-search-filter {
+  background: #2563EB;
+  color: #FFFFFF;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.2s ease;
+}
+.btn-search-filter:hover {
+  background: #1D4ED8;
+}
+
+.filter-controls-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.date-range-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .top-controls-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filter-controls-wrap {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .date-range-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .date-picker-input {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .btn-search-filter, .btn-export-pdf {
+    width: 100%;
+    justify-content: center;
+  }
+  .trip-box-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .trip-box-meta-grid {
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+  }
+  .trip-meta-tag {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .bmc-sequence-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .bmc-item-data {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
 

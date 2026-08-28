@@ -3,309 +3,202 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BMC Visit & Quality Test — AAVIN BMC Worker</title>
+  <title>BMC Visit &amp; Testing — Field Worker Portal</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
   <link rel="stylesheet" href="../css/global.css">
-  <link rel="stylesheet" href="../css/worker.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
-  <div class="worker-shell">
-    <!-- Sidebar -->
-    <aside class="worker-sidebar">
-      <div class="ws-logo">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
-          <span>Worker Portal</span>
-        </div>
-        <button id="mobile-menu-toggle" class="mobile-menu-btn">☰</button>
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="worker-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>Field Worker</span>
       </div>
-
-      <nav id="ws-nav" class="ws-nav">
-        <a href="dashboard.html" class="ws-nav-item">
-          <span>📊</span> Dashboard
-        </a>
-        <a href="trip-create.html" class="ws-nav-item">
-          <span>🚚</span> Start New Trip
-        </a>
-        <a href="history.html" class="ws-nav-item">
-          <span>📜</span> Trip History
-        </a>
-        <a href="profile.html" class="ws-nav-item">
-          <span>👤</span> My Profile
-        </a>
-        <div class="ws-nav-divider"></div>
-        <button id="logout-btn" class="ws-nav-item" style="color:#fca5a5;">
-          <span>🚪</span> Logout
-        </button>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>📋</span> Duty</a>
+        <a href="analysis.html" class="admin-nav-item"><span>📈</span> Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
       </nav>
     </aside>
 
-    <!-- Main Content -->
-    <div class="worker-main">
-      <header class="worker-header">
-        <div class="worker-header-title">BMC Collection & Quality Inspection</div>
-        <div class="worker-header-user">
-          Logged in as: <strong id="header-worker-name">Loading...</strong>
+    <div class="admin-main">
+      <!-- Header -->
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>BMC Operations &amp; Quality Testing</h2>
+            <p>Field Worker Portal — Active Trip Visit</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <button type="button" class="btn btn-outline" id="btn-header-back" onclick="handleCloseBmcVisit()" style="font-weight:700; font-size:0.85rem;">
+            ⬅️ Close BMC Visit / Back
+          </button>
         </div>
       </header>
 
-      <main class="worker-content">
-        <div id="main-content-area" class="hidden">
+      <main class="admin-content">
+        <div id="main-bmc-visit-content" style="max-width: 900px; margin: 0 auto;">
 
-          <a id="back-to-trip-link" href="dashboard.html" class="back-link">← Back to Trip Route</a>
-
-          <!-- BMC Visit Header -->
-          <div class="form-section mb-4">
-            <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-2">
-              <div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <h1 style="font-size: 1.3rem; font-weight:700; margin:0;" id="bmc-display-name">Loading BMC...</h1>
-                  <span id="visit-status-badge" class="status-pill pill-pending">Pending</span>
-                </div>
-                <div class="text-sm text-muted mt-1" id="bmc-display-meta">📍 Location | District | Sequence #--</div>
+          <!-- TOP BMC DETAILS CARD -->
+          <div class="content-card mb-4" style="border: 2px solid #2563EB; background: #F8FAFC; border-radius: 16px; padding: 22px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px;">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span class="badge badge-blue" id="bv-seq-badge" style="font-size: 0.85rem; padding: 6px 14px;">BMC #1</span>
+                <span class="badge badge-warning" id="bv-status-badge" style="font-size: 0.85rem; padding: 6px 14px;">Pending</span>
               </div>
+              <button type="button" class="btn btn-outline" onclick="handleCloseBmcVisit()" style="padding: 6px 16px; font-weight: 700; font-size: 0.85rem;">
+                🔒 Close BMC Visit / Back
+              </button>
+            </div>
 
-              <div class="d-flex gap-2">
-                <button id="delete-visit-btn" class="btn btn-outline" style="color:#ef4444; border-color:#fca5a5;" onclick="deleteThisVisit()">
-                  🗑️ Delete Visit
-                </button>
-                <button id="complete-visit-btn" class="btn btn-primary">
-                  ✓ Save & Complete BMC Visit
-                </button>
-              </div>
-
+            <h2 id="bv-bmc-name" style="margin: 0 0 6px 0; font-size: 1.5rem; font-weight: 800; color: #0F172A;">Loading BMC Details...</h2>
+            <div id="bv-bmc-sub" style="font-size: 0.9rem; color: #64748B; font-weight: 500;">
+              Fetching location &amp; route metadata...
             </div>
           </div>
 
-          <!-- Tab Navigation -->
-          <div class="tab-nav">
-            <button class="tab-btn active" id="tab-nav-compartment" data-tab="tab-compartment">1. Tanker Compartment</button>
-            <button class="tab-btn" id="tab-nav-ftir" data-tab="tab-ftir">2. FTIR Test (Digital)</button>
-            <button class="tab-btn" id="tab-nav-gerber" data-tab="tab-gerber">3. Gerber Test (Physical)</button>
-            <button class="tab-btn" id="tab-nav-issues" data-tab="tab-issues">4. Record Issues</button>
-            <button class="tab-btn" id="tab-nav-rating" data-tab="tab-rating">5. Rate BMC</button>
-          </div>
-
-          <!-- ════════════════ TAB 1: TANKER COMPARTMENT ════════════════ -->
-          <div id="tab-compartment" class="tab-panel active">
-            <div class="form-section">
-              <div class="form-section-title">
-                <span>🚛</span> Tanker Compartment Selection *
+          <!-- 1. WEIGHT SECTION -->
+          <div class="content-card mb-4" style="border: 1px solid #E2E8F0; border-radius: 14px; padding: 20px;">
+            <h3 style="margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 10px;">
+              <span>⚖️</span> 1. WEIGHT
+            </h3>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Compartment</label>
+                <select id="bv-compartment" class="form-control">
+                  <option value="Front">Front</option>
+                  <option value="Mid">Mid</option>
+                  <option value="Rear">Rear</option>
+                </select>
               </div>
-              <p class="text-sm text-muted mb-3">Specify which tanker compartment received the milk collected from this BMC unit.</p>
-
-              <div class="compartment-selector mb-4">
-                <button type="button" class="comp-btn" id="comp-btn-front" onclick="selectCompartment('front')">
-                  <span class="comp-icon">⬆️</span>
-                  <span>FRONT COMPARTMENT</span>
-                </button>
-                <button type="button" class="comp-btn" id="comp-btn-back" onclick="selectCompartment('back')">
-                  <span class="comp-icon">⬇️</span>
-                  <span>BACK COMPARTMENT</span>
-                </button>
+              <div class="col-md-6">
+                <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Milk Weight (KG)</label>
+                <input type="number" step="0.1" id="bv-weight-kg" class="form-control" placeholder="e.g. 2500.5">
               </div>
-
-              <div class="form-group mb-3">
-                <label class="form-label" for="milk-quantity">Milk Quantity Collected (Kg) *</label>
-                <input type="number" step="0.1" id="milk-quantity" class="form-input" placeholder="e.g. 1250.5">
-              </div>
-
-              <button type="button" class="btn btn-outline" onclick="saveCompartment()">Save Compartment Choice</button>
+            </div>
+            <div style="text-align: right; margin-top: 16px;">
+              <button type="button" class="btn btn-primary" id="bv-btn-save-weight" style="padding: 8px 22px; font-weight: 700; font-size: 0.88rem;">
+                💾 SAVE WEIGHT
+              </button>
             </div>
           </div>
 
-          <!-- ════════════════ TAB 2: FTIR TEST (DIGITAL) ════════════════ -->
-          <div id="tab-ftir" class="tab-panel">
-            <div class="form-section">
-              <div class="form-section-title d-flex justify-content-between align-items-center">
-                <div><span>💻</span> Digital Milk Analysis (FTIR Test)</div>
-                <div id="ftir-badge-container"></div>
+          <!-- 2. FTIR TEST SECTION -->
+          <div class="content-card mb-4" style="border: 1px solid #E2E8F0; border-radius: 14px; padding: 20px;">
+            <h3 style="margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 10px;">
+              <span>🧪</span> 2. FTIR TEST
+            </h3>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">FAT (%)</label>
+                <input type="number" step="0.01" id="bv-ftir-fat" class="form-control" placeholder="e.g. 4.2">
               </div>
-
-              <div class="form-row mb-3">
-                <div class="form-group">
-                  <label class="form-label" for="ftir-fat">Fat % (Standard >= 3.5%) *</label>
-                  <input type="number" step="0.01" id="ftir-fat" class="form-input" placeholder="e.g. 4.20">
-                </div>
-                <div class="form-group">
-                  <label class="form-label" for="ftir-snf">SNF % (Standard >= 8.2%) *</label>
-                  <input type="number" step="0.01" id="ftir-snf" class="form-input" placeholder="e.g. 8.50">
-                </div>
+              <div class="col-md-6">
+                <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">SNF (%)</label>
+                <input type="number" step="0.01" id="bv-ftir-snf" class="form-control" placeholder="e.g. 8.5">
               </div>
-
-              <div class="form-row mb-3">
-                <div class="form-group">
-                  <label class="form-label" for="ftir-water">Added Water % (Limit <= 5.0%)</label>
-                  <input type="number" step="0.1" id="ftir-water" class="form-input" placeholder="e.g. 0.0">
-                </div>
-                <div class="form-group">
-                  <label class="form-label" for="ftir-temp">Sample Temperature (°C)</label>
-                  <input type="number" step="0.1" id="ftir-temp" class="form-input" placeholder="e.g. 4.0">
-                </div>
-              </div>
-
-              <div class="form-group mb-4">
-                <label class="form-label">FTIR Machine Display / Result Photo (Optional)</label>
-                <div class="d-flex gap-2 align-items-center mb-2 flex-wrap">
-                  <button type="button" class="btn btn-outline btn-sm" style="margin:0;" onclick="openGalleryPicker()">
-                    📁 Choose from Gallery
-                  </button>
-                  <button type="button" class="btn btn-outline btn-sm" style="margin:0;" onclick="openCameraCapture()">
-                    📷 Open Camera
-                  </button>
-                  <input type="file" id="ftir-file-gallery" accept="image/*" class="hidden" onchange="handleFtirImageSelect(event)">
-                  <input type="file" id="ftir-file-camera" accept="image/*" capture="environment" class="hidden" onchange="handleFtirImageSelect(event)">
-                </div>
-
-                <div id="ftir-image-preview-container" class="mt-2 hidden" style="position:relative; max-width:280px;">
-                  <img id="ftir-image-preview" src="" alt="FTIR Test Photo Preview" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px; border:1px solid #cbd5e1;">
-                  <button type="button" class="btn btn-sm btn-outline" style="position:absolute; top:6px; right:6px; background:rgba(255,255,255,0.9); color:#ef4444; border-color:#fca5a5; padding:2px 8px;" onclick="removeFtirImagePreview()">✕ Remove</button>
-                </div>
-              </div>
-
-              <div class="form-group mb-4">
-                <label class="form-label" for="ftir-remarks">FTIR Test Remarks</label>
-                <input type="text" id="ftir-remarks" class="form-input" placeholder="e.g. FTIR automated reading clear.">
-              </div>
-
-              <button type="button" class="btn btn-primary" onclick="saveFtirTest()">Save FTIR Test</button>
+            </div>
+            <div style="text-align: right; margin-top: 16px;">
+              <button type="button" class="btn btn-primary" id="bv-btn-save-ftir" style="padding: 8px 22px; font-weight: 700; font-size: 0.88rem;">
+                💾 SAVE FTIR TEST
+              </button>
             </div>
           </div>
 
-          <!-- ════════════════ TAB 3: GERBER TEST (PHYSICAL) ════════════════ -->
-          <div id="tab-gerber" class="tab-panel">
-            <div class="form-section">
-              <div class="form-section-title d-flex justify-content-between align-items-center">
-                <div><span>🧪</span> Physical Milk Analysis (Gerber Test)</div>
-                <div id="gerber-badge-container"></div>
+          <!-- 3. GERBER TEST SECTION -->
+          <div class="content-card mb-4" style="border: 1px solid #E2E8F0; border-radius: 14px; padding: 20px;">
+            <h3 style="margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 10px;">
+              <span>🔬</span> 3. GERBER TEST
+            </h3>
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">FAT (%)</label>
+                <input type="number" step="0.01" id="bv-gerber-fat" class="form-control" placeholder="e.g. 4.2">
               </div>
-
-              <div class="form-row mb-3">
-                <div class="form-group">
-                  <label class="form-label" for="gerber-fat">Fat % (Gerber Method) *</label>
-                  <input type="number" step="0.01" id="gerber-fat" class="form-input" placeholder="e.g. 4.10">
-                </div>
-                <div class="form-group">
-                  <label class="form-label" for="gerber-clr">CLR (Corrected Lactometer Reading)</label>
-                  <input type="number" step="0.5" id="gerber-clr" class="form-input" placeholder="e.g. 28.5">
-                </div>
+              <div class="col-md-4">
+                <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">SNF (%)</label>
+                <input type="number" step="0.01" id="bv-gerber-snf" class="form-control" placeholder="e.g. 8.5">
               </div>
-
-              <div class="form-row mb-3">
-                <div class="form-group">
-                  <label class="form-label" for="gerber-snf">Calculated SNF %</label>
-                  <input type="number" step="0.01" id="gerber-snf" class="form-input" placeholder="e.g. 8.42">
-                </div>
-                <div class="form-group">
-                  <label class="form-label" for="gerber-temp">Sample Temp (°C)</label>
-                  <input type="number" step="0.1" id="gerber-temp" class="form-input" placeholder="e.g. 20.0">
-                </div>
+              <div class="col-md-4">
+                <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Lactometer (LACTO)</label>
+                <input type="number" step="0.1" id="bv-gerber-lacto" class="form-control" placeholder="e.g. 28.5">
               </div>
-
-              <div class="form-group mb-4">
-                <label class="form-label" for="gerber-remarks">Gerber Test Remarks</label>
-                <input type="text" id="gerber-remarks" class="form-input" placeholder="e.g. Physical Gerber test verified.">
-              </div>
-
-              <button type="button" class="btn btn-primary" onclick="saveGerberTest()">Save Gerber Test</button>
+            </div>
+            <div style="text-align: right; margin-top: 16px;">
+              <button type="button" class="btn btn-primary" id="bv-btn-save-gerber" style="padding: 8px 22px; font-weight: 700; font-size: 0.88rem;">
+                💾 SAVE GERBER TEST
+              </button>
             </div>
           </div>
 
-          <!-- ════════════════ TAB 4: RECORD ISSUES ════════════════ -->
-          <div id="tab-issues" class="tab-panel">
-            <div class="form-section mb-4">
-              <div class="form-section-title">
-                <span>⚠️</span> Log New Issue for this BMC
-              </div>
-
-              <div class="form-row mb-3">
-                <div class="form-group">
-                  <label class="form-label" for="issue-category">Issue Category *</label>
-                  <select id="issue-category" class="form-select">
-                    <option value="driver">Driver Issue</option>
-                    <option value="equipment">Equipment Breakdown</option>
-                    <option value="cleanliness">Hygiene & Cleanliness</option>
-                    <option value="milk_quality">Milk Quality Defect</option>
-                    <option value="operational">Operational Delay</option>
-                    <option value="staff">Staff Non-cooperation</option>
-                    <option value="other">Other Issue</option>
-                  </select>
-                </div>
-
-                <div class="form-group">
-                  <label class="form-label" for="issue-severity">Severity Level *</label>
-                  <select id="issue-severity" class="form-select">
-                    <option value="low">Low (Informational)</option>
-                    <option value="medium" selected>Medium (Needs Attention)</option>
-                    <option value="high">High (Urgent Repair)</option>
-                    <option value="critical">Critical (Stop Operation)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="form-group mb-3">
-                <label class="form-label" for="issue-description">Issue Description *</label>
-                <textarea id="issue-description" class="form-input" rows="2" placeholder="Describe the issue observed in detail..."></textarea>
-              </div>
-
-              <div class="form-group mb-3">
-                <label class="form-label" for="issue-image">Photo Evidence Attachment (Optional)</label>
-                <input type="text" id="issue-image" class="form-input" placeholder="https://... or photo URL (Optional)">
-              </div>
-
-              <button type="button" class="btn btn-primary btn-sm" onclick="addBmcIssue()">+ Submit Issue</button>
+          <!-- 4. REPORT SECTION -->
+          <div class="content-card mb-4" style="border: 1px solid #E2E8F0; border-radius: 14px; padding: 20px;">
+            <h3 style="margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 10px;">
+              <span>📝</span> 4. REPORT
+            </h3>
+            <div class="mb-3">
+              <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Report / Remarks</label>
+              <textarea id="bv-report-text" class="form-control" rows="3" placeholder="Enter report or observations..."></textarea>
             </div>
-
-            <!-- Issues List -->
-            <div class="section-header">
-              <div class="section-title">Recorded Issues for this Visit</div>
+            <div class="mb-3">
+              <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Priority (Optional)</label>
+              <select id="bv-report-priority" class="form-control">
+                <option value="">Select Priority (Optional)</option>
+                <option value="Low">Low</option>
+                <option value="Mid">Mid</option>
+                <option value="High">High</option>
+              </select>
             </div>
-            <div id="issues-list-container" class="issue-list">
-              <!-- Populated by JS -->
+            <div style="text-align: right; margin-top: 16px;">
+              <button type="button" class="btn btn-primary" id="bv-btn-save-report" style="padding: 8px 22px; font-weight: 700; font-size: 0.88rem;">
+                💾 SAVE REPORT
+              </button>
             </div>
           </div>
 
-          <!-- ════════════════ TAB 5: RATE BMC ════════════════ -->
-          <div id="tab-rating" class="tab-panel">
-            <div class="form-section">
-              <div class="form-section-title">
-                <span>⭐</span> Rate BMC Operations & Review
+          <!-- 5. REVIEW SECTION -->
+          <div class="content-card mb-4" style="border: 1px solid #E2E8F0; border-radius: 14px; padding: 20px;">
+            <h3 style="margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 10px;">
+              <span>⭐</span> 5. REVIEW
+            </h3>
+            <div class="mb-3">
+              <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">5-Star Rating</label>
+              <div id="star-rating-container" style="display: flex; gap: 10px; font-size: 2rem; color: #CBD5E1; cursor: pointer; user-select: none;">
+                <span data-star="1">★</span>
+                <span data-star="2">★</span>
+                <span data-star="3">★</span>
+                <span data-star="4">★</span>
+                <span data-star="5">★</span>
               </div>
-
-              <div class="mb-4 text-center p-3" style="background:var(--gray-50); border-radius:12px;">
-                <label class="form-label mb-2" style="font-size:1.1rem; font-weight:600;">Overall Rating (1 to 5 Stars)</label>
-                <div class="star-rating justify-content-center d-flex gap-2" id="stars-overall" style="font-size:2rem;"></div>
-              </div>
-
-              <div class="form-group mb-4">
-                <label class="form-label" for="rating-remarks">Review Remarks / Feedback</label>
-                <textarea id="rating-remarks" class="form-input" rows="3" placeholder="Enter your review comments about the BMC..."></textarea>
-              </div>
-
-              <button type="button" class="btn btn-primary" onclick="saveBmcRating()">Save BMC Rating</button>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Review / Remarks (Optional)</label>
+              <textarea id="bv-review-text" class="form-control" rows="3" placeholder="Write feedback or review..."></textarea>
+            </div>
+            <div style="text-align: right; margin-top: 16px;">
+              <button type="button" class="btn btn-primary" id="bv-btn-save-review" style="padding: 8px 22px; font-weight: 700; font-size: 0.88rem;">
+                💾 SAVE REVIEW
+              </button>
             </div>
           </div>
 
+          <!-- BOTTOM ACTION BAR -->
+          <div class="content-card mb-5 text-center" style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 14px; padding: 20px;">
+            <button type="button" class="btn btn-outline" onclick="handleCloseBmcVisit()" style="padding: 10px 30px; font-weight: 800; font-size: 0.95rem; min-width: 220px;">
+              🔒 Close BMC Visit / Back
+            </button>
+          </div>
 
         </div>
       </main>
-    </div>
-  </div>
-
-  <!-- Camera Capture Modal -->
-  <div id="camera-modal" class="modal-overlay hidden" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:16px;">
-    <div style="background:#fff; border-radius:12px; max-width:480px; width:100%; padding:18px; text-align:center; position:relative; box-shadow:0 10px 25px rgba(0,0,0,0.3);">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <h3 style="margin:0; font-size:1.1rem; font-weight:700;">📷 FTIR Machine Camera</h3>
-        <button type="button" class="btn btn-sm btn-outline" onclick="closeCameraModal()">✕</button>
-      </div>
-      <video id="camera-video" autoplay playsinline style="width:100%; height:260px; background:#000; border-radius:8px; object-fit:cover;"></video>
-      <canvas id="camera-canvas" class="hidden"></canvas>
-      <div style="display:flex; justify-content:center; gap:12px; margin-top:14px;">
-        <button type="button" class="btn btn-primary" onclick="captureCameraPhoto()">📸 Take Photo</button>
-        <button type="button" class="btn btn-outline" onclick="closeCameraModal()">Cancel</button>
-      </div>
     </div>
   </div>
 

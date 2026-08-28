@@ -3,80 +3,123 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trip History — AAVIN BMC Worker</title>
+  <title>Duty History — Field Worker Portal</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
   <link rel="stylesheet" href="../css/global.css">
-  <link rel="stylesheet" href="../css/worker.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
-  <div class="worker-shell">
-    <!-- Sidebar -->
-    <aside class="worker-sidebar">
-      <div class="ws-logo">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
-          <span>Worker Portal</span>
-        </div>
-        <button id="mobile-menu-toggle" class="mobile-menu-btn">☰</button>
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="worker-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>Field Worker</span>
       </div>
-
-      <nav id="ws-nav" class="ws-nav">
-        <a href="dashboard.html" class="ws-nav-item">
-          <span>📊</span> Dashboard
-        </a>
-        <a href="trip-create.html" class="ws-nav-item">
-          <span>🚚</span> Start New Trip
-        </a>
-        <a href="history.html" class="ws-nav-item active">
-          <span>📜</span> Trip History
-        </a>
-
-        <a href="profile.html" class="ws-nav-item">
-          <span>👤</span> My Profile
-        </a>
-
-        <div class="ws-nav-divider"></div>
-        <button id="logout-btn" class="ws-nav-item" style="color:#fca5a5;">
-          <span>🚪</span> Logout
-        </button>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>📋</span> Duty</a>
+        <a href="analysis.html" class="admin-nav-item"><span>📈</span> Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
       </nav>
     </aside>
 
-    <!-- Main Content -->
-    <div class="worker-main">
-      <header class="worker-header">
-        <div class="worker-header-title">My Collection Trip History</div>
-        <div class="worker-header-user">
-          Logged in as: <strong id="header-worker-name">Loading...</strong>
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>Duty History</h2>
+            <p>Historical Completed Duties &amp; Operational Logs</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar" id="header-worker-avatar">FW</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-worker-name">Loading...</div>
+              <div class="header-user-role">Field Operations</div>
+            </div>
+          </div>
         </div>
       </header>
 
-      <main class="worker-content">
-        <div id="main-content-area" class="hidden">
-
-          <div class="page-top">
-            <h1>Trip History & Inspection Records</h1>
-            <p>View all your past and active BMC collection routes.</p>
+      <main class="admin-content">
+        <div class="content-card">
+          <div class="card-header">
+            <h3>📜 Completed Duty History</h3>
           </div>
-
-          <!-- Filter & Search Row -->
-          <div class="d-flex gap-2 mb-3 flex-wrap">
-            <input type="text" id="history-search-input" class="form-input" placeholder="Search by trip name or tanker..." style="max-width: 280px;">
-            <select id="history-status-select" class="form-select" style="max-width: 160px;">
-              <option value="all">All Statuses</option>
-              <option value="active">Active Only</option>
-              <option value="completed">Completed Only</option>
-            </select>
+          <p class="text-muted text-sm" style="margin-bottom: 20px;">Historical completed duties and operational logs.</p>
+          <div id="history-container">
+            <div class="text-center text-muted py-5">
+              <div style="font-size: 2.5rem; margin-bottom: 10px;">📜</div>
+              <div>Fetching history records...</div>
+            </div>
           </div>
-
-          <!-- Trip List -->
-          <div id="history-list-container" class="trip-list">
-            <!-- Populated by JS -->
-          </div>
-
         </div>
       </main>
+    </div>
+  </div>
+
+  <!-- EDIT TRIP MODAL -->
+  <div id="edit-trip-modal" class="modal-overlay hidden">
+    <div class="modal-content" style="max-width: 520px;">
+      <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+        <h3 style="margin:0; font-weight:800; color:#0F172A;">✏️ Edit Completed Duty Metrics</h3>
+        <button type="button" class="btn btn-ghost" onclick="closeEditTripModal()" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body" style="padding:0;">
+        <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:12px 16px; margin-bottom:16px; font-size:0.85rem; color:#475569;">
+          <div style="font-weight:700; color:#0F172A; margin-bottom:4px;" id="et-route-title">Planned Duty</div>
+        </div>
+
+        <form id="edit-trip-form">
+          <div class="form-group mb-3">
+            <label for="et-out-km-input" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              OUT KM (Odometer Start)
+            </label>
+            <input type="number" step="0.1" class="form-control" id="et-out-km-input" placeholder="e.g. 45200.0">
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="et-out-wt-input" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              OUT Tanker Weight (kg)
+            </label>
+            <input type="number" step="0.1" class="form-control" id="et-out-wt-input" placeholder="e.g. 12500">
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="et-in-km" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              IN KM (Odometer End)
+            </label>
+            <input type="number" step="0.1" class="form-control" id="et-in-km" placeholder="e.g. 45280.0">
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="et-in-weight" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              IN Empty Weight of Tanker (kg) <span style="font-weight:400; color:#64748B;">(Optional)</span>
+            </label>
+            <input type="number" step="0.1" class="form-control" id="et-in-weight" placeholder="e.g. 10200">
+            <div style="font-size:0.78rem; color:#64748B; margin-top:2px;">Entering IN Empty Weight enables Diesel &amp; Mileage calculations.</div>
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="et-end-time" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              End Time
+            </label>
+            <input type="datetime-local" class="form-control" id="et-end-time">
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+        <button type="button" class="btn btn-outline" onclick="closeEditTripModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-edit-trip">SAVE CHANGES</button>
+      </div>
     </div>
   </div>
 

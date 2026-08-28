@@ -1,19 +1,15 @@
-// worker-api.js — All Worker Portal API calls
-// Automatically attaches the Supabase JWT to every request.
+// worker-api.js — Field Worker Portal API Client
 
-async function getAuthToken() {
+async function workerFetch(endpoint, options = {}) {
   const client = await initSupabase();
-  if (!client) throw new Error('Supabase not initialized.');
+  if (!client) throw new Error('Supabase client not initialized.');
+
   const { data: { session } } = await client.auth.getSession();
   if (!session) throw new Error('No active session. Please log in.');
-  return session.access_token;
-}
 
-async function workerFetch(path, options = {}) {
-  const token = await getAuthToken();
-
-  const baseUrl = path.startsWith('http') ? '' : (typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'https://aavin-backend.onrender.com');
-  const fullUrl = path.startsWith('http') ? path : `${baseUrl}${path}`;
+  const token = session.access_token;
+  const baseUrl = endpoint.startsWith('http') ? '' : (typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'https://aavin-backend.onrender.com');
+  const fullUrl = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint}`;
 
   const res = await fetch(fullUrl, {
     ...options,
@@ -26,7 +22,7 @@ async function workerFetch(path, options = {}) {
 
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
-    throw new Error(`Server returned non-JSON response (${res.status}). Ensure backend is active at ${baseUrl || 'https://aavin-backend.onrender.com'}`);
+    throw new Error(`Server error (${res.status}). Ensure backend is active.`);
   }
 
   const json = await res.json();
@@ -34,101 +30,109 @@ async function workerFetch(path, options = {}) {
   return json;
 }
 
-
-// ─── Profile ──────────────────────────────────────────────────────────────────
-async function apiGetProfile() {
-  return workerFetch('/api/worker/profile');
+// Fetch all Transport Manager created duties (supports single date or date range)
+async function apiGetAssignedTrips(queryParam = '') {
+  let queryStr = '';
+  if (typeof queryParam === 'string' && queryParam) {
+    queryStr = `?date=${encodeURIComponent(queryParam)}`;
+  } else if (typeof queryParam === 'object' && queryParam) {
+    const params = new URLSearchParams();
+    if (queryParam.date) params.set('date', queryParam.date);
+    if (queryParam.startDate) params.set('startDate', queryParam.startDate);
+    if (queryParam.endDate) params.set('endDate', queryParam.endDate);
+    queryStr = `?${params.toString()}`;
+  }
+  return workerFetch(`/api/worker/assigned-trips${queryStr}`);
 }
 
-// ─── Stats ────────────────────────────────────────────────────────────────────
-async function apiGetStats() {
-  return workerFetch('/api/worker/dashboard-stats');
+// Fetch details for a specific Transport Manager duty/trip
+async function apiGetTripDetails(tripId) {
+  return workerFetch(`/api/trips/${tripId}`);
 }
 
-// ─── Active Trip ──────────────────────────────────────────────────────────────
-async function apiGetActiveTrip() {
-  return workerFetch('/api/worker/active-trip');
+// Confirm and start trip
+async function apiStartWorkerTrip(tripId, payload) {
+  return workerFetch(`/api/trips/${tripId}/start-worker`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
 }
 
-// ─── Drivers & Tankers ───────────────────────────────────────────────────────
-async function apiGetDrivers() {
-  return workerFetch('/api/drivers');
-}
-async function apiGetTankers() {
-  return workerFetch('/api/tankers');
-}
-
-// ─── BMC Search ──────────────────────────────────────────────────────────────
-async function apiSearchBmcs(q = '') {
-  return workerFetch(`/api/bmcs/search?q=${encodeURIComponent(q)}`);
+// Complete and close active trip
+async function apiCompleteWorkerTrip(tripId, payload) {
+  return workerFetch(`/api/trips/${tripId}/complete-worker`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
 }
 
-// ─── Create BMC ─ DISABLED at backend (403 Forbidden) ─────────────────────
-// Field Workers are no longer allowed to create BMC records.
-// This function is kept for reference only — any call will receive a 403.
-async function apiCreateBmc(body) {
-  // This will receive: 403 Field Workers are no longer permitted to create BMC records.
-  return workerFetch('/api/worker/create-bmc', { method: 'POST', body: JSON.stringify(body) });
+// Edit existing completed trip metrics
+async function apiEditWorkerTrip(tripId, payload) {
+  return workerFetch(`/api/worker/trips/${tripId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
 }
 
-// ─── Trips ─ DISABLED at backend (403 Forbidden) ───────────────────────────
-// Workers cannot independently create trips. Trips are created by
-// Transport Officers and assigned to workers by the P&I AGM.
-async function apiCreateTrip(body) {
-  // This will receive: 403 Workers cannot independently create trips.
-  return workerFetch('/api/trips', { method: 'POST', body: JSON.stringify(body) });
-}
-async function apiGetTrips() {
-  return workerFetch('/api/trips');
-}
-async function apiGetAssignedTrips() {
-  return workerFetch('/api/worker/assigned-trips');
-}
-async function apiGetTrip(id) {
-  return workerFetch(`/api/trips/${id}`);
-}
-async function apiCompleteTrip(id, body) {
-  return workerFetch(`/api/trips/${id}/complete`, { method: 'PATCH', body: JSON.stringify(body) });
+// Update worker active trip location points
+async function apiUpdateWorkerTripLocation(tripId, payload) {
+  return workerFetch(`/api/trips/${tripId}/location`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }).catch(() => {});
 }
 
-// ─── BMC Visits ──────────────────────────────────────────────────────────────
-async function apiAddBmcToTrip(tripId, bmcId) {
-  return workerFetch(`/api/trips/${tripId}/visits`, { method: 'POST', body: JSON.stringify({ bmc_id: bmcId }) });
-}
-async function apiGetVisit(visitId) {
+// Fetch single BMC Visit details
+async function apiGetVisitDetails(visitId) {
   return workerFetch(`/api/visits/${visitId}`);
 }
-async function apiUpdateVisit(visitId, body) {
-  return workerFetch(`/api/visits/${visitId}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+// Update BMC Visit Weight & Compartment
+async function apiUpdateVisitWeight(visitId, payload) {
+  return workerFetch(`/api/visits/${visitId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
 }
-async function apiDeleteVisit(visitId) {
-  return workerFetch(`/api/visits/${visitId}`, { method: 'DELETE' });
+
+// Save FTIR Test Result
+async function apiSaveFtirTest(visitId, payload) {
+  return workerFetch(`/api/visits/${visitId}/ftir`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+// Save Gerber Test Result
+async function apiSaveGerberTest(visitId, payload) {
+  return workerFetch(`/api/visits/${visitId}/gerber`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+// Save Report / Issue
+async function apiSaveReportIssue(visitId, payload) {
+  return workerFetch(`/api/visits/${visitId}/issues`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+// Save Review / Rating
+async function apiSaveReviewRating(visitId, payload) {
+  return workerFetch(`/api/visits/${visitId}/rating`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+// Fetch Field Worker Analysis Analytics
+async function apiGetWorkerAnalysis(startDate = '', endDate = '') {
+  const params = new URLSearchParams();
+  if (startDate) params.set('startDate', startDate);
+  if (endDate) params.set('endDate', endDate);
+  return workerFetch(`/api/worker/analysis?${params.toString()}`);
 }
 
 
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
-async function apiSaveFtir(visitId, body) {
-  return workerFetch(`/api/visits/${visitId}/ftir`, { method: 'POST', body: JSON.stringify(body) });
-}
-async function apiSaveGerber(visitId, body) {
-  return workerFetch(`/api/visits/${visitId}/gerber`, { method: 'POST', body: JSON.stringify(body) });
-}
-
-// ─── Requirements ────────────────────────────────────────────────────────────
-async function apiSaveRequirements(visitId, body) {
-  return workerFetch(`/api/visits/${visitId}/requirements`, { method: 'POST', body: JSON.stringify(body) });
-}
-
-// ─── Issues ──────────────────────────────────────────────────────────────────
-async function apiAddIssue(visitId, body) {
-  return workerFetch(`/api/visits/${visitId}/issues`, { method: 'POST', body: JSON.stringify(body) });
-}
-async function apiDeleteIssue(issueId) {
-  return workerFetch(`/api/issues/${issueId}`, { method: 'DELETE' });
-}
-
-// ─── Rating ──────────────────────────────────────────────────────────────────
-async function apiSaveRating(visitId, body) {
-  return workerFetch(`/api/visits/${visitId}/rating`, { method: 'POST', body: JSON.stringify(body) });
-}

@@ -1,14 +1,18 @@
-// gm-dashboard.js — P&I AGM Executive Overview Page Logic
+// gm-dashboard.js — GM Portal Executive Overview Logic
 
 let currentDashboardData = null;
-let selectedDate = '';
+let currentFilter = {
+  preset: 'today',
+  startDate: '',
+  endDate: ''
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
   const profile = await checkAuth('gm');
   if (!profile) return;
 
   if (document.getElementById('header-gm-name')) {
-    document.getElementById('header-gm-name').textContent = profile.name || 'P&I AGM';
+    document.getElementById('header-gm-name').textContent = profile.name || 'General Manager';
   }
 
   function getLocalDateStr(d = new Date()) {
@@ -18,18 +22,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `${year}-${month}-${day}`;
   }
 
-  // Setup Date Picker default (Today)
   const todayStr = getLocalDateStr();
-  selectedDate = todayStr;
-  const datePicker = document.getElementById('gm-date-picker');
-  if (datePicker) {
-    datePicker.value = todayStr;
-    datePicker.addEventListener('change', (e) => {
-      selectedDate = e.target.value;
-      updatePresetButtonUI('');
-      loadDashboardData();
-    });
-  }
+  const defaultFromDate = '2026-08-01'; // Default start of current operational period so data loads immediately
+  currentFilter = { preset: 'custom', startDate: defaultFromDate, endDate: todayStr };
+
+  const fromDateInput = document.getElementById('gm-from-date');
+  const toDateInput = document.getElementById('gm-to-date');
+  if (fromDateInput) fromDateInput.value = defaultFromDate;
+  if (toDateInput) toDateInput.value = todayStr;
 
   // Presets
   const btnToday = document.getElementById('btn-preset-today');
@@ -37,19 +37,44 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (btnToday) {
     btnToday.addEventListener('click', () => {
-      selectedDate = getLocalDateStr();
-      if (datePicker) datePicker.value = selectedDate;
+      const today = getLocalDateStr();
+      currentFilter = { preset: 'today', startDate: today, endDate: today };
+      if (fromDateInput) fromDateInput.value = today;
+      if (toDateInput) toDateInput.value = today;
       updatePresetButtonUI('today');
       loadDashboardData();
     });
   }
+
   if (btnYesterday) {
     btnYesterday.addEventListener('click', () => {
       const y = new Date();
       y.setDate(y.getDate() - 1);
-      selectedDate = getLocalDateStr(y);
-      if (datePicker) datePicker.value = selectedDate;
+      const yStr = getLocalDateStr(y);
+      currentFilter = { preset: 'yesterday', startDate: yStr, endDate: yStr };
+      if (fromDateInput) fromDateInput.value = yStr;
+      if (toDateInput) toDateInput.value = yStr;
       updatePresetButtonUI('yesterday');
+      loadDashboardData();
+    });
+  }
+
+  // Date Range Search Button
+  const searchBtn = document.getElementById('btn-date-search');
+  if (searchBtn) {
+    searchBtn.addEventListener('click', () => {
+      const sDate = fromDateInput?.value;
+      const eDate = toDateInput?.value;
+      if (!sDate || !eDate) {
+        if (typeof showToast === 'function') showToast('Please select both From Date and To Date.', 'error');
+        return;
+      }
+      if (sDate > eDate) {
+        if (typeof showToast === 'function') showToast('From Date cannot be later than To Date.', 'error');
+        return;
+      }
+      currentFilter = { preset: 'custom', startDate: sDate, endDate: eDate };
+      updatePresetButtonUI('custom');
       loadDashboardData();
     });
   }
@@ -57,36 +82,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
 
-  // Exports
-  const exportExcelBtn = document.getElementById('export-excel-btn');
-  if (exportExcelBtn) exportExcelBtn.addEventListener('click', exportToExcel);
-
+  // Export PDF
   const exportPdfBtn = document.getElementById('export-pdf-btn');
   if (exportPdfBtn) exportPdfBtn.addEventListener('click', exportToPDF);
 
   const searchInput = document.getElementById('trip-search-input');
   const statusFilter = document.getElementById('trip-status-filter');
-  if (searchInput) searchInput.addEventListener('input', () => { if(currentDashboardData) renderTripsTable(currentDashboardData.trips); });
-  if (statusFilter) statusFilter.addEventListener('change', () => { if(currentDashboardData) renderTripsTable(currentDashboardData.trips); });
+  if (searchInput) searchInput.addEventListener('input', () => { if (currentDashboardData) renderTripBoxes(currentDashboardData.trips); });
+  if (statusFilter) statusFilter.addEventListener('change', () => { if (currentDashboardData) renderTripBoxes(currentDashboardData.trips); });
 
   setupTripDetailModal();
   setupAssignWorkerModal();
   await loadDashboardData();
-  await loadPendingTrips();
-
-  // Pending trips controls
-  const refreshPendingBtn = document.getElementById('refresh-pending-btn');
-  if (refreshPendingBtn) refreshPendingBtn.addEventListener('click', loadPendingTrips);
-
-  const pendingSearch = document.getElementById('pending-search-input');
-  if (pendingSearch) pendingSearch.addEventListener('input', () => {
-    if (window._allPendingTrips) renderPendingTripsTable(window._allPendingTrips);
-  });
-
-  const pendingStatusFilter = document.getElementById('pending-status-filter');
-  if (pendingStatusFilter) pendingStatusFilter.addEventListener('change', () => {
-    if (window._allPendingTrips) renderPendingTripsTable(window._allPendingTrips);
-  });
+  if (document.getElementById('pending-trips-table-body')) {
+    await loadPendingTrips();
+  }
 });
 
 function updatePresetButtonUI(activeType) {
@@ -98,11 +108,17 @@ function updatePresetButtonUI(activeType) {
 
 async function loadDashboardData() {
   try {
-    const data = await apiGetGmDashboardV2(selectedDate);
+    let param;
+    if (currentFilter.startDate === currentFilter.endDate) {
+      param = currentFilter.startDate;
+    } else {
+      param = { startDate: currentFilter.startDate, endDate: currentFilter.endDate };
+    }
+    const data = await apiGetGmDashboardV2(param);
     currentDashboardData = data;
     renderOverview(data);
   } catch (err) {
-    console.error('Failed to load P&I AGM Overview:', err);
+    console.error('Failed to load GM Operational Overview:', err);
     if (typeof showToast === 'function') {
       showToast(err.message || 'Failed to load operational overview.', 'error');
     }
@@ -114,16 +130,21 @@ function renderOverview(data) {
   const { date_formatted, kpis = {}, trips = [] } = data;
 
   const subEl = document.getElementById('dashboard-date-subtitle');
-  if (subEl) subEl.textContent = `Operational Report for ${date_formatted || selectedDate}`;
+  if (subEl) {
+    const rangeText = currentFilter.startDate === currentFilter.endDate
+      ? currentFilter.startDate
+      : `${currentFilter.startDate} to ${currentFilter.endDate}`;
+    subEl.textContent = `Operational Report for ${date_formatted || rangeText}`;
+  }
 
   // KPIs
-  if (document.getElementById('kpi-total-trips')) document.getElementById('kpi-total-trips').textContent = kpis.total_trips ?? 0;
-  if (document.getElementById('kpi-active-trips')) document.getElementById('kpi-active-trips').textContent = kpis.active_trips ?? 0;
-  if (document.getElementById('kpi-completed-trips')) document.getElementById('kpi-completed-trips').textContent = kpis.completed_trips ?? 0;
+  if (document.getElementById('kpi-total-trips')) document.getElementById('kpi-total-trips').textContent = kpis.total_trips ?? trips.length;
+  if (document.getElementById('kpi-active-trips')) document.getElementById('kpi-active-trips').textContent = kpis.active_trips ?? trips.filter(t => t.status === 'active').length;
+  if (document.getElementById('kpi-completed-trips')) document.getElementById('kpi-completed-trips').textContent = kpis.completed_trips ?? trips.filter(t => t.status === 'completed').length;
   if (document.getElementById('kpi-total-milk')) document.getElementById('kpi-total-milk').textContent = `${(kpis.total_milk_liters || 0).toLocaleString()} kg`;
 
-  // Trip Operations
-  renderTripsTable(trips);
+  // Trip Operations as Blue Boxes
+  renderTripBoxes(trips);
 }
 
 
@@ -217,7 +238,11 @@ function exportToPDF() {
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('p', 'mm', 'a4');
-  const { date_formatted, kpis, trips } = currentDashboardData;
+  const { date_formatted, kpis = {}, trips = [] } = currentDashboardData;
+
+  const dateFilterStr = currentFilter.startDate === currentFilter.endDate
+    ? `Date: ${currentFilter.startDate}`
+    : `Date Range: ${currentFilter.startDate} to ${currentFilter.endDate}`;
 
   // Header Banner
   doc.setFillColor(15, 23, 42);
@@ -228,17 +253,17 @@ function exportToPDF() {
   doc.text('MADURAI DISTRICT CO-OPERATIVE MILK PRODUCER\'S UNION LTD', 14, 12);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  doc.text(`GM Executive Operational Report — ${date_formatted || selectedDate}`, 14, 20);
+  doc.text(`GM PORTAL — Operational Overview Report (${dateFilterStr})`, 14, 20);
 
   // Executive Summary Section
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.text('Executive Operational Summary', 14, 36);
+  doc.text('Executive Summary KPIs', 14, 36);
 
   const kpiRows = [
-    ['Total Trips:', String(kpis.total_trips || 0), 'Active In-Transit:', String(kpis.active_trips || 0)],
-    ['Completed Trips:', String(kpis.completed_trips || 0), 'Milk Volume Collected:', `${kpis.total_milk_liters || 0} kg`]
+    ['Total Field Trips:', String(kpis.total_trips || trips.length), 'Active Trips:', String(kpis.active_trips || trips.filter(t => t.status === 'active').length)],
+    ['Finished Trips:', String(kpis.completed_trips || trips.filter(t => t.status === 'completed').length), 'Total Milk Collected:', `${(kpis.total_milk_liters || 0).toLocaleString()} kg`]
   ];
 
   doc.autoTable({
@@ -251,85 +276,48 @@ function exportToPDF() {
 
   let currentY = doc.lastAutoTable.finalY + 8;
 
-  // All Trips Operations Section
+  // Trips & BMC Sequence Section
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.text('Field Trip Operations Summary', 14, currentY);
+  doc.text('Field Trip Operations & Visited BMC Sequence', 14, currentY);
 
-  const tripColumns = ['Trip Name', 'Worker', 'Driver & Vehicle', 'Visited BMC Route', 'Out Time', 'Status'];
-  const tripRows = (trips || []).map(t => [
-    t.trip_name || '—',
-    t.worker_name || '—',
-    `${t.driver_name || '—'}\n(${t.tanker_number || '—'})`,
-    t.route || 'No BMCs visited',
-    t.out_time ? new Date(t.out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—',
-    (t.status || 'pending').toUpperCase()
-  ]);
+  const tableColumns = ['S.No', 'Route / Trip Name', 'Tanker', 'Driver', 'Status', 'Visits (In Sequence) & Quantities'];
+  const tableRows = (trips || []).map((t, idx) => {
+    const visits = (t.visits || []).slice().sort((a, b) => (a.visit_sequence || 0) - (b.visit_sequence || 0));
+    const visitsStr = visits.length === 0
+      ? 'No BMC visits'
+      : visits.map(v => `${v.visit_sequence || 1}. ${v.bmc_name} (${v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '-'})`).join('\n');
+
+    return [
+      String(idx + 1),
+      t.trip_name || '—',
+      t.tanker_number || '—',
+      t.driver_name || '—',
+      (t.status || 'pending').toUpperCase(),
+      visitsStr
+    ];
+  });
 
   doc.autoTable({
     startY: currentY + 3,
-    head: [tripColumns],
-    body: tripRows,
+    head: [tableColumns],
+    body: tableRows,
     theme: 'striped',
     headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-    styles: { fontSize: 8, cellPadding: 2 },
+    styles: { fontSize: 8, cellPadding: 3, verticalAlignment: 'middle' },
     columnStyles: {
-      0: { cellWidth: 35, fontStyle: 'bold' },
-      1: { cellWidth: 30 },
-      2: { cellWidth: 30 },
-      3: { cellWidth: 50 },
-      4: { cellWidth: 20 },
-      5: { cellWidth: 20, fontStyle: 'bold' }
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 35, fontStyle: 'bold' },
+      2: { cellWidth: 25 },
+      3: { cellWidth: 25 },
+      4: { cellWidth: 20, fontStyle: 'bold' },
+      5: { cellWidth: 65 }
     }
   });
 
-  currentY = doc.lastAutoTable.finalY + 8;
-
-  // Detailed BMC Visit Breakdowns Section
-  doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Detailed BMC Visits & Spot Quality Test Breakdown', 14, currentY);
-
-  const visitColumns = ['Trip Name', 'Seq', 'BMC Name', 'Milk Qty', 'FTIR Test', 'Gerber Test'];
-  const visitRows = [];
-
-  (trips || []).forEach(t => {
-    const visits = t.visits || [];
-    if (visits.length === 0) {
-      visitRows.push([t.trip_name || '—', '—', 'No BMC visits recorded', '—', '—', '—']);
-    } else {
-      visits.forEach(v => {
-        visitRows.push([
-          t.trip_name || '—',
-          String(v.visit_sequence || 1),
-          v.bmc_name || '—',
-          v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'),
-          v.ftir_result || '—',
-          v.gerber_result || '—'
-        ]);
-      });
-    }
-  });
-
-  doc.autoTable({
-    startY: currentY + 3,
-    head: [visitColumns],
-    body: visitRows,
-    theme: 'grid',
-    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-    styles: { fontSize: 7.5, cellPadding: 2 },
-    columnStyles: {
-      0: { cellWidth: 35, fontStyle: 'bold' },
-      1: { cellWidth: 10, halign: 'center' },
-      2: { cellWidth: 40 },
-      3: { cellWidth: 20 },
-      4: { cellWidth: 40 },
-      5: { cellWidth: 40 }
-    }
-  });
-
-  doc.save(`AAVIN_PIAgm_Report_${selectedDate}.pdf`);
-  if (typeof showToast === 'function') showToast('Detailed PDF report downloaded!', 'success');
+  const filename = `GM_Portal_Report_${currentFilter.startDate}_to_${currentFilter.endDate}.pdf`;
+  doc.save(filename);
+  if (typeof showToast === 'function') showToast('PDF operational report downloaded successfully!', 'success');
 }
 
 // ── Pending Trips (Transport Manager trips awaiting worker assignment) ─────────
@@ -554,9 +542,9 @@ window.selectWorker = function(workerId, el) {
   if (assignBtn) assignBtn.disabled = false;
 };
 
-function renderTripsTable(trips = []) {
-  const tbody = document.getElementById('trips-table-body');
-  if (!tbody) return;
+function renderTripBoxes(trips = []) {
+  const container = document.getElementById('trips-boxes-container');
+  if (!container) return;
 
   const searchVal = (document.getElementById('trip-search-input')?.value || '').toLowerCase().trim();
   const statusFilter = (document.getElementById('trip-status-filter')?.value || '').toLowerCase();
@@ -567,49 +555,95 @@ function renderTripsTable(trips = []) {
       (t.worker_name || '').toLowerCase().includes(searchVal) ||
       (t.driver_name || '').toLowerCase().includes(searchVal) ||
       (t.tanker_number || '').toLowerCase().includes(searchVal) ||
-      (t.route || '').toLowerCase().includes(searchVal);
+      (t.route || '').toLowerCase().includes(searchVal) ||
+      (t.visits || []).some(v => (v.bmc_name || '').toLowerCase().includes(searchVal));
     const matchStatus = !statusFilter || (t.status || '').toLowerCase() === statusFilter;
     return matchSearch && matchStatus;
   });
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted" style="padding:24px;">No trips found matching criteria.</td></tr>`;
+    container.innerHTML = `
+      <div class="content-card text-center text-muted" style="padding:40px;">
+        🔍 No field trips found matching the selected filter criteria.
+      </div>
+    `;
     return;
   }
 
-  tbody.innerHTML = filtered.map(t => {
+  container.innerHTML = filtered.map((t, idx) => {
+    const sNo = idx + 1;
     const statusClass = (t.status || 'pending').toLowerCase();
-    const shortId = t.id ? t.id.slice(0, 8) : 'TRIP';
+    const isCompleted = statusClass === 'completed';
+    const statusBadge = isCompleted
+      ? `<span class="badge badge-success" style="font-size:0.8rem; font-weight:700;">✅ FINISHED</span>`
+      : `<span class="badge badge-blue" style="font-size:0.8rem; font-weight:700;">🔄 ACTIVE</span>`;
+
+    const visits = (t.visits || []).slice().sort((a, b) => (a.visit_sequence || 0) - (b.visit_sequence || 0));
+
+    const bmcRowsHtml = visits.length === 0
+      ? `<div class="text-xs text-muted" style="padding:10px;">No BMC visits recorded yet for this trip.</div>`
+      : visits.map((v, vIdx) => {
+          const seqNum = v.visit_sequence || (vIdx + 1);
+          const qtyText = v.milk_quantity_formatted && v.milk_quantity_formatted !== '—' ? v.milk_quantity_formatted : (v.milk_quantity_liters ? `${v.milk_quantity_liters} L` : '—');
+          const ftirText = v.ftir_result && v.ftir_result !== '—' && v.ftir_result !== 'Pending' ? v.ftir_result : '—';
+          const gerberText = v.gerber_result && v.gerber_result !== '—' && v.gerber_result !== 'Pending' ? v.gerber_result : '—';
+          const compartmentText = v.compartment ? v.compartment.charAt(0).toUpperCase() + v.compartment.slice(1) : '';
+          const visitStatusBadge = v.status === 'completed' || v.status === 'visited'
+            ? `<span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:700;">✅ Visited</span>`
+            : `<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:700;">⏳ Pending</span>`;
+
+          return `
+            <div class="bmc-sequence-item">
+              <div class="bmc-item-left">
+                <span class="bmc-seq-num">${seqNum}</span>
+                <span class="bmc-item-name">${esc(v.bmc_name)}</span>
+                ${compartmentText ? `<span style="background:#EFF6FF;color:#1E40AF;padding:1px 6px;border-radius:6px;font-size:0.68rem;font-weight:600;margin-left:4px;">${esc(compartmentText)}</span>` : ''}
+                ${visitStatusBadge}
+              </div>
+              <div class="bmc-item-data">
+                <span class="bmc-data-pill">🥛 Qty: <strong>${esc(qtyText)}</strong></span>
+                <span class="bmc-data-pill">🔬 FTIR: <strong>${esc(ftirText)}</strong></span>
+                <span class="bmc-data-pill">🧪 Gerber: <strong>${esc(gerberText)}</strong></span>
+              </div>
+            </div>
+          `;
+        }).join('');
 
     return `
-      <tr onclick="openTripDetailModal('${t.id}')">
-        <td><strong>${esc(t.trip_name)}</strong><div class="text-xs text-muted">ID: ${shortId}</div></td>
-        <td>${esc(t.worker_name)}</td>
-        <td>${esc(t.driver_name || '—')}</td>
-        <td><span class="badge badge-neutral">${esc(t.tanker_number || '—')}</span></td>
-        <td><span class="text-sm" title="${esc(t.route)}">${esc(t.route || 'No BMCs yet')}</span></td>
-        <td>${formatTime(t.out_time)}</td>
-        <td>${t.in_time ? formatTime(t.in_time) : '—'}</td>
-        <td><span class="status-badge ${statusClass}">${t.status || 'Pending'}</span></td>
-        <td>
-          <div class="d-flex gap-1" style="gap:4px;">
-            <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openTripDetailModal('${t.id}')" title="View Details">
-              🔍 Details
-            </button>
-            <button class="btn btn-sm btn-outline" style="color:#059669; border-color:#a7f3d0;" onclick="event.stopPropagation(); exportSingleTripExcelById('${t.id}')" title="Download Spot Ack Excel">
-              📊
-            </button>
-            <button class="btn btn-sm btn-outline" style="color:#dc2626; border-color:#fca5a5;" onclick="event.stopPropagation(); exportSingleTripPDFById('${t.id}')" title="Download Single Trip PDF">
-              📄
-            </button>
-            <button class="btn btn-sm btn-outline" style="color:#ef4444; border-color:#fca5a5;" onclick="event.stopPropagation(); deleteTripByGm('${t.id}', '${esc(t.trip_name)}')" title="Delete Trip">
-              🗑️
-            </button>
+      <div class="trip-blue-box" id="trip-box-${t.id}">
+        <div class="trip-box-header">
+          <div class="trip-box-header-left">
+            <span class="trip-sno-badge">S.No: ${sNo}</span>
+            <h4 class="trip-route-title">${esc(t.trip_name || 'Route Trip')}</h4>
           </div>
-        </td>
-      </tr>
+          <div class="d-flex align-items-center gap-2" style="gap:8px;">
+            ${statusBadge}
+            <button class="btn btn-sm btn-outline" onclick="openTripDetailModal('${t.id}')" title="View Trip Details">🔍 Details</button>
+            <button class="btn btn-sm btn-outline" style="color:#ef4444; border-color:#fca5a5;" onclick="deleteTripByGm('${t.id}', '${esc(t.trip_name)}')" title="Delete Trip">🗑️ Delete</button>
+          </div>
+        </div>
+
+        <div class="trip-box-meta-grid">
+          <div class="trip-meta-tag">🗺️ <strong>Route Name:</strong> ${esc(t.route && t.route !== '—' ? t.route : (t.trip_name || '-'))}</div>
+          <div class="trip-meta-tag">🚛 <strong>Tanker:</strong> ${esc(t.tanker_number && t.tanker_number !== 'Unassigned' ? t.tanker_number : '-')}</div>
+          <div class="trip-meta-tag">👨‍✈️ <strong>Driver:</strong> ${esc(t.driver_name && t.driver_name !== 'Unassigned' ? (t.driver_name === 'driver' ? 'Driver' : t.driver_name) : '-')}</div>
+          <div class="trip-meta-tag">👷 <strong>Worker:</strong> ${esc(t.worker_name && t.worker_name !== 'Unknown Worker' ? t.worker_name : '-')}</div>
+          <div class="trip-meta-tag">⏱️ <strong>Out:</strong> ${formatTime(t.out_time)} | <strong>In:</strong> ${t.in_time ? formatTime(t.in_time) : 'Active'}</div>
+        </div>
+
+        <div class="bmc-visit-sequence-container">
+          <div class="bmc-sequence-header">📍 BMC Visited (In Actual Sequence):</div>
+          <div class="bmc-sequence-list">
+            ${bmcRowsHtml}
+          </div>
+        </div>
+      </div>
     `;
   }).join('');
+}
+
+function renderTripsTable(trips = []) {
+  renderTripBoxes(trips);
 }
 
 window.deleteTripByGm = async function(tripId, tripName) {

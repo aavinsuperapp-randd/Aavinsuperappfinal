@@ -36,9 +36,18 @@ async function apiGetGmDashboard() {
   return gmFetch('/api/gm/dashboard');
 }
 
-// Fetch Comprehensive P&I AGM Dashboard V2 (Single Date)
-async function apiGetGmDashboardV2(dateStr = '') {
-  const query = dateStr ? `?date=${encodeURIComponent(dateStr)}` : '';
+// Fetch Comprehensive GM Dashboard V2 (Single Date or Date Range)
+async function apiGetGmDashboardV2(param = '') {
+  let query = '';
+  if (typeof param === 'string' && param) {
+    query = `?date=${encodeURIComponent(param)}`;
+  } else if (typeof param === 'object' && param) {
+    if (param.startDate && param.endDate) {
+      query = `?startDate=${encodeURIComponent(param.startDate)}&endDate=${encodeURIComponent(param.endDate)}`;
+    } else if (param.date) {
+      query = `?date=${encodeURIComponent(param.date)}`;
+    }
+  }
   return gmFetch(`/api/gm/dashboard-v2${query}`);
 }
 
@@ -171,6 +180,7 @@ async function apiGmDeleteTrip(tripId) {
   const client = await initSupabase();
   if (!client) throw new Error('Supabase client uninitialized.');
   await client.from('trip_bmc_visits').delete().eq('trip_id', tripId);
+  await client.from('trips').delete().eq('id', tripId); // Delete from trips as well!
   const { error } = await client.from('driver_trips').delete().eq('id', tripId);
   if (error) throw error;
   return { success: true };

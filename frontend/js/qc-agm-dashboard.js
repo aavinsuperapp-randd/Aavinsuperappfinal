@@ -62,6 +62,7 @@ function setupControls() {
   const dateSelect = document.getElementById('macs-date-select');
   const periodSelect = document.getElementById('macs-period-select');
   const searchInput = document.getElementById('macs-search-input');
+  const routeFilter = document.getElementById('macs-route-filter');
   const btnToday = document.getElementById('btn-quick-today');
   const btnYesterday = document.getElementById('btn-quick-yesterday');
 
@@ -77,6 +78,10 @@ function setupControls() {
     periodSelect.addEventListener('change', () => {
       loadReadingsForDate(selectedDate);
     });
+  }
+
+  if (routeFilter) {
+    routeFilter.addEventListener('change', () => renderFilteredReadings());
   }
 
   if (searchInput) {
@@ -177,11 +182,42 @@ async function loadReadingsForDate(dateStr) {
     currentMacsReadings = readings;
     currentNoMacsReadings = noMacsReadings;
 
+    populateRouteFilterOptions();
     await updateSummaryCards(dateStr, period);
     renderFilteredReadings();
   } catch (err) {
     console.error('Error loading MACS readings:', err);
     showToast('Failed to load MACS readings for selected date.', 'error');
+  }
+}
+
+function populateRouteFilterOptions() {
+  const routeSelect = document.getElementById('macs-route-filter');
+  if (!routeSelect) return;
+
+  const currentVal = routeSelect.value || 'all';
+
+  const routesSet = new Set();
+  masterBmcsList.forEach(b => {
+    const r = b.bmc_routes?.name || b.route_name;
+    if (r) routesSet.add(r);
+  });
+  currentMacsReadings.forEach(item => {
+    const r = getItemRouteName(item);
+    if (r && r !== 'Unassigned Route') routesSet.add(r);
+  });
+  currentNoMacsReadings.forEach(item => {
+    const r = getItemRouteName(item);
+    if (r && r !== 'Unassigned Route') routesSet.add(r);
+  });
+
+  const routesList = Array.from(routesSet).sort();
+
+  routeSelect.innerHTML = `<option value="all">🛣️ All Routes</option>` +
+    routesList.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+
+  if (currentVal && Array.from(routeSelect.options).some(o => o.value === currentVal)) {
+    routeSelect.value = currentVal;
   }
 }
 
@@ -223,19 +259,30 @@ function renderFilteredReadings() {
   if (!tbody1) return;
 
   const query = (document.getElementById('macs-search-input')?.value || '').trim().toLowerCase();
+  const selectedRoute = document.getElementById('macs-route-filter')?.value || 'all';
 
   const filtered1 = currentMacsReadings.filter(item => {
+    const itemRoute = getItemRouteName(item);
+    const routeMatches = selectedRoute === 'all' || itemRoute === selectedRoute;
+
     const codeMatch = String(item.bmc_code || '').toLowerCase().includes(query);
     const nameMatch = String(item.bmc_name || '').toLowerCase().includes(query);
-    const routeMatch = String(getItemRouteName(item)).toLowerCase().includes(query);
-    return !query || codeMatch || nameMatch || routeMatch;
+    const searchRouteMatch = String(itemRoute).toLowerCase().includes(query);
+    const searchMatches = !query || codeMatch || nameMatch || searchRouteMatch;
+
+    return routeMatches && searchMatches;
   });
 
   const filtered2 = currentNoMacsReadings.filter(item => {
+    const itemRoute = getItemRouteName(item);
+    const routeMatches = selectedRoute === 'all' || itemRoute === selectedRoute;
+
     const codeMatch = String(item.bmc_code || '').toLowerCase().includes(query);
     const nameMatch = String(item.bmc_name || '').toLowerCase().includes(query);
-    const routeMatch = String(getItemRouteName(item)).toLowerCase().includes(query);
-    return !query || codeMatch || nameMatch || routeMatch;
+    const searchRouteMatch = String(itemRoute).toLowerCase().includes(query);
+    const searchMatches = !query || codeMatch || nameMatch || searchRouteMatch;
+
+    return routeMatches && searchMatches;
   });
 
   const dash = `<span style="color:#94A3B8; font-weight:600;">-</span>`;

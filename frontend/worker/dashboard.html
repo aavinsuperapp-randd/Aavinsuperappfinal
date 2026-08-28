@@ -3,202 +3,111 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Field Worker Dashboard — AAVIN Tracker</title>
+  <title>Duty — Field Worker Portal</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
-  <link rel="stylesheet" href="/css/global.css">
-  <link rel="stylesheet" href="/css/worker.css">
-  <link rel="stylesheet" href="/css/bmc-admin.css">
+  <link rel="stylesheet" href="/css/gm-portal.css">
+  <link rel="stylesheet" href="../css/gm-portal.css">
   <link rel="stylesheet" href="../css/global.css">
-  <link rel="stylesheet" href="../css/worker.css">
-  <link rel="stylesheet" href="../css/bmc-admin.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    /* ── Assigned Trips Section ───────────────────────────────── */
-    .assigned-trips-section { margin-top: 24px; }
-    .assigned-trips-header {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 12px;
-    }
-    .assigned-trips-header h3 {
-      margin: 0; font-size: 1rem; font-weight: 700; color: #0F172A;
-      display: flex; align-items: center; gap: 8px;
-    }
-    .assigned-count-badge {
-      background: #2563EB; color: #fff; border-radius: 20px;
-      padding: 2px 9px; font-size: 0.72rem; font-weight: 700;
-    }
-    .assigned-trip-card {
-      background: #fff; border-radius: 14px;
-      border: 1.5px solid #E2E8F0;
-      padding: 18px 20px; margin-bottom: 12px;
-      transition: box-shadow 0.15s, border-color 0.15s;
-    }
-    .assigned-trip-card:hover { box-shadow: 0 4px 20px rgba(37,99,235,0.10); border-color: #BFDBFE; }
-    .assigned-trip-card-header {
-      display: flex; align-items: flex-start; justify-content: space-between;
-      margin-bottom: 10px;
-    }
-    .assigned-trip-card-title { font-weight: 700; color: #0F172A; font-size: 0.95rem; }
-    .assigned-trip-card-id  { font-size: 0.72rem; color: #94A3B8; margin-top: 2px; }
-    .assigned-trip-meta {
-      display: flex; flex-wrap: wrap; gap: 12px;
-      font-size: 0.8rem; color: #475569; margin-bottom: 10px;
-    }
-    .assigned-trip-meta span { display: flex; align-items: center; gap: 4px; }
-    .assign-status-pill {
-      display: inline-block; padding: 3px 10px; border-radius: 20px;
-      font-size: 0.72rem; font-weight: 700;
-      background: #D1FAE5; color: #065F46;
-      text-transform: uppercase; letter-spacing: 0.03em;
-    }
-    .assign-status-pill.pending_assignment { background: #FEF3C7; color: #92400E; }
-    .assign-status-pill.worker_assigned   { background: #DBEAFE; color: #1E40AF; }
-    .assign-status-pill.in_progress       { background: #D1FAE5; color: #065F46; }
-    .btn-open-trip {
-      background: linear-gradient(135deg, #2563EB, #1D4ED8);
-      color: #fff; border: none; border-radius: 8px;
-      padding: 8px 18px; font-size: 0.83rem; font-weight: 600;
-      cursor: pointer; text-decoration: none; display: inline-block;
-      transition: opacity 0.15s;
-    }
-    .btn-open-trip:hover { opacity: 0.88; }
-    .no-trips-info {
-      text-align: center; padding: 32px 20px;
-      background: #F8FAFC; border-radius: 14px;
-      border: 1.5px dashed #CBD5E1; color: #64748B;
-    }
-    .no-trips-info .no-trips-icon { font-size: 2rem; margin-bottom: 8px; }
-    .no-trips-info p { margin: 0; font-size: 0.88rem; line-height: 1.5; }
-  </style>
 </head>
 <body>
-
-  <div class="worker-shell">
-    <!-- Sidebar Overlay for Mobile -->
+  <div class="admin-shell">
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
-    <!-- Blue Sidebar -->
-    <aside class="worker-sidebar" id="worker-sidebar">
-      <div class="ws-logo">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <img src="/assets/aavin-logo.png" alt="AAVIN">
-          <span>Field Worker Portal</span>
-        </div>
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="worker-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>Field Worker</span>
       </div>
-
-      <nav id="ws-nav" class="ws-nav">
-        <a href="dashboard.html" class="ws-nav-item active">
-          <span>🏠</span> Dashboard
-        </a>
-        <a href="#assigned-trips-section" class="ws-nav-item" id="nav-assigned-trips">
-          <span>🚛</span> My Assigned Trips
-        </a>
-        <a href="history.html" class="ws-nav-item">
-          <span>📜</span> Trip History
-        </a>
-        <a href="profile.html" class="ws-nav-item">
-          <span>👤</span> My Profile
-        </a>
-        <div class="ws-nav-divider"></div>
-        <button id="logout-btn" class="ws-nav-item">
-          <span>🚪</span> Logout
-        </button>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item active"><span>📋</span> Duty</a>
+        <a href="analysis.html" class="admin-nav-item"><span>📈</span> Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
       </nav>
     </aside>
 
-    <!-- Main Content Panel -->
-    <div class="worker-main">
-      <header class="worker-header">
-        <div class="d-flex align-items-center gap-3">
-          <button id="mobile-menu-toggle" class="mobile-menu-btn">☰</button>
-          <div class="worker-header-title">AAVIN BMC Monitoring &amp; Operations</div>
+    <div class="admin-main">
+      <!-- Header -->
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>Field Worker Portal</h2>
+            <p id="dashboard-date-subtitle">Transport Manager Planned Duties &amp; Operations</p>
+          </div>
         </div>
-        <div class="worker-header-user">
-          Field Worker: <strong id="header-worker-name">Loading...</strong>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-avatar" id="header-worker-avatar">FW</div>
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-worker-name">Loading...</div>
+              <div class="header-user-role">Field Operations</div>
+            </div>
+          </div>
         </div>
       </header>
 
-      <main class="worker-content">
-        <div id="main-content-area" class="hidden">
+      <main class="admin-content">
+        <div id="main-worker-content">
 
-          <!-- Page Top Greeting -->
-          <div class="page-top">
-            <h1>Good Day, <span id="welcome-name" style="color:#2563EB;">Worker</span> 👋</h1>
-            <p>Trips are assigned to you by the P&amp;I AGM. Check your assigned trips below to begin field operations.</p>
-          </div>
+          <!-- DATE FILTER BAR REMOVED -->
 
-          <!-- Stats Grid -->
-          <div class="stats-grid">
-            <div class="stat-card accent-blue">
-              <div class="stat-num" id="stat-total-trips">0</div>
-              <div class="stat-lbl">Total Trips</div>
-            </div>
-            <div class="stat-card accent-green">
-              <div class="stat-num" id="stat-completed-trips">0</div>
-              <div class="stat-lbl">Completed Trips</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-num" id="stat-assigned-trips" style="color:#2563EB;">0</div>
-              <div class="stat-lbl">Assigned to Me</div>
-            </div>
-          </div>
+          <!-- ACTIVE TRIP SECTION -->
+          <div id="active-trip-section" class="hidden" style="margin-bottom: 20px;">
+            <div class="content-card" style="border: 2px solid #2563EB; background: #F8FAFC; border-radius: 14px; padding: 20px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);">
+              <div style="font-size: 0.78rem; font-weight: 800; color: #2563EB; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                <span style="display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #2563EB; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);"></span>
+                Active Trip In Progress
+              </div>
 
-          <!-- Active Trip Banner / Card (existing) -->
-          <div id="active-trip-container">
-            <!-- Rendered dynamically by worker-dashboard.js -->
-          </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;">
+                <div>
+                  <h3 id="at-route-name" style="margin: 0 0 4px 0; font-size: 1.25rem; font-weight: 800; color: #0F172A;">—</h3>
+                  <div style="font-size: 0.88rem; color: #475569;">
+                    Started: <strong id="at-start-time" style="color: #0F172A;">—</strong>
+                  </div>
+                </div>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-primary" id="at-btn-view" style="padding: 9px 20px; font-weight: 700; font-size: 0.88rem; border-radius: 8px;">👁️ VIEW</button>
+                  <button type="button" class="btn btn-outline" id="at-btn-close" style="padding: 9px 20px; font-weight: 700; font-size: 0.88rem; border-radius: 8px; border-color: #DC2626; color: #DC2626;">🛑 CLOSE TRIP</button>
+                </div>
+              </div>
 
-          <!-- ── MY ASSIGNED TRIPS ─────────────────────────────────── -->
-          <div class="assigned-trips-section" id="assigned-trips-section">
-            <div class="assigned-trips-header">
-              <h3>
-                🚛 My Assigned Trips
-                <span class="assigned-count-badge" id="assigned-count-badge">0</span>
-              </h3>
-              <button id="refresh-assigned-btn" class="btn btn-outline btn-sm" style="font-size:0.78rem;">↻ Refresh</button>
-            </div>
-            <div id="assigned-trips-container">
-              <!-- Rendered by worker-dashboard.js -->
-              <div class="no-trips-info">
-                <div class="no-trips-icon">🔄</div>
-                <p>Loading your assigned trips...</p>
+              <div>
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <div style="flex: 1; background: #E2E8F0; border-radius: 999px; height: 12px; overflow: hidden;">
+                    <div id="at-progress-bar" style="background: linear-gradient(90deg, #2563EB, #3B82F6); height: 100%; width: 0%; transition: width 0.4s ease; border-radius: 999px;"></div>
+                  </div>
+                  <div id="at-bmc-count" style="font-weight: 800; font-size: 0.95rem; color: #0F172A; white-space: nowrap;">
+                    0/0 BMC Completed
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <!-- Quick Actions Grid (condensed — no Start Trip or Create BMC) -->
-          <div class="section-header mt-3">
-            <div class="section-title">⚡ Quick Actions</div>
-          </div>
-          <div class="quick-actions">
-            <button class="qa-btn" id="qa-search-bmc">
-              <span class="qa-icon">🔍</span>
-              <span>Search BMC</span>
-            </button>
-            <a href="history.html" class="qa-btn">
-              <span class="qa-icon">📜</span>
-              <span>Trip History</span>
-            </a>
-            <a href="profile.html" class="qa-btn">
-              <span class="qa-icon">👤</span>
-              <span>My Profile</span>
-            </a>
+          <!-- DUTIES TABS -->
+          <div class="dashboard-tabs" style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #E2E8F0;">
+            <button class="tab-btn active" id="tab-available" onclick="switchDutyTab('available')" style="padding: 10px 20px; font-weight: 700; border: none; background: none; border-bottom: 3px solid #2563EB; color: #2563EB; font-size: 1rem; cursor: pointer;">📋 Available Duties</button>
+            <button class="tab-btn" id="tab-finished" onclick="switchDutyTab('finished')" style="padding: 10px 20px; font-weight: 700; border: none; background: none; border-bottom: 3px solid transparent; color: #64748B; font-size: 1rem; cursor: pointer;">✅ Finished Duties</button>
           </div>
 
-          <!-- Field Operations Guidelines (updated) -->
-          <div class="form-section mt-3">
-            <div class="form-section-title">
-              <span>📌</span> Your Field Workflow
+          <div class="content-card" id="section-available">
+            <div id="available-duties-container" class="duty-list">
+              <div class="text-center text-muted py-4">
+                <div style="font-size: 1.8rem; margin-bottom: 8px;">🔄</div>
+                <div>Fetching available duties...</div>
+              </div>
             </div>
-            <div style="font-size:.85rem; color:#4B5563; line-height:1.6;">
-              <ol style="margin-left:20px;">
-                <li><strong>Check Assigned Trips:</strong> The P&amp;I AGM assigns trips to you. You'll see them above.</li>
-                <li><strong>Open Assigned Trip:</strong> Click "Open Trip" on your assigned trip to begin field operations.</li>
-                <li><strong>Visit BMC Units:</strong> Search and add BMC cooling centers along your route.</li>
-                <li><strong>Digital &amp; Physical Testing:</strong> Record Compartment, FTIR Digital &amp; Gerber test results.</li>
-                <li><strong>Log Issues:</strong> Note any equipment breakdowns.</li>
-                <li><strong>Complete Trip:</strong> Record Factory IN-time upon arrival to close the trip.</li>
-              </ol>
+          </div>
+
+          <div class="content-card" id="section-finished" style="display: none;">
+            <div id="finished-duties-container" class="duty-list">
+              <div class="text-center text-muted py-4">
+                <div style="font-size: 1.8rem; margin-bottom: 8px;">🔄</div>
+                <div>Fetching finished duties...</div>
+              </div>
             </div>
           </div>
 
@@ -207,22 +116,217 @@
     </div>
   </div>
 
-  <!-- BMC Search Modal (kept for search-only use) -->
-  <div id="bmc-search-modal" class="bmc-modal-overlay hidden">
-    <div class="bmc-modal">
-      <div class="bmc-modal-header">
-        <h3>🔍 Search BMC</h3>
-        <button id="bmc-search-close" class="bmc-modal-close">✕</button>
+  <!-- VIEW DUTY MODAL -->
+  <div id="view-duty-modal" class="modal-overlay hidden">
+    <div class="modal-content modal-lg">
+      <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+        <h3 style="margin:0; font-weight:800; color:#0F172A;">📋 Duty Details</h3>
+        <button type="button" class="btn btn-ghost" onclick="closeViewDutyModal()" aria-label="Close">✕</button>
       </div>
-      <div class="bmc-modal-body">
-        <div class="form-group mb-3">
-          <label class="form-label">Search BMC by Name, District, or Location</label>
-          <input type="text" id="bmc-search-input" class="form-input" placeholder="e.g. Erode Central or Madurai...">
+
+      <div class="modal-body" style="padding:0;">
+        <div class="trip-detail-grid mb-3">
+          <div class="detail-item-box" style="grid-column: span 2;">
+            <div class="lbl">Route Name</div>
+            <div class="val" id="vd-route-name">—</div>
+          </div>
+          <div class="detail-item-box">
+            <div class="lbl">Driver Name</div>
+            <div class="val" id="vd-driver-name">—</div>
+          </div>
+          <div class="detail-item-box">
+            <div class="lbl">Tanker / Vehicle</div>
+            <div class="val" id="vd-tanker-number">—</div>
+          </div>
+          <div class="detail-item-box">
+            <div class="lbl">Planned OUT Time</div>
+            <div class="val" id="vd-out-time">—</div>
+          </div>
+          <div class="detail-item-box">
+            <div class="lbl">Duty Date</div>
+            <div class="val" id="vd-duty-date">—</div>
+          </div>
+          <div class="detail-item-box" style="grid-column: span 2;">
+            <div class="lbl">Trip Status</div>
+            <div class="val"><span id="vd-status-pill" class="badge badge-warning">Planned</span></div>
+          </div>
         </div>
-        <div id="bmc-search-results" style="max-height:260px; overflow-y:auto;"></div>
+
+        <h4 style="margin: 20px 0 10px 0; font-size: 1rem; font-weight: 700; color: #0F172A;">🏢 BMCs to be Visited</h4>
+        <div class="table-responsive" style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+          <table class="gm-table" style="width: 100%; min-width: 550px;">
+            <thead>
+              <tr>
+                <th style="width: 60px;">Seq</th>
+                <th>BMC Name &amp; Code</th>
+                <th>Compartment</th>
+                <th>Status</th>
+                <th style="text-align: right; min-width: 140px;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="vd-bmc-table-body">
+              <tr><td colspan="5" class="text-center text-muted py-3">Loading BMC list...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
-      <div class="bmc-modal-footer" style="padding:12px 20px; display:flex; justify-content:flex-end;">
-        <button id="bmc-search-cancel" class="btn btn-outline">Close</button>
+
+      <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top" id="vd-modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeViewDutyModal()">Close</button>
+        <button type="button" class="btn btn-primary" id="btn-trigger-start-trip">🚀 START TRIP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- START TRIP MODAL (Without Image/Photo Upload) -->
+  <div id="start-trip-modal" class="modal-overlay hidden">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+        <h3 style="margin:0; font-weight:800; color:#0F172A;">🚀 Start Trip Verification</h3>
+        <button type="button" class="btn btn-ghost" onclick="closeStartTripModal()" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body" style="padding:0;">
+        <form id="start-trip-form">
+          <div class="form-group mb-3">
+            <label for="st-out-km" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              OUT KM (Odometer Reading) <span style="color:#EF4444;">*</span>
+            </label>
+            <input type="number" step="0.1" class="form-control" id="st-out-km" placeholder="e.g. 45200.5" required>
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="st-out-weight" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              OUT Weight of Tanker (kg) <span style="color:#EF4444;">*</span>
+            </label>
+            <input type="number" step="0.1" class="form-control" id="st-out-weight" placeholder="e.g. 12500" required>
+          </div>
+
+          <div class="form-group mb-3" style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:14px; margin-top:16px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:700; font-size:0.88rem; color:#0F172A;">📍 GPS Location Permission</div>
+                <div id="st-location-status" style="font-size:0.8rem; color:#64748B; margin-top:2px;">Location permission required to start trip</div>
+              </div>
+              <button type="button" class="btn btn-outline" id="btn-request-st-location" style="padding:6px 14px; font-size:0.82rem; font-weight:700;">📡 Enable Location</button>
+            </div>
+            <div id="st-location-coords" style="display:none; font-size:0.78rem; font-family:monospace; color:#2563EB; margin-top:8px; background:#EFF6FF; padding:6px 10px; border-radius:6px;">
+              Lat: <span id="st-lat-val">—</span> | Lng: <span id="st-lng-val">—</span>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+        <button type="button" class="btn btn-outline" onclick="closeStartTripModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-start-trip">CONFIRM START TRIP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CLOSE TRIP MODAL -->
+  <div id="close-trip-modal" class="modal-overlay hidden">
+    <div class="modal-content" style="max-width: 520px;">
+      <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+        <h3 style="margin:0; font-weight:800; color:#0F172A;">🛑 Close Trip Verification</h3>
+        <button type="button" class="btn btn-ghost" onclick="closeCloseTripModal()" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body" style="padding:0;">
+        <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:12px 16px; margin-bottom:16px; font-size:0.85rem; color:#475569; display:flex; gap:16px; justify-content:space-between; flex-wrap:wrap;">
+          <div>OUT KM: <strong id="ct-out-km-val" style="color:#0F172A;">—</strong></div>
+          <div>OUT Empty Wt: <strong id="ct-out-wt-val" style="color:#0F172A;">—</strong></div>
+        </div>
+
+        <form id="close-trip-form">
+          <div class="form-group mb-3">
+            <label for="ct-in-km" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              IN KM (Odometer Reading) <span style="color:#EF4444;">*</span>
+            </label>
+            <input type="number" step="0.1" class="form-control" id="ct-in-km" placeholder="Must be greater than OUT KM" required>
+            <div style="font-size:0.78rem; color:#64748B; margin-top:2px;">IN KM must be greater than OUT KM</div>
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="ct-in-weight" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              IN Empty Weight of Tanker (kg) <span style="font-weight:400; color:#64748B;">(Optional)</span>
+            </label>
+            <input type="number" step="0.1" class="form-control" id="ct-in-weight" placeholder="Leave empty if not weighed yet (Must be < OUT Wt)">
+            <div style="font-size:0.78rem; color:#64748B; margin-top:2px;">If entered, must be less than OUT Empty Weight. Can also be added later.</div>
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="ct-end-time" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              Trip End Time
+            </label>
+            <input type="datetime-local" class="form-control" id="ct-end-time">
+            <div style="font-size:0.78rem; color:#64748B; margin-top:2px;">Defaults to current time. Select manually if closing at a different time.</div>
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+        <button type="button" class="btn btn-outline" onclick="closeCloseTripModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-close-trip" style="background:#DC2626; border-color:#DC2626;">CONFIRM CLOSE TRIP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT TRIP MODAL -->
+  <div id="edit-trip-modal" class="modal-overlay hidden">
+    <div class="modal-content" style="max-width: 520px;">
+      <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+        <h3 style="margin:0; font-weight:800; color:#0F172A;">✏️ Edit Completed Duty Metrics</h3>
+        <button type="button" class="btn btn-ghost" onclick="closeEditTripModal()" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body" style="padding:0;">
+        <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:12px 16px; margin-bottom:16px; font-size:0.85rem; color:#475569;">
+          <div style="font-weight:700; color:#0F172A; margin-bottom:4px;" id="et-route-title">Planned Duty</div>
+        </div>
+
+        <form id="edit-trip-form">
+          <div class="form-group mb-3">
+            <label for="et-out-km-input" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              OUT KM (Odometer Start)
+            </label>
+            <input type="number" step="0.1" class="form-control" id="et-out-km-input" placeholder="e.g. 45200.0">
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="et-out-wt-input" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              OUT Tanker Weight (kg)
+            </label>
+            <input type="number" step="0.1" class="form-control" id="et-out-wt-input" placeholder="e.g. 12500">
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="et-in-km" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              IN KM (Odometer End)
+            </label>
+            <input type="number" step="0.1" class="form-control" id="et-in-km" placeholder="e.g. 45280.0">
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="et-in-weight" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              IN Empty Weight of Tanker (kg) <span style="font-weight:400; color:#64748B;">(Optional)</span>
+            </label>
+            <input type="number" step="0.1" class="form-control" id="et-in-weight" placeholder="e.g. 10200">
+            <div style="font-size:0.78rem; color:#64748B; margin-top:2px;">Entering IN Empty Weight enables Diesel &amp; Mileage calculations.</div>
+          </div>
+
+          <div class="form-group mb-3">
+            <label for="et-end-time" class="form-label" style="font-weight:700; font-size:0.85rem; color:#334155;">
+              End Time
+            </label>
+            <input type="datetime-local" class="form-control" id="et-end-time">
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+        <button type="button" class="btn btn-outline" onclick="closeEditTripModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-edit-trip">SAVE CHANGES</button>
       </div>
     </div>
   </div>

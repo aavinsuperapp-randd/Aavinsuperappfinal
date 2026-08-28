@@ -71,92 +71,64 @@
             <p>Welcome to the AAVIN Milk Quality Testing Laboratory portal. Test and verify BMC milk samples below.</p>
           </div>
 
-          <!-- Date Filter -->
-          <div class="top-controls-bar" style="display: flex; gap: 15px; margin-bottom: 24px; align-items: center; background: white; padding: 12px 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); border: 1px solid #E2E8F0;">
-            <span class="date-selector-label" style="font-weight: 600; color: #475569;">📅 Filter Date:</span>
-            <input type="date" id="qc-date-picker" class="date-picker-input" style="padding: 6px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-family: inherit;">
-            <button class="date-preset-btn active" id="btn-preset-today" style="padding: 6px 12px; border: 1px solid #3B82F6; background: #3B82F6; color: white; border-radius: 6px; cursor: pointer; font-weight: 500;">Today</button>
-            <button class="date-preset-btn" id="btn-preset-yesterday" style="padding: 6px 12px; border: 1px solid #CBD5E1; background: white; color: #475569; border-radius: 6px; cursor: pointer; font-weight: 500;">Yesterday</button>
+          <!-- Date Filter Controls -->
+          <div class="top-controls-bar" style="display: flex; gap: 12px; margin-bottom: 24px; align-items: center; background: white; padding: 14px 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); border: 1px solid #E2E8F0; flex-wrap: wrap;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <button class="date-preset-btn active" id="btn-preset-today" style="padding: 6px 14px; border: 1px solid #2563EB; background: #2563EB; color: white; border-radius: 6px; cursor: pointer; font-weight: 700; font-size:0.82rem;">Today</button>
+              <button class="date-preset-btn" id="btn-preset-yesterday" style="padding: 6px 14px; border: 1px solid #CBD5E1; background: #F8FAFC; color: #475569; border-radius: 6px; cursor: pointer; font-weight: 700; font-size:0.82rem;">Yesterday</button>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span style="font-weight:700; color:#334155; font-size:0.85rem;">From:</span>
+              <input type="date" id="qc-from-date" class="date-picker-input" style="padding: 6px 10px; border: 1px solid #CBD5E1; border-radius: 6px; font-family: inherit; font-size:0.85rem;">
+              <span style="font-weight:700; color:#334155; font-size:0.85rem;">To:</span>
+              <input type="date" id="qc-to-date" class="date-picker-input" style="padding: 6px 10px; border: 1px solid #CBD5E1; border-radius: 6px; font-family: inherit; font-size:0.85rem;">
+            </div>
+
+            <button id="btn-search-qc" class="btn-qc" style="background:#2563EB; color:white; border:none; padding:7px 16px; border-radius:6px; font-weight:700; font-size:0.85rem; cursor:pointer; display:flex; align-items:center; gap:6px;">
+              🔍 Search
+            </button>
+
+            <button id="btn-download-pdf-qc" class="btn-qc" style="background:#059669; color:white; border:none; padding:7px 16px; border-radius:6px; font-weight:700; font-size:0.85rem; cursor:pointer; margin-left:auto; display:flex; align-items:center; gap:6px;">
+              📄 Download as PDF
+            </button>
           </div>
 
-          <!-- KPI Cards Grid -->
+          <!-- Summary KPI Cards -->
           <div class="qc-stats-grid">
             <div class="qc-stat-card">
               <div class="qc-stat-num" id="stat-total-samples">0</div>
-              <div class="qc-stat-lbl">Total Samples</div>
+              <div class="qc-stat-lbl">Total Samples (BMC Samples)</div>
             </div>
             <div class="qc-stat-card accent-amber">
               <div class="qc-stat-num" id="stat-samples-pending">0</div>
-              <div class="qc-stat-lbl">Pending Samples</div>
-            </div>
-            <div class="qc-stat-card accent-green">
-              <div class="qc-stat-num" id="stat-reports-submitted">0</div>
-              <div class="qc-stat-lbl">Tested Report</div>
+              <div class="qc-stat-lbl">Pending Samples (Untested BMCs)</div>
             </div>
           </div>
 
-          <!-- Samples Pending QC Testing Section -->
-          <div class="qc-section">
-            <div class="qc-section-header">
-              <div class="qc-section-title">
-                <span>🧪</span> Samples Pending QC Laboratory Testing
-              </div>
-              <a href="samples.html" class="btn-qc btn-qc-outline btn-qc-sm">View All Queue →</a>
-            </div>
-
-            <div class="qc-table-wrap">
-              <table class="qc-table">
-                <thead>
-                  <tr>
-                    <th>Sample ID</th>
-                    <th>BMC Center</th>
-                    <th>Collection Date</th>
-                    <th>Collection Time</th>
-                    <th>Field Worker</th>
-                    <th>BMC Test Result</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody id="pending-samples-tbody">
-                  <tr>
-                    <td colspan="8" style="text-align:center; padding:20px; color:#64748B;">Loading samples queue...</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Completed QC Tests Section -->
+          <!-- Active Trips Section -->
           <div class="qc-section" style="margin-top: 24px;">
-            <div class="qc-section-header">
-              <div class="qc-section-title">
-                <span>✅</span> Completed Laboratory Tests
+            <div class="qc-section-header" style="background:#EFF6FF; border-bottom:2px solid #3B82F6;">
+              <div class="qc-section-title" style="color:#1E40AF; font-size:1.05rem; font-weight:800;">
+                <span>🚛</span> ACTIVE TRIPS
               </div>
-              <a href="history.html" class="btn-qc btn-qc-outline btn-qc-sm">View Full History →</a>
             </div>
 
-            <div class="qc-table-wrap">
-              <table class="qc-table">
-                <thead>
-                  <tr>
-                    <th>Sample ID</th>
-                    <th>BMC Center</th>
-                    <th>Testing Time</th>
-                    <th>QC Analyst</th>
-                    <th>Fat & SNF %</th>
-                    <th>Water & Temp</th>
-                    <th>Organoleptic</th>
-                    <th>COB Test</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody id="completed-tests-tbody">
-                  <tr>
-                    <td colspan="9" style="text-align:center; padding:20px; color:#64748B;">Loading completed tests...</td>
-                  </tr>
-                </tbody>
-              </table>
+            <div id="active-trips-container" style="padding: 16px; display: flex; flex-direction: column; gap: 20px;">
+              <div style="text-align:center; padding:24px; color:#64748B; font-weight:600;">Loading active trips...</div>
+            </div>
+          </div>
+
+          <!-- Completed Trips Section -->
+          <div class="qc-section" style="margin-top: 28px;">
+            <div class="qc-section-header" style="background:#F0FDF4; border-bottom:2px solid #10B981;">
+              <div class="qc-section-title" style="color:#065F46; font-size:1.05rem; font-weight:800;">
+                <span>✅</span> COMPLETED TRIPS
+              </div>
+            </div>
+
+            <div id="completed-trips-container" style="padding: 16px; display: flex; flex-direction: column; gap: 20px;">
+              <div style="text-align:center; padding:24px; color:#64748B; font-weight:600;">Loading completed trips...</div>
             </div>
           </div>
 

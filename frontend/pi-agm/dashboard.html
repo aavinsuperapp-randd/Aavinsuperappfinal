@@ -201,54 +201,7 @@
             </div>
           </div>
 
-          <!-- ── TRIP ASSIGNMENT SECTION ─────────────────────────────── -->
-          <div class="pending-trips-section">
-            <div class="pending-trips-header">
-              <h3>
-                🚛 Trip Assignment
-                <span class="pending-badge" id="pending-count-badge">0</span>
-              </h3>
-              <button id="refresh-pending-btn" class="btn btn-outline btn-sm">↻ Refresh</button>
-            </div>
-            <div class="table-card">
-              <div class="table-card-header">
-                <h4>Trips Pending Worker Assignment</h4>
-                <div class="table-filter-controls">
-                  <input type="text" id="pending-search-input" class="table-search-input" placeholder="🔍 Search trip, driver, route...">
-                  <select id="pending-status-filter" class="table-select-filter">
-                    <option value="">All Statuses</option>
-                    <option value="pending_assignment">Pending Assignment</option>
-                    <option value="worker_assigned">Worker Assigned</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="testing_completed">Testing Completed</option>
-                    <option value="report_submitted">Report Submitted</option>
-                    <option value="completed">Completed</option>
-                  </select>
-                </div>
-              </div>
-              <div class="table-responsive">
-                <table class="pi-agm-table-v2">
-                  <thead>
-                    <tr>
-                      <th>Trip ID / Name</th>
-                      <th>Date &amp; Time</th>
-                      <th>Route / BMC</th>
-                      <th>Driver &amp; Vehicle</th>
-                      <th>Transport Manager</th>
-                      <th>Assigned Worker</th>
-                      <th>Status</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody id="pending-trips-table-body">
-                    <tr><td colspan="8" class="text-center text-muted" style="padding:24px;">Loading trip assignments...</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <!-- ── FIELD OPERATIONS TRIPS (existing, date-filtered) ────── -->
+          <!-- ── FIELD OPERATIONS TRIPS (date-filtered) ────── -->
           <div class="dashboard-section" id="sec-trips" style="margin-top: 28px;">
             <div class="table-card">
               <div class="table-card-header">
@@ -350,26 +303,6 @@
           </button>
         </div>
         <button id="trip-modal-dismiss-btn" class="btn btn-outline btn-sm">Close Window</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Assign Worker Modal ─────────────────────────────────────────────── -->
-  <div id="assign-worker-modal" class="aw-modal-overlay hidden">
-    <div class="aw-modal">
-      <div class="aw-modal-header">
-        <h3>👤 Assign Field Worker</h3>
-        <button id="aw-modal-close" class="aw-modal-close">✕</button>
-      </div>
-      <div class="aw-trip-info" id="aw-trip-info">
-        <!-- Populated by JS -->
-      </div>
-      <div class="aw-worker-list" id="aw-worker-list">
-        <div class="aw-empty">Loading field workers...</div>
-      </div>
-      <div class="aw-modal-footer">
-        <button id="aw-cancel-btn" class="btn btn-outline">Cancel</button>
-        <button id="aw-assign-btn" class="btn-assign" disabled id="aw-assign-btn">Assign Worker</button>
       </div>
     </div>
   </div>

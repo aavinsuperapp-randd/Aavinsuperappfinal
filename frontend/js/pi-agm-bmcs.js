@@ -403,21 +403,95 @@ function recalculateTotalCapacityFromSilos() {
 
 // ── Delete BMC ────────────────────────────────────────────────────────────────
 window.deleteBmc = async function(id) {
-  if (!confirm('Are you sure you want to delete this BMC record?')) return;
-  toggleLoading(true);
+  if (!id) return;
+  const bmcRecord = (typeof allBmcs !== 'undefined' ? allBmcs : []).find(b => String(b.id) === String(id) || String(b.bmc_code) === String(id));
+  const bmcName = bmcRecord ? bmcRecord.name : id;
+  
+  if (!confirm(`Are you sure you want to delete BMC "${bmcName}"?`)) return;
+  if (typeof toggleLoading === 'function') toggleLoading(true);
+
   try {
-    const client = await initSupabase();
-    if (!client) throw new Error('Database offline.');
-    
-    const { error } = await client.from('bmcs').delete().eq('id', id);
-    if (error) throw error;
-    
-    if (typeof showToast === 'function') showToast('BMC deleted successfully', 'success');
+    let deletedSuccess = false;
+    let errorMsg = '';
+
+    // Attempt backend API deletion
+    try {
+      const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : '';
+      const token = window.localStorage.getItem('sb-access-token') || '';
+      const res = await fetch(`${baseUrl}/api/gm/bmcs/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        deletedSuccess = true;
+      } else {
+        const json = await res.json().catch(() => ({}));
+        errorMsg = json.error || `Server status ${res.status}`;
+      }
+    } catch (apiErr) {
+      console.warn('[deleteBmc] Backend API delete failed, trying direct Supabase fallback:', apiErr);
+      errorMsg = apiErr.message;
+    }
+
+    // Direct Supabase fallback if backend deletion failed
+    if (!deletedSuccess) {
+      const client = await initSupabase();
+      if (!client) throw new Error(errorMsg || 'Database offline.');
+
+      const targetId = bmcRecord?.id || (id.includes('-') ? id : null);
+      const targetCode = bmcRecord?.bmc_code || id;
+
+      if (targetId) {
+        await client.from('bmc_silos').delete().eq('bmc_id', targetId);
+        await client.from('eo_bmc_assignments').delete().eq('bmc_id', targetId);
+        await client.from('bmc_issues').delete().eq('bmc_id', targetId);
+        await client.from('bmc_requirements').delete().eq('bmc_id', targetId);
+        
+        try {
+          await client.from('driver_trips').delete().eq('bmc_id', targetId);
+          await client.from('trips').delete().eq('bmc_id', targetId);
+          await client.from('qc_excel_import_rows').delete().eq('bmc_id', targetId);
+        } catch(e) {}
+        
+        try {
+          const { data: visits } = await client.from('trip_bmc_visits').select('id').eq('bmc_id', targetId);
+          if (visits && visits.length > 0) {
+            const vIds = visits.map(v => v.id);
+            await client.from('bmc_issues').delete().in('visit_id', vIds);
+            await client.from('bmc_ratings').delete().in('visit_id', vIds);
+            await client.from('requirement_checks').delete().in('visit_id', vIds);
+            await client.from('ftir_tests').delete().in('visit_id', vIds);
+            await client.from('gerber_tests').delete().in('visit_id', vIds);
+            await client.from('trip_bmc_visits').delete().in('id', vIds);
+          }
+        } catch (vErr) {
+          console.warn('Fallback visit cleanup error:', vErr);
+        }
+      }
+      if (targetCode) {
+        await client.from('bmc_issues').delete().eq('bmc_code', targetCode);
+        await client.from('bmc_requirements').delete().eq('bmc_code', targetCode);
+      }
+
+      let deleteRes = null;
+      if (targetId) {
+        deleteRes = await client.from('bmcs').delete().eq('id', targetId);
+      } else if (targetCode) {
+        deleteRes = await client.from('bmcs').delete().eq('bmc_code', targetCode);
+      } else {
+        throw new Error('No valid BMC ID or Code found to delete.');
+      }
+
+      if (deleteRes && deleteRes.error) throw deleteRes.error;
+      deletedSuccess = true;
+    }
+
+    if (typeof showToast === 'function') showToast(`BMC "${bmcName}" deleted successfully`, 'success');
     await loadBmcs();
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to delete BMC', 'error');
   } finally {
-    toggleLoading(false);
+    if (typeof toggleLoading === 'function') toggleLoading(false);
   }
 };
 
@@ -949,36 +1023,62 @@ async function saveBmc() {
 
 // ── Toggle Active Status ──────────────────────────────────────────────────────
 window.toggleBmcStatus = async function(id, currentlyActive) {
-  const action = currentlyActive ? 'deactivate' : 'activate';
-  if (!confirm(`Are you sure you want to ${action} this BMC?`)) return;
+  if (!id) return;
+  const bmcRecord = (typeof allBmcs !== 'undefined' ? allBmcs : []).find(b => String(b.id) === String(id) || String(b.bmc_code) === String(id));
+  const isCurrentlyActive = bmcRecord ? (bmcRecord.is_active !== false) : Boolean(currentlyActive);
+  const action = isCurrentlyActive ? 'deactivate' : 'activate';
+  const newStatus = !isCurrentlyActive;
 
+  if (!confirm(`Are you sure you want to ${action} this BMC?`)) return;
   if (typeof toggleLoading === 'function') toggleLoading(true);
 
   try {
-    const token = window.localStorage.getItem('sb-access-token') || '';
-    const res = await fetch(`/api/gm/bmcs/${id}/toggle`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ is_active: !currentlyActive })
-    });
+    let success = false;
+    let errorMsg = '';
 
-    if (!res.ok) {
-      const client = await initSupabase();
-      if (client) {
-        const { error } = await client
-          .from('bmcs')
-          .update({ is_active: !currentlyActive })
-          .eq('id', id);
-        if (error) throw error;
+    try {
+      const baseUrl = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : '';
+      const token = window.localStorage.getItem('sb-access-token') || '';
+      const res = await fetch(`${baseUrl}/api/gm/bmcs/${encodeURIComponent(id)}/toggle`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ is_active: newStatus })
+      });
+      if (res.ok) {
+        success = true;
       } else {
-        throw new Error('Failed to toggle status');
+        const json = await res.json().catch(() => ({}));
+        errorMsg = json.error || `Server status ${res.status}`;
       }
+    } catch (fetchErr) {
+      console.warn('[toggleBmcStatus] API toggle failed, trying direct Supabase fallback:', fetchErr);
+      errorMsg = fetchErr.message;
+    }
+
+    if (!success) {
+      const client = await initSupabase();
+      if (!client) throw new Error(errorMsg || 'Database offline.');
+
+      const targetId = bmcRecord?.id || (id.includes('-') ? id : null);
+      const targetCode = bmcRecord?.bmc_code || id;
+
+      let updateRes = null;
+      if (targetId) {
+        updateRes = await client.from('bmcs').update({ is_active: newStatus, updated_at: new Date() }).eq('id', targetId);
+      } else if (targetCode) {
+        updateRes = await client.from('bmcs').update({ is_active: newStatus, updated_at: new Date() }).eq('bmc_code', targetCode);
+      } else {
+        throw new Error('No valid BMC ID or Code found to update.');
+      }
+
+      if (updateRes && updateRes.error) throw updateRes.error;
+      success = true;
     }
 
     if (typeof showToast === 'function') showToast(`BMC ${action}d successfully.`, 'success');
     await loadBmcs();
   } catch (err) {
-    if (typeof showToast === 'function') showToast('Failed: ' + err.message, 'error');
+    if (typeof showToast === 'function') showToast('Failed: ' + (err.message || 'Failed to update BMC status'), 'error');
   } finally {
     if (typeof toggleLoading === 'function') toggleLoading(false);
   }

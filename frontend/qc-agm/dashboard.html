@@ -110,8 +110,11 @@
 
           <!-- Filter & Search Controls -->
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
-            <div style="display:flex; gap:12px; flex:1; max-width:500px;">
-              <input type="text" id="macs-search-input" class="qc-form-input" placeholder="🔍 Search BMC Code or BMC Name..." style="flex:1;">
+            <div style="display:flex; gap:12px; flex:1; max-width:650px; flex-wrap:wrap;">
+              <select id="macs-route-filter" class="qc-form-input" style="padding:8px 14px; border-radius:8px; font-weight:700; min-width:180px; background:white;">
+                <option value="all">🛣️ All Routes</option>
+              </select>
+              <input type="text" id="macs-search-input" class="qc-form-input" placeholder="🔍 Search BMC Code or BMC Name..." style="flex:1; min-width:200px;">
             </div>
 
             <div style="display:flex; gap:10px;">
