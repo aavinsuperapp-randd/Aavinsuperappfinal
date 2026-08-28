@@ -81,15 +81,6 @@ async function apiQcSubmitTest(testId) {
 async function apiQcGetHistory() {
   return qcWorkerFetch('/api/qc-worker/history');
 }
-async function apiQcWorkerGetReports() {
-  return qcWorkerFetch('/api/qc-worker/reports-testing');
-}
-async function apiQcWorkerMarkReportDone(id, remarks) {
-  return qcWorkerFetch(`/api/qc-worker/reports-testing/${id}/done`, {
-    method: 'PATCH',
-    body: JSON.stringify({ remarks })
-  });
-}
 
 // Sidebar toggle for QC Worker shell
 function initQcSidebarToggle() {

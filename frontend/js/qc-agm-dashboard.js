@@ -352,18 +352,13 @@ function renderFilteredReadings() {
         }
 
         return `
-          <tr style="cursor:pointer;" onclick="navigateToBmcDetails('${esc(item.bmc_code)}')">
+          <tr>
             <td><strong>${esc(item.bmc_code)}</strong></td>
             <td><strong style="color:#0F172A;">${esc(item.bmc_name || 'N/A')}</strong></td>
             <td>${macsStr}</td>
             <td>${spotStr}</td>
             <td>${diaryStr}</td>
             <td>${diffDisplay}</td>
-            <td>
-              <button class="btn-qc btn-qc-outline btn-qc-sm" onclick="event.stopPropagation(); navigateToBmcDetails('${esc(item.bmc_code)}');">
-                👁️ View Details
-              </button>
-            </td>
           </tr>
         `;
       }).join('');

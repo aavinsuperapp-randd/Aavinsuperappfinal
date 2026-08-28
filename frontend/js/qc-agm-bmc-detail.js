@@ -269,7 +269,7 @@ window.handleDenyReading = async function(index) {
     };
 
     const res = await apiQcAgmDenyReading(payload);
-    showToast(res.message || 'Reading denied and sent to Lab Issue Report.', 'success');
+    showToast(res.message || 'Reading denied successfully.', 'success');
 
     await loadBmcDetails(currentBmcCode);
   } catch (err) {

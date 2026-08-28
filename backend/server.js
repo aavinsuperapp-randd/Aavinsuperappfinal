@@ -6738,7 +6738,7 @@ app.get('/api/qc-worker/dashboard', requireQcWorker, async (req, res) => {
 
     let visitsQuery = adminClient
       .from('trip_bmc_visits')
-      .select('milk_quantity_liters, visit_end_time, remarks, created_at')
+      .select('milk_quantity_liters, milk_quantity_kg, in_weight, visit_end_time, remarks, created_at')
       .eq('status', 'completed');
 
     if (date) {
@@ -6762,7 +6762,10 @@ app.get('/api/qc-worker/dashboard', requireQcWorker, async (req, res) => {
     let totalQuantityKg = 0;
     spotVisitsFiltered.forEach(v => {
       const lit = parseFloat(v.milk_quantity_liters || 0);
-      if (lit > 0) {
+      const kg = parseFloat(v.milk_quantity_kg || v.in_weight || 0);
+      if (kg > 0) {
+        totalQuantityKg += kg;
+      } else if (lit > 0) {
         totalQuantityKg += (lit * 1.03);
       }
     });
@@ -7276,7 +7279,7 @@ app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
     // 2. Total Quantity Collected (KG) — calculated using completed Spot Analyzer values, NOT MACS values
     let visitsQuery = adminClient
       .from('trip_bmc_visits')
-      .select('milk_quantity_liters, visit_end_time, remarks, created_at')
+      .select('milk_quantity_liters, milk_quantity_kg, in_weight, visit_end_time, remarks, created_at')
       .eq('status', 'completed');
 
     if (date) {
@@ -7300,7 +7303,10 @@ app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
     let totalQuantityKg = 0;
     spotVisitsFiltered.forEach(v => {
       const lit = parseFloat(v.milk_quantity_liters || 0);
-      if (lit > 0) {
+      const kg = parseFloat(v.milk_quantity_kg || v.in_weight || 0);
+      if (kg > 0) {
+        totalQuantityKg += kg;
+      } else if (lit > 0) {
         totalQuantityKg += (lit * 1.03);
       }
     });

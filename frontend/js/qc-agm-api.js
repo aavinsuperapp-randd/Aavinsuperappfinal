@@ -61,9 +61,6 @@ async function apiQcAgmDenyReading(payload) {
     body: JSON.stringify(payload)
   });
 }
-async function apiQcAgmGetLabIssues() {
-  return qcAgmFetch('/api/qc-agm/lab-issues');
-}
 async function apiQcAgmGetAllTests(date = '') {
   let url = '/api/qc-agm/tests';
   if (date) url += `?date=${encodeURIComponent(date)}`;
