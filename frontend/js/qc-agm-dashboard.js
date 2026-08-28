@@ -239,8 +239,8 @@ async function updateSummaryCards(dateStr, periodStr) {
 }
 
 function getItemRouteName(item) {
-  if (item.bmc_routes && item.bmc_routes.name) return item.bmc_routes.name;
   if (item.route_name) return item.route_name;
+  if (item.bmc_routes && item.bmc_routes.name) return item.bmc_routes.name;
   if (item.route) return item.route;
   if (Array.isArray(masterBmcsList) && masterBmcsList.length > 0) {
     const found = masterBmcsList.find(b =>

@@ -7770,7 +7770,7 @@ app.post('/api/qc-agm/tests/:id/review', requireQcAgm, async (req, res) => {
 app.get('/api/qc-agm/bmcs', requireQcAgm, async (req, res) => {
   const { adminClient } = req;
   try {
-    const { data: bmcs, error } = await adminClient.from('bmcs').select('*').order('name');
+    const { data: bmcs, error } = await adminClient.from('bmcs').select('*, bmc_routes(*)').order('name');
     if (error) throw error;
     res.json({ bmcs: bmcs || [] });
   } catch (err) {
@@ -7987,7 +7987,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
   try {
     let query = adminClient
       .from('qc_excel_import_rows')
-      .select('*, bmc:bmcs(*), batch:qc_excel_imports(*)');
+      .select('*, bmc:bmcs(*, bmc_routes(*)), batch:qc_excel_imports(*)');
 
     if (date) {
       query = query.eq('test_date', date);
@@ -7999,7 +7999,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
     // Fetch Spot Analyzer visit records for the date if date is given
     let visitsQuery = adminClient
       .from('trip_bmc_visits')
-      .select('*, bmc:bmcs(*), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*)')
+      .select('*, bmc:bmcs(*, bmc_routes(*)), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*)')
       .in('status', ['completed', 'visited']);
 
     if (date) {
@@ -8027,10 +8027,13 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
         const liters = r.raw_data?.macs_quantity_liters ?? r.raw_data?.liters ?? r.raw_data?.quantity ?? r.liters ?? r.quantity ?? null;
         const kg = r.raw_data?.macs_quantity_kg ?? r.raw_data?.kg ?? (liters ? parseFloat((liters * 1.03).toFixed(2)) : null);
 
+        const routeName = r.bmc?.bmc_routes?.name || r.bmc?.route_name || null;
         bmcMap[key] = {
           bmc_code: bmcCode,
           bmc_name: r.bmc_name || r.bmc?.name || 'N/A',
           bmc_id: r.bmc_id,
+          route_name: routeName,
+          bmc_routes: routeName ? { name: routeName } : null,
           reading_date: r.test_date,
           worker: null,
           qc: null,
@@ -8084,6 +8087,30 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
           visited: spotVisit.status === 'completed' || spotVisit.status === 'visited' || Boolean(spotVisit.visit_end_time),
           status: spotVisit.status || 'visited'
         };
+
+        // Populate diary from QC worker's saved lab test (qc_lab_tests)
+        const qcTest = unpack(spotVisit.qc_test);
+        if (qcTest && qcTest.id) {
+          const dFat = qcTest.fat !== null && qcTest.fat !== undefined ? parseFloat(qcTest.fat) : null;
+          const dSnf = qcTest.snf !== null && qcTest.snf !== undefined ? parseFloat(qcTest.snf) : null;
+          const hasDiaryData = dFat !== null || dSnf !== null;
+          bmcMap[key].diary = {
+            quantity_liters: lit,
+            quantity_kg: kg,
+            fat: dFat,
+            snf: dSnf,
+            clr: qcTest.clr ?? null,
+            temperature: qcTest.temperature ?? null,
+            status: qcTest.status || null,
+            recorded: hasDiaryData
+          };
+        }
+
+        // Enrich route from BMC if not already set
+        if (!bmcMap[key].route_name && spotVisit.bmc?.bmc_routes?.name) {
+          bmcMap[key].route_name = spotVisit.bmc.bmc_routes.name;
+          bmcMap[key].bmc_routes = { name: spotVisit.bmc.bmc_routes.name };
+        }
       }
     });
 
@@ -8131,6 +8158,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
     (visits || []).forEach(v => {
       const bCode = String(v.bmc?.bmc_code || '').trim();
       const bName = v.bmc?.name || 'N/A';
+      const routeNameNoMacs = v.bmc?.bmc_routes?.name || null;
       if (bCode && !matchedMacsCodes.has(bCode)) {
         const ftir = unpack(v.ftir_tests);
         const gerber = unpack(v.gerber_tests);
@@ -8141,9 +8169,29 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
         const kg = v.milk_quantity_kg || v.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
         const vDate = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : (date || new Date().toISOString().split('T')[0]);
 
+        // Populate diary from QC worker's saved lab test
+        const qcTestNoMacs = unpack(v.qc_test);
+        let diaryNoMacs = { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false };
+        if (qcTestNoMacs && qcTestNoMacs.id) {
+          const dFat = qcTestNoMacs.fat !== null && qcTestNoMacs.fat !== undefined ? parseFloat(qcTestNoMacs.fat) : null;
+          const dSnf = qcTestNoMacs.snf !== null && qcTestNoMacs.snf !== undefined ? parseFloat(qcTestNoMacs.snf) : null;
+          diaryNoMacs = {
+            quantity_liters: lit,
+            quantity_kg: kg,
+            fat: dFat,
+            snf: dSnf,
+            clr: qcTestNoMacs.clr ?? null,
+            temperature: qcTestNoMacs.temperature ?? null,
+            status: qcTestNoMacs.status || null,
+            recorded: dFat !== null || dSnf !== null
+          };
+        }
+
         noMacsReadings.push({
           bmc_code: bCode,
           bmc_name: bName,
+          route_name: routeNameNoMacs,
+          bmc_routes: routeNameNoMacs ? { name: routeNameNoMacs } : null,
           reading_date: vDate,
           spot: {
             compartment: v.compartment || null,
@@ -8163,7 +8211,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
             visited: v.status === 'completed' || v.status === 'visited' || Boolean(v.visit_end_time),
             status: v.status || 'visited'
           },
-          diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
+          diary: diaryNoMacs,
           fat_diff: null,
           snf_diff: null,
           status: 'NO_MACS_DATA'
