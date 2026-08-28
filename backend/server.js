@@ -728,6 +728,8 @@ app.get('/api/gm/dashboard', requirePiAgm, async (req, res) => {
     const { data: trips } = await adminClient
       .from('trips')
       .select('*')
+      .neq('status', 'deleted')
+      .neq('assignment_status', 'deleted')
       .gte('created_at', startIso)
       .lte('created_at', endIso);
 
@@ -924,6 +926,8 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
   }
 
   // Also calculate last 7 days for trend charts
+  const dayStart = new Date(dayStartIso);
+  const targetDate = new Date(dayStartIso);
   const trendStart = new Date(dayStartIso);
   trendStart.setDate(trendStart.getDate() - 6);
   trendStart.setHours(0, 0, 0, 0);
@@ -938,13 +942,15 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
     }
 
     const [
-      tripsRes, trendTripsRes, visitsRes,
+      tripsRes, driverTripsRes, trendTripsRes, visitsRes,
       profilesRes, driversRes, tankersRes, bmcsRes, macsRes
     ] = await Promise.all([
-      // Trips for selected date range
-      adminClient.from('trips').select('*').neq('status', 'deleted').gte('created_at', dayStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
-      // Trips for trend
-      adminClient.from('trips').select('id, status, created_at').gte('created_at', trendStartIso).lte('created_at', dayEndIso),
+      // Trips for selected date range (exclude status='deleted')
+      adminClient.from('trips').select('*').neq('status', 'deleted').neq('assignment_status', 'deleted').gte('created_at', dayStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
+      // Driver trips for selected date range (exclude status='deleted')
+      adminClient.from('driver_trips').select('*').neq('status', 'deleted').neq('assignment_status', 'deleted').gte('created_at', dayStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
+      // Trips for trend (exclude status='deleted')
+      adminClient.from('trips').select('id, status, created_at').neq('status', 'deleted').neq('assignment_status', 'deleted').gte('created_at', trendStartIso).lte('created_at', dayEndIso),
       // All BMC visits
       adminClient.from('trip_bmc_visits').select('*').order('visit_sequence'),
       // All profiles (workers/GMs)
@@ -959,8 +965,42 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
       macsQuery
     ]);
 
-    const tripList = tripsRes.data || [];
-    const trendTripList = trendTripsRes.data || [];
+    const rawTrips = (tripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted');
+    const rawDriverTrips = (driverTripsRes.data || []).filter(dt => dt.status !== 'deleted' && dt.assignment_status !== 'deleted');
+    const trendTripList = (trendTripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted');
+
+    // Build unified trip map, merging driver_trips (Transport Manager duties) with trips
+    const tripMapById = {};
+    rawTrips.forEach(t => {
+      tripMapById[t.id] = { ...t };
+    });
+
+    rawDriverTrips.forEach(dt => {
+      if (tripMapById[dt.id]) {
+        const existing = tripMapById[dt.id];
+        if (!existing.driver_name && dt.driver_name) existing.driver_name = dt.driver_name;
+        if (!existing.tanker_number && (dt.vehicle_number || dt.tanker_number)) existing.tanker_number = dt.vehicle_number || dt.tanker_number;
+        if (!existing.route && (dt.route || dt.destination || dt.bmc_name)) existing.route = dt.route || dt.destination || dt.bmc_name;
+        if (dt.assigned_worker_id && !existing.worker_id) existing.worker_id = dt.assigned_worker_id;
+      } else {
+        tripMapById[dt.id] = {
+          id: dt.id,
+          trip_name: dt.route || dt.destination || dt.bmc_name || `Duty #${dt.trip_number || dt.id.slice(0, 8)}`,
+          trip_number: dt.trip_number || dt.id.slice(0, 8).toUpperCase(),
+          worker_id: dt.assigned_worker_id || dt.worker_id || null,
+          driver_name: dt.driver_name || null,
+          tanker_number: dt.vehicle_number || dt.tanker_number || null,
+          route: dt.route || dt.destination || dt.bmc_name || null,
+          out_time: dt.scheduled_start_time || dt.created_at,
+          in_time: dt.in_time || null,
+          status: dt.status || 'pending',
+          created_at: dt.created_at,
+          visits: []
+        };
+      }
+    });
+
+    const tripList = Object.values(tripMapById);
     const tripIds = tripList.map(t => t.id);
     const visitList = (visitsRes.data || []).filter(v => tripIds.includes(v.trip_id));
     const profilesList = profilesRes.data || [];
@@ -4825,62 +4865,27 @@ const safeDeleteDutyHandler = async (req, res) => {
   const { id } = req.params;
 
   try {
-    let deletedSomething = false;
-
-    // 1. Attempt delete from driver_trips
-    const { data: driverTrip } = await adminClient
+    // 1. Mark status='deleted' in driver_trips
+    await adminClient
       .from('driver_trips')
-      .select('id')
+      .update({ status: 'deleted', assignment_status: 'deleted' })
       .eq('id', id)
-      .maybeSingle();
+      .catch(() => {});
 
-    if (driverTrip) {
-      const { error } = await adminClient
-        .from('driver_trips')
-        .update({ status: 'deleted' })
-        .eq('id', id);
-
-      if (error) {
-        // Fallback to hard delete if status 'deleted' is not allowed by driver_trips_status_check constraint
-        const { error: delErr } = await adminClient
-          .from('driver_trips')
-          .delete()
-          .eq('id', id);
-        if (delErr) throw delErr;
-      }
-      deletedSomething = true;
-    }
-
-    // 2. Attempt delete from trips table if present
-    const { data: mainTrip } = await adminClient
+    // 2. Mark status='deleted' in trips
+    await adminClient
       .from('trips')
-      .select('id')
+      .update({ status: 'deleted', assignment_status: 'deleted' })
       .eq('id', id)
-      .maybeSingle();
+      .catch(() => {});
 
-    if (mainTrip) {
-      const { error } = await adminClient
-        .from('trips')
-        .update({ status: 'deleted' })
-        .eq('id', id);
+    // 3. Attempt hard delete from both driver_trips and trips to guarantee removal
+    await adminClient.from('driver_trips').delete().eq('id', id).catch(() => {});
+    await adminClient.from('trips').delete().eq('id', id).catch(() => {});
 
-      if (error) {
-        const { error: delErr } = await adminClient
-          .from('trips')
-          .delete()
-          .eq('id', id);
-        if (delErr) throw delErr;
-      }
-      deletedSomething = true;
-    }
-
-    if (deletedSomething) {
-      return res.json({ success: true, message: 'Duty deleted successfully.' });
-    }
-
-    // Idempotent success if record is already gone
-    return res.json({ success: true, message: 'Duty deleted or record no longer present.' });
+    return res.json({ success: true, message: 'Duty deleted successfully.' });
   } catch (err) {
+    console.error('❌ Error in safeDeleteDutyHandler:', err);
     res.status(500).json({ error: err.message || 'Failed to delete driver trip duty.' });
   }
 };
@@ -5926,20 +5931,56 @@ app.post('/api/transport/create-trip', requireTransportOfficer, async (req, res)
 });
 
 // ─── GET /api/gm/pending-trips ────────────────────────────────────────────────
-// P&I AGM sees all Transport Manager-created trips with assignment status
+// P&I AGM sees all Transport Manager-created trips with assignment status (excluding deleted duties)
 app.get('/api/gm/pending-trips', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   try {
-    const { data: trips, error } = await adminClient
-      .from('trips')
-      .select('*')
-      .eq('created_by_to', true)
-      .neq('status', 'deleted')
-      .order('created_at', { ascending: false });
+    const [tripsRes, driverTripsRes] = await Promise.all([
+      adminClient
+        .from('trips')
+        .select('*')
+        .eq('created_by_to', true)
+        .neq('status', 'deleted')
+        .neq('assignment_status', 'deleted')
+        .order('created_at', { ascending: false }),
+      adminClient
+        .from('driver_trips')
+        .select('*')
+        .neq('status', 'deleted')
+        .neq('assignment_status', 'deleted')
+        .order('created_at', { ascending: false })
+    ]);
 
-    if (error) throw error;
+    const trips = (tripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted');
+    const driverTrips = (driverTripsRes.data || []).filter(dt => dt.status !== 'deleted' && dt.assignment_status !== 'deleted');
 
-    const tripList = trips || [];
+    const pendingMap = {};
+    trips.forEach(t => {
+      pendingMap[t.id] = t;
+    });
+
+    driverTrips.forEach(dt => {
+      if (!pendingMap[dt.id]) {
+        pendingMap[dt.id] = {
+          id: dt.id,
+          trip_number: dt.trip_number || dt.id.slice(0, 8).toUpperCase(),
+          trip_name: dt.route || dt.destination || dt.bmc_name || `Duty #${dt.trip_number || dt.id.slice(0, 8)}`,
+          driver_name: dt.driver_name || '—',
+          tanker_number: dt.vehicle_number || dt.tanker_number || '—',
+          route_description: dt.route || dt.destination || dt.bmc_name || '—',
+          out_time: dt.scheduled_start_time || dt.created_at,
+          status: dt.status || 'pending',
+          assignment_status: dt.assigned_worker_id ? 'worker_assigned' : 'pending_assignment',
+          created_at: dt.created_at,
+          assigned_at: dt.updated_at || dt.created_at,
+          transport_officer_id: dt.assigned_by || null,
+          worker_id: dt.assigned_worker_id || null,
+          bmc_id: dt.bmc_id || null
+        };
+      }
+    });
+
+    const tripList = Object.values(pendingMap);
 
     // Collect unique profile IDs to resolve names
     const profileIds = new Set();
@@ -9147,6 +9188,8 @@ app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
     let query = adminClient
       .from('driver_trips')
       .select('*')
+      .neq('status', 'deleted')
+      .neq('assignment_status', 'deleted')
       .order('created_at', { ascending: false });
 
     if (from_date) query = query.gte('created_at', `${from_date}T00:00:00`);
@@ -9173,7 +9216,7 @@ app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
 
     (trips || []).forEach(t => {
       const isDone = t.status === 'completed';
-      const isCancelled = t.status === 'cancelled';
+      const isCancelled = t.status === 'cancelled' || t.status === 'deleted' || t.assignment_status === 'deleted';
       if (isCancelled) return;
 
       const normStatus = isDone ? 'done' : 'in_transit';
