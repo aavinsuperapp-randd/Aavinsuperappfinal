@@ -336,12 +336,16 @@ function renderFilteredReadings() {
           : dash;
 
         const diary = item.diary || {};
-        const diaryStr = diary.recorded 
-          ? `<div style="font-size:0.88rem; font-weight:800; color:#065F46;">${diary.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#047857; font-weight:600;">(${diary.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#059669; font-weight:700; margin-top:2px;">F: ${diary.fat ?? '-'}% | S: ${diary.snf ?? '-'}%</div>`
+        const validFat = diary.fat !== undefined && diary.fat !== null && diary.fat !== 'undefined' && !isNaN(parseFloat(diary.fat));
+        const validSnf = diary.snf !== undefined && diary.snf !== null && diary.snf !== 'undefined' && !isNaN(parseFloat(diary.snf));
+        const hasDiaryData = Boolean(diary.recorded && (validFat || validSnf));
+
+        const diaryStr = hasDiaryData
+          ? `<div style="font-size:0.88rem; font-weight:800; color:#065F46;">${diary.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#047857; font-weight:600;">(${diary.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#059669; font-weight:700; margin-top:2px;">F: ${validFat ? parseFloat(diary.fat) : '-'}% | S: ${validSnf ? parseFloat(diary.snf) : '-'}%</div>`
           : dash;
 
         let diffDisplay = dash;
-        if (item.fat_diff !== null && item.snf_diff !== null) {
+        if (hasDiaryData && item.fat_diff !== null && item.snf_diff !== null) {
           const fDiffSign = item.fat_diff > 0 ? `+${item.fat_diff}` : item.fat_diff;
           const sDiffSign = item.snf_diff > 0 ? `+${item.snf_diff}` : item.snf_diff;
           diffDisplay = `<span style="font-size:0.8rem; background:#F1F5F9; padding:3px 8px; border-radius:4px; font-weight:600;">FAT: ${fDiffSign} | SNF: ${sDiffSign}</span>`;
@@ -407,8 +411,12 @@ function renderFilteredReadings() {
             : dash;
 
           const diary = item.diary || {};
-          const diaryStr = diary.recorded 
-            ? `<div style="font-size:0.88rem; font-weight:800; color:#065F46;">${diary.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#047857; font-weight:600;">(${diary.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#059669; font-weight:700; margin-top:2px;">F: ${diary.fat ?? '-'}% | S: ${diary.snf ?? '-'}%</div>`
+          const validFat = diary.fat !== undefined && diary.fat !== null && diary.fat !== 'undefined' && !isNaN(parseFloat(diary.fat));
+          const validSnf = diary.snf !== undefined && diary.snf !== null && diary.snf !== 'undefined' && !isNaN(parseFloat(diary.snf));
+          const hasDiaryData = Boolean(diary.recorded && (validFat || validSnf));
+
+          const diaryStr = hasDiaryData
+            ? `<div style="font-size:0.88rem; font-weight:800; color:#065F46;">${diary.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#047857; font-weight:600;">(${diary.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#059669; font-weight:700; margin-top:2px;">F: ${validFat ? parseFloat(diary.fat) : '-'}% | S: ${validSnf ? parseFloat(diary.snf) : '-'}%</div>`
             : dash;
 
           return `

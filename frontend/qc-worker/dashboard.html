@@ -15,7 +15,7 @@
   <div class="qc-shell">
     <div id="qc-sidebar-overlay" class="qc-sidebar-overlay"></div>
 
-    <!-- QC Sidebar -->
+    <!-- QC Worker Sidebar -->
     <aside class="qc-sidebar" id="qc-sidebar">
       <div class="qs-logo">
         <div class="qs-logo-inner">
@@ -29,13 +29,12 @@
 
       <nav class="qs-nav">
         <a href="dashboard.html" class="qs-nav-item active">
-          <span>📊</span> Dashboard
+          <span>📊</span> Dashboard Overview
         </a>
-
         <a href="history.html" class="qs-nav-item">
           <span>📜</span> Test History
         </a>
-        <a href="reports-testing.html" class="qs-nav-item">
+        <a href="reports.html" class="qs-nav-item">
           <span>🧪</span> Reports Testing
         </a>
         <a href="profile.html" class="qs-nav-item">
@@ -56,79 +55,123 @@
           <div class="qc-header-title">AAVIN Quality Control Laboratory</div>
         </div>
         <div class="qc-header-right">
-          <div>ID: <strong id="qc-header-id">QC-001</strong></div>
+          <div>ID: <strong id="qc-header-id">D51C0E12</strong></div>
           <div>Role: <strong>QC Worker</strong></div>
-          <div>User: <strong id="qc-header-name">Loading...</strong></div>
+          <div>User: <strong id="qc-header-name">qcworker</strong></div>
         </div>
       </header>
 
       <main class="qc-content">
         <div id="main-qc-content" class="hidden">
 
-          <!-- Page Greeting -->
-          <div class="qc-page-top">
-            <h1>Good Day, <span id="qc-welcome-name" style="color:var(--qc-500);">QC Analyst</span> 🧪</h1>
-            <p>Welcome to the AAVIN Milk Quality Testing Laboratory portal. Test and verify BMC milk samples below.</p>
+          <div class="qc-page-top" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+            <div>
+              <h1 style="font-size:1.8rem; font-weight:800; color:#0F172A; margin:0;">MACS READINGS 📊</h1>
+              <p style="color:#64748B; margin:4px 0 0 0;">Compare Worker MACS readings with QC MACS readings date-wise</p>
+            </div>
+            
+            <!-- Date & Period Selector -->
+            <div style="display:flex; align-items:center; gap:10px; background:white; padding:8px 16px; border-radius:10px; border:1px solid #CBD5E1; box-shadow:0 1px 3px rgba(0,0,0,0.05); flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <button type="button" id="btn-quick-today" class="btn-qc btn-qc-outline" style="padding:6px 12px; font-weight:700; font-size:0.82rem; background:#F1F5F9;">Today</button>
+                <button type="button" id="btn-quick-yesterday" class="btn-qc btn-qc-outline" style="padding:6px 12px; font-weight:700; font-size:0.82rem; background:#F1F5F9;">Yesterday</button>
+              </div>
+
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span style="font-weight:700; color:#334155; font-size:0.88rem;">Date:</span>
+                <select id="macs-date-select" class="qc-form-input" style="padding:6px 12px; border-radius:6px; font-weight:600; min-width:140px;">
+                  <option value="">Loading dates...</option>
+                </select>
+              </div>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span style="font-weight:700; color:#334155; font-size:0.88rem;">Period:</span>
+                <select id="macs-period-select" class="qc-form-input" style="padding:6px 12px; border-radius:6px; font-weight:600; min-width:130px;">
+                  <option value="both" selected>Both (Morning &amp; Evening)</option>
+                  <option value="morning">Morning</option>
+                  <option value="evening">Evening</option>
+                </select>
+              </div>
+            </div>
           </div>
 
-          <!-- Date Filter Controls -->
-          <div class="top-controls-bar" style="display: flex; gap: 12px; margin-bottom: 24px; align-items: center; background: white; padding: 14px 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); border: 1px solid #E2E8F0; flex-wrap: wrap;">
-            <div style="display:flex; align-items:center; gap:6px;">
-              <button class="date-preset-btn active" id="btn-preset-today" style="padding: 6px 14px; border: 1px solid #2563EB; background: #2563EB; color: white; border-radius: 6px; cursor: pointer; font-weight: 700; font-size:0.82rem;">Today</button>
-              <button class="date-preset-btn" id="btn-preset-yesterday" style="padding: 6px 14px; border: 1px solid #CBD5E1; background: #F8FAFC; color: #475569; border-radius: 6px; cursor: pointer; font-weight: 700; font-size:0.82rem;">Yesterday</button>
-            </div>
-
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-              <span style="font-weight:700; color:#334155; font-size:0.85rem;">From:</span>
-              <input type="date" id="qc-from-date" class="date-picker-input" style="padding: 6px 10px; border: 1px solid #CBD5E1; border-radius: 6px; font-family: inherit; font-size:0.85rem;">
-              <span style="font-weight:700; color:#334155; font-size:0.85rem;">To:</span>
-              <input type="date" id="qc-to-date" class="date-picker-input" style="padding: 6px 10px; border: 1px solid #CBD5E1; border-radius: 6px; font-family: inherit; font-size:0.85rem;">
-            </div>
-
-            <button id="btn-search-qc" class="btn-qc" style="background:#2563EB; color:white; border:none; padding:7px 16px; border-radius:6px; font-weight:700; font-size:0.85rem; cursor:pointer; display:flex; align-items:center; gap:6px;">
-              🔍 Search
-            </button>
-
-            <button id="btn-download-pdf-qc" class="btn-qc" style="background:#059669; color:white; border:none; padding:7px 16px; border-radius:6px; font-weight:700; font-size:0.85rem; cursor:pointer; margin-left:auto; display:flex; align-items:center; gap:6px;">
-              📄 Download as PDF
-            </button>
-          </div>
-
-          <!-- Summary KPI Cards -->
-          <div class="qc-stats-grid">
+          <!-- KPI Summary Cards -->
+          <div class="qc-stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom:24px;">
             <div class="qc-stat-card">
-              <div class="qc-stat-num" id="stat-total-samples">0</div>
-              <div class="qc-stat-lbl">Total Samples (BMC Samples)</div>
+              <div class="qc-stat-num" id="stat-total-bmcs">0</div>
+              <div class="qc-stat-lbl">Total BMC</div>
             </div>
-            <div class="qc-stat-card accent-amber">
-              <div class="qc-stat-num" id="stat-samples-pending">0</div>
-              <div class="qc-stat-lbl">Pending Samples (Untested BMCs)</div>
-            </div>
-          </div>
-
-          <!-- Active Trips Section -->
-          <div class="qc-section" style="margin-top: 24px;">
-            <div class="qc-section-header" style="background:#EFF6FF; border-bottom:2px solid #3B82F6;">
-              <div class="qc-section-title" style="color:#1E40AF; font-size:1.05rem; font-weight:800;">
-                <span>🚛</span> ACTIVE TRIPS
-              </div>
-            </div>
-
-            <div id="active-trips-container" style="padding: 16px; display: flex; flex-direction: column; gap: 20px;">
-              <div style="text-align:center; padding:24px; color:#64748B; font-weight:600;">Loading active trips...</div>
+            <div class="qc-stat-card accent-teal">
+              <div class="qc-stat-num" id="stat-total-kg">0 KG</div>
+              <div class="qc-stat-lbl">Total Quantity Collected (KG)</div>
             </div>
           </div>
 
-          <!-- Completed Trips Section -->
-          <div class="qc-section" style="margin-top: 28px;">
-            <div class="qc-section-header" style="background:#F0FDF4; border-bottom:2px solid #10B981;">
-              <div class="qc-section-title" style="color:#065F46; font-size:1.05rem; font-weight:800;">
-                <span>✅</span> COMPLETED TRIPS
+          <!-- Filter & Search Controls -->
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+            <div style="display:flex; gap:12px; flex:1; max-width:650px; flex-wrap:wrap;">
+              <select id="macs-route-filter" class="qc-form-input" style="padding:8px 14px; border-radius:8px; font-weight:700; min-width:180px; background:white;">
+                <option value="all">🛣️ All Routes</option>
+              </select>
+              <input type="text" id="macs-search-input" class="qc-form-input" placeholder="🔍 Search BMC Code or BMC Name..." style="flex:1; min-width:200px;">
+            </div>
+          </div>
+
+          <!-- Table 1: Matched MACS BMCs Table -->
+          <div class="qc-section" style="margin-bottom:28px;">
+            <div class="qc-section-header">
+              <div class="qc-section-title">
+                <span>📋</span> Matched MACS Readings &amp; Cross-Comparison
               </div>
             </div>
 
-            <div id="completed-trips-container" style="padding: 16px; display: flex; flex-direction: column; gap: 20px;">
-              <div style="text-align:center; padding:24px; color:#64748B; font-weight:600;">Loading completed trips...</div>
+            <div class="qc-table-wrap">
+              <table class="qc-table">
+                <thead>
+                  <tr>
+                    <th>BMC Code</th>
+                    <th>BMC Name</th>
+                    <th>MACS Result</th>
+                    <th>Spot Analyzer</th>
+                    <th>Diary Result</th>
+                    <th>Difference</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="macs-readings-tbody">
+                  <tr>
+                    <td colspan="7" style="text-align:center; padding:20px; color:#64748B;">Select a date to view MACS Readings...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Table 2: No MACS Data (Spot Analyzer Visits Only) -->
+          <div class="qc-section">
+            <div class="qc-section-header" style="background:#FFFBEB; border-bottom:1px solid #FCD34D;">
+              <div class="qc-section-title" style="color:#92400E;">
+                <span>⚠️</span> BMCs with No MACS Data (Spot Analyzer Visits Only)
+              </div>
+            </div>
+
+            <div class="qc-table-wrap">
+              <table class="qc-table">
+                <thead>
+                  <tr style="background:#FEF3C7; color:#78350F;">
+                    <th>BMC Code</th>
+                    <th>BMC Name</th>
+                    <th>Spot Analyzer Result</th>
+                    <th>Diary Result</th>
+                    <th>Difference</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="no-macs-readings-tbody">
+                  <tr>
+                    <td colspan="6" style="text-align:center; padding:20px; color:#92400E;">No Spot Analyzer visits recorded for BMCs missing MACS data.</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 

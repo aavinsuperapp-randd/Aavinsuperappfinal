@@ -6364,6 +6364,111 @@ app.get('/api/qc-worker/dashboard-stats', requireQcWorker, async (req, res) => {
   }
 });
 
+// GET /api/qc-worker/dashboard-bmcs
+app.get('/api/qc-worker/dashboard-bmcs', requireQcWorker, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    // 1. Fetch master BMCs
+    const { data: masterBmcs } = await adminClient
+      .from('bmcs')
+      .select('*, bmc_routes(*)');
+
+    // 2. Fetch all visits
+    const { data: visits } = await adminClient
+      .from('trip_bmc_visits')
+      .select('*, bmc:bmcs(*), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*), trip:trips(*)');
+
+    // 3. Fetch MACS excel rows
+    const { data: macsRows } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('*');
+
+    const visitsByCode = {};
+    const visitsByBmcId = {};
+    (visits || []).forEach(v => {
+      const code = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
+      const bId = v.bmc_id || v.bmc?.id;
+      if (code) visitsByCode[code] = v;
+      if (bId) visitsByBmcId[bId] = v;
+    });
+
+    const macsByCode = {};
+    (macsRows || []).forEach(m => {
+      const code = String(m.sample_ref || m.raw_data?.bmc_code || '').trim();
+      if (code) macsByCode[code] = m;
+    });
+
+    const bmcList = (masterBmcs || []).map(b => {
+      const bCode = String(b.bmc_code || b.code || '').trim();
+      const routeName = b.bmc_routes?.name || b.route_name || 'Unassigned Route';
+
+      const visit = visitsByCode[bCode] || visitsByBmcId[b.id] || null;
+      const macsRow = macsByCode[bCode] || (macsRows || []).find(m => String(m.bmc_name || m.bmc?.name || '').trim().toLowerCase() === String(b.name || '').toLowerCase());
+
+      let macsData = null;
+      if (macsRow) {
+        let macsLit = macsRow.raw_data?.macs_quantity_liters ?? macsRow.raw_data?.liters ?? macsRow.liters ?? macsRow.quantity ?? null;
+        let macsKg = macsRow.raw_data?.macs_quantity_kg ?? macsRow.raw_data?.kg ?? (macsLit ? parseFloat((macsLit * 1.03).toFixed(2)) : null);
+        macsData = {
+          liters: macsLit,
+          kg: macsKg,
+          fat: macsRow.fat ?? null,
+          snf: macsRow.snf ?? null
+        };
+      }
+
+      let spotData = null;
+      let visitId = visit ? visit.id : `bmc_${b.id}`;
+      if (visit) {
+        const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
+        const ftir = unpack(visit.ftir_tests);
+        const gerber = unpack(visit.gerber_tests);
+
+        const spotLit = visit.sample_liters || visit.milk_quantity_liters || null;
+        const spotKg = visit.milk_quantity_kg || visit.in_weight || (spotLit ? parseFloat((spotLit * 1.03).toFixed(2)) : null);
+        const spotFat = ftir.fat ?? gerber.fat_percentage ?? null;
+        const spotSnf = ftir.snf ?? gerber.snf ?? null;
+
+        if (spotLit !== null || spotFat !== null || visit.status === 'completed' || visit.status === 'visited') {
+          spotData = {
+            liters: spotLit,
+            kg: spotKg,
+            fat: spotFat,
+            snf: spotSnf
+          };
+        }
+      }
+
+      const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
+      const qcTest = visit ? unpack(visit.qc_test) : null;
+      const isTested = Boolean(qcTest && (qcTest.fat !== null || qcTest.snf !== null || qcTest.status === 'submitted' || qcTest.status === 'approved' || qcTest.status === 'completed'));
+      const diaryData = isTested ? {
+        fat: qcTest.fat,
+        snf: qcTest.snf,
+        status: qcTest.status || 'submitted',
+        overall_result: qcTest.overall_result || 'pass'
+      } : null;
+
+      return {
+        bmc_id: b.id,
+        bmc_code: bCode || 'BMC',
+        bmc_name: b.name || 'BMC Center',
+        route_name: routeName,
+        visit_id: visitId,
+        macs: macsData,
+        field_worker: spotData,
+        diary: diaryData,
+        is_tested: isTested
+      };
+    });
+
+    res.json({ bmcs: bmcList });
+  } catch (err) {
+    console.error('Error fetching QC worker dashboard BMCs:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch dashboard BMCs.' });
+  }
+});
+
 // GET /api/qc-worker/dashboard-trips
 app.get('/api/qc-worker/dashboard-trips', requireQcWorker, async (req, res) => {
   const { adminClient } = req;
@@ -6384,7 +6489,8 @@ app.get('/api/qc-worker/dashboard-trips', requireQcWorker, async (req, res) => {
       endIso = new Date().toISOString();
     }
 
-    const { data: trips, error: tripsErr } = await adminClient
+    // 1. Fetch from trips table
+    const { data: trips } = await adminClient
       .from('trips')
       .select('*')
       .neq('status', 'deleted')
@@ -6392,20 +6498,103 @@ app.get('/api/qc-worker/dashboard-trips', requireQcWorker, async (req, res) => {
       .lte('created_at', endIso)
       .order('created_at', { ascending: false });
 
-    if (tripsErr) throw tripsErr;
+    // 2. Fetch from driver_trips table (profile-based)
+    const { data: dTrips } = await adminClient
+      .from('driver_trips')
+      .select('*')
+      .neq('status', 'deleted')
+      .neq('status', 'cancelled')
+      .gte('created_at', startIso)
+      .lte('created_at', endIso)
+      .order('created_at', { ascending: false });
 
-    const tripList = trips || [];
+    // Merge trips into a unified list
+    const tripsMap = new Map();
+    (trips || []).forEach(t => tripsMap.set(t.id, t));
+    (dTrips || []).forEach(dt => {
+      if (!tripsMap.has(dt.id)) {
+        tripsMap.set(dt.id, {
+          id: dt.id,
+          trip_number: dt.trip_number || dt.id.slice(0, 8).toUpperCase(),
+          trip_name: dt.route || dt.destination || dt.bmc_name || 'Assigned Duty',
+          driver_name: dt.driver_name || 'Assigned Driver',
+          tanker_number: dt.vehicle_number || '—',
+          route_description: dt.route || dt.destination || '—',
+          status: dt.status,
+          created_at: dt.created_at
+        });
+      }
+    });
+
+    const tripList = Array.from(tripsMap.values());
     const tripIds = tripList.map(t => t.id);
 
     let visitList = [];
     if (tripIds.length > 0) {
       const { data: visits } = await adminClient
         .from('trip_bmc_visits')
-        .select('*, bmc:bmcs(*), qc_test:qc_lab_tests(*)')
+        .select('*, bmc:bmcs(*), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*)')
         .in('trip_id', tripIds)
         .order('created_at', { ascending: true });
       visitList = visits || [];
     }
+
+    // Fetch MACS excel import rows for the date range
+    const { data: macsRows } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('*')
+      .gte('created_at', startIso)
+      .lte('created_at', endIso);
+
+    // Enrich visits with MACS and Spot Analyzer data
+    (visitList || []).forEach(v => {
+      const bmcCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
+      const bmcName = String(v.bmc?.name || v.bmc_name || '').trim().toLowerCase();
+
+      // MACS lookup
+      const macsRow = (macsRows || []).find(m => {
+        const mRef = String(m.sample_ref || m.raw_data?.bmc_code || '').trim();
+        const mName = String(m.bmc_name || m.bmc?.name || '').trim().toLowerCase();
+        return (bmcCode && mRef && mRef === bmcCode) || (bmcName && mName && mName === bmcName);
+      });
+
+      let macsLit = macsRow ? (macsRow.raw_data?.macs_quantity_liters ?? macsRow.raw_data?.liters ?? macsRow.liters ?? macsRow.quantity ?? null) : null;
+      let macsKg = macsRow ? (macsRow.raw_data?.macs_quantity_kg ?? macsRow.raw_data?.kg ?? (macsLit ? parseFloat((macsLit * 1.03).toFixed(2)) : null)) : null;
+      let macsFat = macsRow ? macsRow.fat : null;
+      let macsSnf = macsRow ? macsRow.snf : null;
+
+      // Spot Analyzer (FTIR / Gerber)
+      const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
+      const ftir = unpack(v.ftir_tests);
+      const gerber = unpack(v.gerber_tests);
+
+      const spotLit = v.sample_liters || v.milk_quantity_liters || null;
+      const spotKg = v.milk_quantity_kg || v.in_weight || (spotLit ? parseFloat((spotLit * 1.03).toFixed(2)) : null);
+      const spotFat = ftir.fat ?? gerber.fat_percentage ?? null;
+      const spotSnf = ftir.snf ?? gerber.snf ?? null;
+
+      v.macs = {
+        liters: macsLit,
+        kg: macsKg,
+        fat: macsFat,
+        snf: macsSnf
+      };
+
+      v.spot = {
+        liters: spotLit,
+        kg: spotKg,
+        fat: spotFat,
+        snf: spotSnf
+      };
+      v.spot_analyzer = v.spot;
+
+      v.diary = {
+        liters: v.diary_quantity_liters || null,
+        kg: v.diary_quantity_kg || null,
+        fat: v.diary_fat || null,
+        snf: v.diary_snf || null
+      };
+    });
 
     res.json({
       trips: tripList,
@@ -6454,6 +6643,36 @@ app.get('/api/qc-worker/samples', requireQcWorker, async (req, res) => {
 app.get('/api/qc-worker/samples/:id', requireQcWorker, async (req, res) => {
   const { adminClient } = req;
   try {
+    const rawId = req.params.id;
+    if (rawId && rawId.startsWith('bmc_')) {
+      const bmcId = rawId.replace('bmc_', '');
+      const { data: existingVisits } = await adminClient
+        .from('trip_bmc_visits')
+        .select('*, bmc:bmcs(*), trip:trips(*, worker:profiles!trips_worker_id_fkey(*)), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
+        .eq('bmc_id', bmcId)
+        .order('created_at', { ascending: false });
+
+      if (existingVisits && existingVisits.length > 0) {
+        return res.json({ sample: existingVisits[0] });
+      }
+
+      const { data: bmc } = await adminClient.from('bmcs').select('*').eq('id', bmcId).single();
+      if (!bmc) return res.status(404).json({ error: 'BMC not found.' });
+
+      const { data: newVisit, error: vErr } = await adminClient
+        .from('trip_bmc_visits')
+        .insert([{
+          bmc_id: bmc.id,
+          status: 'visited',
+          created_at: new Date().toISOString()
+        }])
+        .select('*, bmc:bmcs(*), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
+        .single();
+
+      if (vErr || !newVisit) throw vErr || new Error('Failed to create sample visit.');
+      return res.json({ sample: newVisit });
+    }
+
     const { data: visit, error } = await adminClient
       .from('trip_bmc_visits')
       .select(`
@@ -6464,13 +6683,313 @@ app.get('/api/qc-worker/samples/:id', requireQcWorker, async (req, res) => {
         gerber_tests(*),
         qc_test:qc_lab_tests(*)
       `)
-      .eq('id', req.params.id)
+      .eq('id', rawId)
       .single();
 
     if (error || !visit) return res.status(404).json({ error: 'Sample visit record not found.' });
     res.json({ sample: visit });
   } catch (err) {
     console.error('❌ QC Worker Sample detail error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-worker/macs/dates
+app.get('/api/qc-worker/macs/dates', requireQcWorker, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: rows, error } = await adminClient
+      .from('qc_excel_import_rows')
+      .select('test_date')
+      .order('test_date', { ascending: false });
+
+    if (error) throw error;
+    const dates = Array.from(new Set((rows || []).map(r => r.test_date).filter(Boolean)));
+    res.json({ dates });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-worker/bmcs
+app.get('/api/qc-worker/bmcs', requireQcWorker, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const { data: bmcs, error } = await adminClient
+      .from('bmcs')
+      .select('*, bmc_routes(*)')
+      .order('name');
+    if (error) throw error;
+    res.json({ bmcs: bmcs || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-worker/dashboard
+app.get('/api/qc-worker/dashboard', requireQcWorker, async (req, res) => {
+  const { adminClient } = req;
+  const date = req.query.date;
+  const period = (req.query.period || 'both').toLowerCase();
+  try {
+    const { count: totalBmcs } = await adminClient
+      .from('bmcs')
+      .select('id', { count: 'exact', head: true });
+
+    let visitsQuery = adminClient
+      .from('trip_bmc_visits')
+      .select('milk_quantity_liters, visit_end_time, remarks, created_at')
+      .eq('status', 'completed');
+
+    if (date) {
+      const fromIso = new Date(date + 'T00:00:00.000Z').toISOString();
+      const toIso = new Date(date + 'T23:59:59.999Z').toISOString();
+      visitsQuery = visitsQuery.gte('visit_end_time', fromIso).lte('visit_end_time', toIso);
+    }
+
+    const { data: spotVisits } = await visitsQuery;
+    let spotVisitsFiltered = spotVisits || [];
+
+    if (period !== 'both') {
+      spotVisitsFiltered = spotVisitsFiltered.filter(v => {
+        const r = (v.remarks || '').toLowerCase();
+        if (period === 'morning') return r.includes('morning') || !r.includes('evening');
+        if (period === 'evening') return r.includes('evening');
+        return true;
+      });
+    }
+
+    let totalQuantityKg = 0;
+    spotVisitsFiltered.forEach(v => {
+      const lit = parseFloat(v.milk_quantity_liters || 0);
+      if (lit > 0) {
+        totalQuantityKg += (lit * 1.03);
+      }
+    });
+
+    res.json({
+      total_bmcs: totalBmcs || 0,
+      total_quantity_kg: parseFloat(totalQuantityKg.toFixed(2))
+    });
+  } catch (err) {
+    console.error('❌ QC Worker Dashboard error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/qc-worker/macs/readings
+app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
+  const { adminClient } = req;
+  const date = req.query.date;
+
+  try {
+    let query = adminClient
+      .from('qc_excel_import_rows')
+      .select('*, bmc:bmcs(*), batch:qc_excel_imports(*)');
+
+    if (date) {
+      query = query.eq('test_date', date);
+    }
+
+    const { data: rows, error } = await query;
+    if (error) throw error;
+
+    let visitsQuery = adminClient
+      .from('trip_bmc_visits')
+      .select('*, bmc:bmcs(*, bmc_routes(*)), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*)');
+
+    if (date) {
+      const fromIso = new Date(date + 'T00:00:00.000Z').toISOString();
+      const toIso = new Date(date + 'T23:59:59.999Z').toISOString();
+      visitsQuery = visitsQuery.gte('created_at', fromIso).lte('created_at', toIso);
+    }
+
+    const { data: visits } = await visitsQuery;
+    const visitsMap = {};
+    (visits || []).forEach(v => {
+      const bCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
+      if (bCode) {
+        visitsMap[bCode] = v;
+      }
+    });
+
+    const bmcMap = {};
+
+    (rows || []).forEach(r => {
+      const bmcCode = String(r.sample_ref || (r.raw_data && r.raw_data.bmc_code) || r.bmc_name || '').trim();
+      const key = `${bmcCode}_${r.test_date}`;
+
+      if (!bmcMap[key]) {
+        const liters = r.raw_data?.macs_quantity_liters ?? r.raw_data?.liters ?? r.raw_data?.quantity ?? r.liters ?? r.quantity ?? null;
+        const kg = r.raw_data?.macs_quantity_kg ?? r.raw_data?.kg ?? (liters ? parseFloat((liters * 1.03).toFixed(2)) : null);
+
+        bmcMap[key] = {
+          bmc_code: bmcCode,
+          bmc_name: r.bmc_name || r.bmc?.name || 'N/A',
+          bmc_id: r.bmc_id || r.bmc?.id,
+          reading_date: r.test_date,
+          worker: null,
+          qc: null,
+          macs: {
+            quantity_liters: liters,
+            quantity_kg: kg,
+            fat: r.fat,
+            snf: r.snf
+          },
+          spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, visited: false },
+          diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
+          fat_diff: null,
+          snf_diff: null,
+          status: 'NO_DATA',
+          visit_id: null,
+          is_tested: false
+        };
+      }
+
+      const src = r.overall_result || (r.raw_data && r.raw_data.source) || 'worker';
+      if (src === 'worker') {
+        bmcMap[key].worker = { fat: r.fat, snf: r.snf, id: r.id, raw: r.raw_data };
+      } else if (src === 'qc') {
+        bmcMap[key].qc = { fat: r.fat, snf: r.snf, id: r.id, raw: r.raw_data };
+      }
+
+      const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
+      const spotVisit = visitsMap[bmcCode];
+      if (spotVisit) {
+        const ftir = unpack(spotVisit.ftir_tests);
+        const gerber = unpack(spotVisit.gerber_tests);
+        const issue = unpack(spotVisit.bmc_issues);
+        const rating = unpack(spotVisit.bmc_ratings);
+        const qcTest = unpack(spotVisit.qc_test);
+
+        const lit = spotVisit.sample_liters || spotVisit.milk_quantity_liters || null;
+        const kg = spotVisit.milk_quantity_kg || spotVisit.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
+
+        bmcMap[key].visit_id = spotVisit.id;
+
+        bmcMap[key].spot = {
+          compartment: spotVisit.compartment || null,
+          quantity_liters: lit,
+          quantity_kg: kg,
+          fat: ftir.fat ?? gerber.fat_percentage ?? null,
+          snf: ftir.snf ?? gerber.snf ?? null,
+          visited: spotVisit.status === 'completed' || spotVisit.status === 'visited' || Boolean(spotVisit.visit_end_time),
+          status: spotVisit.status || 'visited'
+        };
+
+        const hasRealFat = qcTest.fat !== undefined && qcTest.fat !== null && !isNaN(parseFloat(qcTest.fat));
+        const hasRealSnf = qcTest.snf !== undefined && qcTest.snf !== null && !isNaN(parseFloat(qcTest.snf));
+        const isSubmittedStatus = Boolean(qcTest.status && ['submitted', 'approved', 'completed'].includes(qcTest.status));
+
+        if (qcTest && qcTest.id && (hasRealFat || hasRealSnf || isSubmittedStatus)) {
+          bmcMap[key].diary = {
+            quantity_liters: qcTest.sample_liters || lit,
+            quantity_kg: qcTest.sample_kg || kg,
+            fat: hasRealFat ? parseFloat(qcTest.fat) : null,
+            snf: hasRealSnf ? parseFloat(qcTest.snf) : null,
+            recorded: true
+          };
+          bmcMap[key].is_tested = true;
+        }
+      }
+    });
+
+    const macsComparisons = Object.values(bmcMap).map(item => {
+      const diary = item.diary;
+      const macs = item.macs;
+
+      const dFat = (diary && diary.recorded && diary.fat !== null && diary.fat !== undefined) ? parseFloat(diary.fat) : null;
+      const mFat = (macs && macs.fat !== null && macs.fat !== undefined) ? parseFloat(macs.fat) : null;
+      const dSnf = (diary && diary.recorded && diary.snf !== null && diary.snf !== undefined) ? parseFloat(diary.snf) : null;
+      const mSnf = (macs && macs.snf !== null && macs.snf !== undefined) ? parseFloat(macs.snf) : null;
+
+      const fatDiff = (dFat !== null && mFat !== null && !isNaN(dFat) && !isNaN(mFat)) ? parseFloat((dFat - mFat).toFixed(2)) : null;
+      const snfDiff = (dSnf !== null && mSnf !== null && !isNaN(dSnf) && !isNaN(mSnf)) ? parseFloat((dSnf - mSnf).toFixed(2)) : null;
+
+      item.fat_diff = fatDiff;
+      item.snf_diff = snfDiff;
+
+      if (!diary || !diary.recorded) {
+        item.status = 'QC_NOT_TESTED';
+      } else if (fatDiff === 0 && snfDiff === 0) {
+        item.status = 'MATCHED';
+      } else if (fatDiff !== null || snfDiff !== null) {
+        item.status = 'MISMATCH';
+      } else {
+        item.status = 'PARTIAL_DATA';
+      }
+
+      if (!item.visit_id) {
+        item.visit_id = item.bmc_id ? `bmc_${item.bmc_id}` : `bmc_code_${item.bmc_code}`;
+      }
+
+      return item;
+    });
+
+    const matchedMacsCodes = new Set(Object.values(bmcMap).map(m => m.bmc_code));
+    const noMacsReadings = [];
+
+    const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
+    (visits || []).forEach(v => {
+      const bCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
+      const bName = v.bmc?.name || v.bmc_name || 'N/A';
+      if (bCode && !matchedMacsCodes.has(bCode)) {
+        const ftir = unpack(v.ftir_tests);
+        const gerber = unpack(v.gerber_tests);
+        const qcTest = unpack(v.qc_test);
+
+        const lit = v.sample_liters || v.milk_quantity_liters || null;
+        const kg = v.milk_quantity_kg || v.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
+        const vDate = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : (date || new Date().toISOString().split('T')[0]);
+
+        let isTested = false;
+        let diaryObj = { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false };
+
+        const hasRealFat2 = qcTest.fat !== undefined && qcTest.fat !== null && !isNaN(parseFloat(qcTest.fat));
+        const hasRealSnf2 = qcTest.snf !== undefined && qcTest.snf !== null && !isNaN(parseFloat(qcTest.snf));
+        const isSubmittedStatus2 = Boolean(qcTest.status && ['submitted', 'approved', 'completed'].includes(qcTest.status));
+
+        if (qcTest && qcTest.id && (hasRealFat2 || hasRealSnf2 || isSubmittedStatus2)) {
+          diaryObj = {
+            quantity_liters: qcTest.sample_liters || lit,
+            quantity_kg: qcTest.sample_kg || kg,
+            fat: hasRealFat2 ? parseFloat(qcTest.fat) : null,
+            snf: hasRealSnf2 ? parseFloat(qcTest.snf) : null,
+            recorded: true
+          };
+          isTested = true;
+        }
+
+        noMacsReadings.push({
+          bmc_code: bCode,
+          bmc_name: bName,
+          bmc_id: v.bmc_id || v.bmc?.id,
+          reading_date: vDate,
+          visit_id: v.id,
+          is_tested: isTested,
+          spot: {
+            compartment: v.compartment || null,
+            quantity_liters: lit,
+            quantity_kg: kg,
+            fat: ftir.fat ?? gerber.fat_percentage ?? null,
+            snf: ftir.snf ?? gerber.snf ?? null,
+            visited: v.status === 'completed' || v.status === 'visited' || Boolean(v.visit_end_time),
+            status: v.status || 'visited'
+          },
+          diary: diaryObj,
+          fat_diff: null,
+          snf_diff: null,
+          status: 'NO_MACS_DATA'
+        });
+      }
+    });
+
+    res.json({
+      readings: macsComparisons,
+      no_macs_readings: noMacsReadings
+    });
+  } catch (err) {
+    console.error('❌ QC Worker MACS Readings error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -8323,10 +8842,10 @@ app.patch('/api/trips/:id/complete-worker', requireWorker, async (req, res) => {
       success: true,
       message: 'Trip completed successfully!',
       summary: {
-        km_travelled: kmTravelled,
-        total_milk_weight_kg: milkWeightKg,
-        diesel_consumption: dieselLiters,
-        mileage: mileageVal
+        km_travelled: calc.kmTravelled,
+        weight_difference: calc.weightDiff,
+        diesel_consumption: calc.dieselConsumption,
+        mileage: calc.averageMileage
       }
     });
   } catch (err) {

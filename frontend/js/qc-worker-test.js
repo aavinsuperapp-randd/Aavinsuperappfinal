@@ -127,17 +127,13 @@ function populateQcForm() {
     currentQcTestId = qcTest.id;
     document.getElementById('qc-fat').value = qcTest.fat ?? '';
     document.getElementById('qc-snf').value = qcTest.snf ?? '';
-    document.getElementById('qc-clr').value = qcTest.clr ?? '';
     document.getElementById('qc-temp').value = qcTest.temperature ?? '';
-    document.getElementById('qc-acidity').value = qcTest.acidity ?? '';
-    document.getElementById('qc-protein').value = qcTest.protein ?? '';
-    document.getElementById('qc-lactose').value = qcTest.lactose ?? '';
-    document.getElementById('qc-density').value = qcTest.density ?? '';
-    document.getElementById('qc-water').value = qcTest.water_percentage ?? '';
     document.getElementById('qc-condition').value = qcTest.sample_condition || 'good';
-    document.getElementById('qc-overall-result').value = qcTest.overall_result || 'pass';
     document.getElementById('qc-remarks').value = qcTest.remarks || '';
-    document.getElementById('qc-observations').value = qcTest.additional_observations || '';
+    if (qcTest.created_at || qcTest.received_at) {
+      const recTime = qcTest.received_at || qcTest.created_at;
+      document.getElementById('qc-received-time').value = new Date(recTime).toISOString().slice(0, 16);
+    }
 
     // Show status indicator
     const statusBox = document.getElementById('qc-test-status-banner');
@@ -174,7 +170,6 @@ async function handleSaveDraft(e) {
 
   const fat = document.getElementById('qc-fat').value;
   const snf = document.getElementById('qc-snf').value;
-  const clr = document.getElementById('qc-clr').value;
   const temp = document.getElementById('qc-temp').value;
 
   if (!fat || !snf) {
@@ -187,16 +182,8 @@ async function handleSaveDraft(e) {
     sample_condition: document.getElementById('qc-condition').value,
     fat,
     snf,
-    clr,
     temperature: temp,
-    acidity: document.getElementById('qc-acidity').value,
-    protein: document.getElementById('qc-protein').value,
-    lactose: document.getElementById('qc-lactose').value,
-    density: document.getElementById('qc-density').value,
-    water_percentage: document.getElementById('qc-water').value,
-    overall_result: document.getElementById('qc-overall-result').value,
-    remarks: document.getElementById('qc-remarks').value,
-    additional_observations: document.getElementById('qc-observations').value
+    remarks: document.getElementById('qc-remarks').value
   };
 
   try {

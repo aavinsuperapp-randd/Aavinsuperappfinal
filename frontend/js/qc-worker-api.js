@@ -42,6 +42,24 @@ async function apiQcWorkerGetDashboardTrips(startDate = '', endDate = '') {
   const url = `/api/qc-worker/dashboard-trips?startDate=${startDate}&endDate=${endDate}`;
   return qcWorkerFetch(url);
 }
+async function apiQcWorkerGetDashboardBmcs(startDate = '', endDate = '') {
+  const url = `/api/qc-worker/dashboard-bmcs?startDate=${startDate}&endDate=${endDate}`;
+  return qcWorkerFetch(url);
+}
+async function apiQcWorkerGetMacsDates() {
+  return qcWorkerFetch('/api/qc-worker/macs/dates');
+}
+async function apiQcWorkerGetMacsReadings(date = '') {
+  const url = date ? `/api/qc-worker/macs/readings?date=${encodeURIComponent(date)}` : '/api/qc-worker/macs/readings';
+  return qcWorkerFetch(url);
+}
+async function apiQcWorkerGetBmcs() {
+  return qcWorkerFetch('/api/qc-worker/bmcs');
+}
+async function apiQcWorkerGetDashboard(date = '', period = 'both') {
+  const url = `/api/qc-worker/dashboard?date=${encodeURIComponent(date)}&period=${encodeURIComponent(period)}`;
+  return qcWorkerFetch(url);
+}
 async function apiQcGetSamples(date = '') {
   const url = date ? `/api/qc-worker/samples?date=${date}` : '/api/qc-worker/samples';
   return qcWorkerFetch(url);

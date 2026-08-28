@@ -143,38 +143,14 @@
                 <input type="number" step="0.01" id="qc-snf" class="qc-form-input" placeholder="e.g. 8.50" required>
               </div>
               <div class="qc-form-group">
-                <label class="qc-form-label">CLR (Corrected Lactometer)</label>
-                <input type="number" step="0.1" id="qc-clr" class="qc-form-input" placeholder="e.g. 28.0">
-              </div>
-              <div class="qc-form-group">
-                <label class="qc-form-label">Temperature (°C)</label>
+                <label class="qc-form-label">Temperature of Sample (°C)</label>
                 <input type="number" step="0.1" id="qc-temp" class="qc-form-input" placeholder="e.g. 30.5">
-              </div>
-              <div class="qc-form-group">
-                <label class="qc-form-label">Acidity (%)</label>
-                <input type="number" step="0.01" id="qc-acidity" class="qc-form-input" placeholder="e.g. 0.14">
-              </div>
-              <div class="qc-form-group">
-                <label class="qc-form-label">Protein %</label>
-                <input type="number" step="0.01" id="qc-protein" class="qc-form-input" placeholder="e.g. 3.20">
-              </div>
-              <div class="qc-form-group">
-                <label class="qc-form-label">Lactose %</label>
-                <input type="number" step="0.01" id="qc-lactose" class="qc-form-input" placeholder="e.g. 4.70">
-              </div>
-              <div class="qc-form-group">
-                <label class="qc-form-label">Density (g/cm³)</label>
-                <input type="number" step="0.001" id="qc-density" class="qc-form-input" placeholder="e.g. 1.028">
-              </div>
-              <div class="qc-form-group">
-                <label class="qc-form-label">Added Water %</label>
-                <input type="number" step="0.1" id="qc-water" class="qc-form-input" placeholder="e.g. 0.0">
               </div>
             </div>
 
             <!-- Additional Lab Information -->
             <div class="qc-form-title" style="font-size:0.82rem; color:#475569; margin-top:10px;">
-              <span>⚙️</span> Sample Condition &amp; Lab Instrument Details
+              <span>⚙️</span> Sample Condition &amp; Received Details
             </div>
 
             <div class="qc-form-grid" style="margin-bottom:20px;">
@@ -191,26 +167,13 @@
                 <label class="qc-form-label">Sample Received Time</label>
                 <input type="datetime-local" id="qc-received-time" class="qc-form-input">
               </div>
-
-              <div class="qc-form-group">
-                <label class="qc-form-label">Overall QC Result</label>
-                <select id="qc-overall-result" class="qc-form-input">
-                  <option value="pass" selected>PASS (Meets Standards)</option>
-                  <option value="warning">WARNING (Slight Deviation)</option>
-                  <option value="fail">FAIL (Substandard / Adulterated)</option>
-                </select>
-              </div>
             </div>
 
-            <!-- Remarks & Observations -->
+            <!-- Remarks -->
             <div class="qc-form-grid" style="margin-bottom:24px;">
               <div class="qc-form-group" style="grid-column: 1 / -1;">
                 <label class="qc-form-label">QC Analyst Remarks</label>
                 <textarea id="qc-remarks" class="qc-form-input" rows="2" placeholder="Note any specific observations or lab notes..."></textarea>
-              </div>
-              <div class="qc-form-group" style="grid-column: 1 / -1;">
-                <label class="qc-form-label">Additional Observations</label>
-                <input type="text" id="qc-observations" class="qc-form-input" placeholder="Optional notes on sample seal condition, color, odor, etc.">
               </div>
             </div>
 
