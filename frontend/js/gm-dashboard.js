@@ -619,7 +619,7 @@ function renderTripBoxes(trips = []) {
           <div class="d-flex align-items-center gap-2" style="gap:8px;">
             ${statusBadge}
             <button class="btn btn-sm btn-outline" onclick="openTripDetailModal('${t.id}')" title="View Trip Details">🔍 Details</button>
-            <button class="btn btn-sm btn-outline" style="color:#ef4444; border-color:#fca5a5;" onclick="deleteTripByGm('${t.id}', '${esc(t.trip_name)}')" title="Delete Trip">🗑️ Delete</button>
+            <button class="btn btn-sm btn-outline" style="color:#ef4444; border-color:#fca5a5;" onclick="deleteTripByGm('${t.id}')" title="Delete Trip">🗑️ Delete</button>
           </div>
         </div>
 
@@ -646,15 +646,23 @@ function renderTripsTable(trips = []) {
   renderTripBoxes(trips);
 }
 
-window.deleteTripByGm = async function(tripId, tripName) {
-  if (!confirm(`Are you sure you want to delete field trip "${tripName}"? This action cannot be undone.`)) return;
+window.deleteTripByGm = async function(tripId, optionalTripName) {
+  let tripName = optionalTripName;
+  if (!tripName && currentDashboardData && currentDashboardData.trips) {
+    const found = currentDashboardData.trips.find(t => t.id === tripId);
+    if (found) tripName = found.trip_name;
+  }
+  if (!tripName) tripName = 'this trip';
+
+  if (!confirm(`Are you sure you want to delete trip "${tripName}" permanently? This action cannot be undone.`)) return;
   if (typeof toggleLoading === 'function') toggleLoading(true);
   try {
     await apiGmDeleteTrip(tripId);
     if (typeof showToast === 'function') showToast('Trip deleted successfully.', 'success');
     await loadDashboardData();
-    await loadPendingTrips();
+    if (typeof loadPendingTrips === 'function') await loadPendingTrips();
   } catch (err) {
+    console.error('❌ Failed to delete trip:', err);
     if (typeof showToast === 'function') showToast(err.message || 'Failed to delete trip.', 'error');
   } finally {
     if (typeof toggleLoading === 'function') toggleLoading(false);

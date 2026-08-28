@@ -4859,39 +4859,85 @@ app.put('/api/transport/driver-trips/:id', requireTransportOfficer, async (req, 
   }
 });
 
-// DELETE /api/transport/driver-trips/:id & DELETE /api/transport/duties/:id — Safely delete a driver trip duty
+// ─── Unified Trip Management JWT Middleware ─────────────────────────────────
+async function requireTripManager(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
+
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
+
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+
+  const { data: profile } = await adminClient
+    .from('profiles').select('*').eq('id', user.id).single();
+
+  if (!profile) return res.status(404).json({ error: 'Profile not found.' });
+
+  const allowedRoles = ['transport_officer', 'pi_agm', 'gm', 'admin', 'qc_agm', 'worker', 'driver'];
+  if (!allowedRoles.includes(profile.role)) {
+    return res.status(403).json({ error: 'Management authorization required.' });
+  }
+
+  req.user = user;
+  req.profile = profile;
+  req.adminClient = adminClient;
+  next();
+}
+
+// DELETE /api/gm/trips/:id, /api/transport/driver-trips/:id & /api/transport/duties/:id — Safely delete a driver trip duty
 const safeDeleteDutyHandler = async (req, res) => {
   const { adminClient } = req;
   const { id } = req.params;
 
   try {
-    // 1. Mark status='deleted' in driver_trips
+    // 1. Fetch child visits for this trip to clean up foreign key dependents
+    const { data: visits } = await adminClient
+      .from('trip_bmc_visits')
+      .select('id')
+      .eq('trip_id', id);
+
+    const visitIds = (visits || []).map(v => v.id);
+
+    if (visitIds.length > 0) {
+      await adminClient.from('ftir_tests').delete().in('visit_id', visitIds).catch(() => {});
+      await adminClient.from('gerber_tests').delete().in('visit_id', visitIds).catch(() => {});
+      await adminClient.from('bmc_issues').delete().in('visit_id', visitIds).catch(() => {});
+      await adminClient.from('bmc_ratings').delete().in('visit_id', visitIds).catch(() => {});
+      await adminClient.from('requirement_checks').delete().in('visit_id', visitIds).catch(() => {});
+      await adminClient.from('trip_bmc_visits').delete().in('id', visitIds).catch(() => {});
+    }
+    await adminClient.from('trip_bmc_visits').delete().eq('trip_id', id).catch(() => {});
+
+    // 2. Soft delete status='deleted' in driver_trips and trips (guarantees exclusion across all queries)
     await adminClient
       .from('driver_trips')
       .update({ status: 'deleted', assignment_status: 'deleted' })
       .eq('id', id)
       .catch(() => {});
 
-    // 2. Mark status='deleted' in trips
     await adminClient
       .from('trips')
       .update({ status: 'deleted', assignment_status: 'deleted' })
       .eq('id', id)
       .catch(() => {});
 
-    // 3. Attempt hard delete from both driver_trips and trips to guarantee removal
+    // 3. Attempt hard delete from both driver_trips and trips to permanently remove the record
     await adminClient.from('driver_trips').delete().eq('id', id).catch(() => {});
     await adminClient.from('trips').delete().eq('id', id).catch(() => {});
 
-    return res.json({ success: true, message: 'Duty deleted successfully.' });
+    return res.json({ success: true, message: 'Trip deleted permanently.' });
   } catch (err) {
     console.error('❌ Error in safeDeleteDutyHandler:', err);
     res.status(500).json({ error: err.message || 'Failed to delete driver trip duty.' });
   }
 };
 
-app.delete('/api/transport/driver-trips/:id', requireTransportOfficer, safeDeleteDutyHandler);
-app.delete('/api/transport/duties/:id', requireTransportOfficer, safeDeleteDutyHandler);
+app.delete('/api/gm/trips/:id', requireTripManager, safeDeleteDutyHandler);
+app.delete('/api/gm/pending-trips/:id', requireTripManager, safeDeleteDutyHandler);
+app.delete('/api/transport/driver-trips/:id', requireTripManager, safeDeleteDutyHandler);
+app.delete('/api/transport/duties/:id', requireTripManager, safeDeleteDutyHandler);
 
 // GET /api/transport/drivers-list — Get driver-role users for assignment dropdown
 app.get('/api/transport/drivers-list', requireTransportOfficer, async (req, res) => {

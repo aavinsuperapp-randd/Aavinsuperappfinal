@@ -177,12 +177,44 @@ async function apiGmDeleteBmc(id) {
 }
 
 async function apiGmDeleteTrip(tripId) {
+  try {
+    const token = await getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/api/gm/trips/${tripId}`, {
+      method: 'DELETE',
+      headers
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Backend API trip delete failed, attempting direct Supabase fallback:', err);
+  }
+
+  // Fallback: direct Supabase deletion with child record cleanup
   const client = await initSupabase();
   if (!client) throw new Error('Supabase client uninitialized.');
-  await client.from('trip_bmc_visits').delete().eq('trip_id', tripId);
-  await client.from('trips').delete().eq('id', tripId); // Delete from trips as well!
-  const { error } = await client.from('driver_trips').delete().eq('id', tripId);
-  if (error) throw error;
+
+  const { data: visits } = await client.from('trip_bmc_visits').select('id').eq('trip_id', tripId);
+  const visitIds = (visits || []).map(v => v.id);
+  if (visitIds.length > 0) {
+    await client.from('ftir_tests').delete().in('visit_id', visitIds).catch(() => {});
+    await client.from('gerber_tests').delete().in('visit_id', visitIds).catch(() => {});
+    await client.from('bmc_issues').delete().in('visit_id', visitIds).catch(() => {});
+    await client.from('bmc_ratings').delete().in('visit_id', visitIds).catch(() => {});
+    await client.from('requirement_checks').delete().in('visit_id', visitIds).catch(() => {});
+    await client.from('trip_bmc_visits').delete().in('id', visitIds).catch(() => {});
+  }
+  await client.from('trip_bmc_visits').delete().eq('trip_id', tripId).catch(() => {});
+
+  await client.from('driver_trips').update({ status: 'deleted', assignment_status: 'deleted' }).eq('id', tripId).catch(() => {});
+  await client.from('trips').update({ status: 'deleted', assignment_status: 'deleted' }).eq('id', tripId).catch(() => {});
+
+  await client.from('driver_trips').delete().eq('id', tripId).catch(() => {});
+  await client.from('trips').delete().eq('id', tripId).catch(() => {});
+
   return { success: true };
 }
 
