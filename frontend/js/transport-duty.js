@@ -173,6 +173,16 @@ async function setupCreateTripModal() {
     if (dateInput && !dateInput.value) {
       dateInput.value = new Date().toISOString().split('T')[0];
     }
+    
+    // Auto-populate Trip Start Time with current local time
+    const startTimeInput = document.getElementById('ct-start-time');
+    if (startTimeInput) {
+      const now = new Date();
+      const tzOffset = now.getTimezoneOffset() * 60000;
+      const localISOTime = new Date(now.getTime() - tzOffset).toISOString().slice(0, 16);
+      startTimeInput.value = localISOTime;
+    }
+
     renderSelectedBmcs();
     lockStep2();
     openModal('create-trip-modal');
@@ -282,7 +292,8 @@ async function setupCreateTripModal() {
     };
 
     try {
-      await apiCreateDriverTrip(payload);
+      const driverTripResult = await apiCreateDriverTrip(payload);
+      const driverTripId = driverTripResult?.trip?.id;
 
       // Also create a P&I AGM pending trip record so the P&I AGM can assign a Field Worker
       try {
@@ -292,6 +303,7 @@ async function setupCreateTripModal() {
         const firstBmc = selectedBmcs[0] || null;
 
         await apiCreateTransportTrip({
+          id: driverTripId,
           trip_name: `Trip - ${routeInput.value.trim()}`,
           driver_name: driverName,
           tanker_number: tankerNum,

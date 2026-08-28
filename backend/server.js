@@ -686,8 +686,8 @@ async function requireQcAgm(req, res, next) {
     .from('profiles').select('*').eq('id', user.id).single();
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
-  if (profile.role !== 'qc_agm' && profile.role !== 'admin') {
-    return res.status(403).json({ error: 'QC AGM access required.' });
+  if (!['qc_agm', 'admin', 'gm', 'pi_agm'].includes(profile.role)) {
+    return res.status(403).json({ error: 'QC AGM or GM access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
 
@@ -2248,10 +2248,10 @@ app.get('/api/worker/dashboard-stats', requireWorker, async (req, res) => {
   const { adminClient, profile } = req;
   try {
     const [tripsRes, visitsRes] = await Promise.all([
-      adminClient.from('trips').select('id, status').eq('worker_id', profile.id),
+      adminClient.from('trips').select('id, status').eq('worker_id', profile.id).neq('status', 'deleted'),
       adminClient.from('trip_bmc_visits').select('id, status, trip_id')
         .in('trip_id',
-          (await adminClient.from('trips').select('id').eq('worker_id', profile.id)).data?.map(t => t.id) || []
+          (await adminClient.from('trips').select('id').eq('worker_id', profile.id).neq('status', 'deleted')).data?.map(t => t.id) || []
         )
     ]);
 
@@ -3796,6 +3796,7 @@ app.get('/api/transport/driver-analysis', requireTransportOfficer, async (req, r
       .from('driver_trips')
       .select('*')
       .eq('assigned_driver_id', driverId)
+      .neq('status', 'deleted')
       .gte('created_at', startIso)
       .lte('created_at', endIso);
 
@@ -3803,6 +3804,7 @@ app.get('/api/transport/driver-analysis', requireTransportOfficer, async (req, r
     const { data: legacyTripsData } = await adminClient
       .from('trips')
       .select('*')
+      .neq('status', 'deleted')
       .gte('created_at', startIso)
       .lte('created_at', endIso);
 
@@ -4004,6 +4006,7 @@ app.get('/api/driver/dashboard', requireDriver, async (req, res) => {
       .from('driver_trips')
       .select('*')
       .eq('assigned_driver_id', profile.id)
+      .neq('status', 'deleted')
       .order('created_at', { ascending: false });
 
     const allTrips = trips || [];
@@ -4059,6 +4062,7 @@ app.get('/api/driver/trips', requireDriver, async (req, res) => {
       .from('driver_trips')
       .select('*')
       .eq('assigned_driver_id', profile.id)
+      .neq('status', 'deleted')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -4891,46 +4895,177 @@ const safeDeleteDutyHandler = async (req, res) => {
   const { adminClient } = req;
   const { id } = req.params;
 
+  console.log(`[Trip Deletion Request] Initiated for ID: ${id} by user: ${req.profile?.name || 'Unknown'} (${req.profile?.role || 'Unknown'})`);
+
   try {
-    // 1. Fetch child visits for this trip to clean up foreign key dependents
-    const { data: visits } = await adminClient
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Trip ID is required.' });
+    }
+
+    // 1. Authoritative lookup of both driver_trip and trip
+    let driverTripId = id;
+    let tripId = id;
+
+    const { data: dtExists, error: dtCheckErr } = await adminClient
+      .from('driver_trips')
+      .select('id, created_at, driver_name, vehicle_number, assigned_driver_id, status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (dtCheckErr) {
+      console.error(`Error checking driver_trips for ID ${id}:`, dtCheckErr);
+      throw dtCheckErr;
+    }
+
+    const { data: tExists, error: tCheckErr } = await adminClient
+      .from('trips')
+      .select('id, created_at, driver_name, tanker_number, status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (tCheckErr) {
+      console.error(`Error checking trips for ID ${id}:`, tCheckErr);
+      throw tCheckErr;
+    }
+
+    if (!dtExists && !tExists) {
+      return res.status(404).json({ success: false, message: 'Trip not found.' });
+    }
+
+    // Resolve linkage for legacy records where IDs may differ
+    if (dtExists && !tExists) {
+      let dName = dtExists.driver_name;
+      if (!dName && dtExists.assigned_driver_id) {
+        const { data: p, error: pErr } = await adminClient.from('profiles').select('name').eq('id', dtExists.assigned_driver_id).maybeSingle();
+        if (pErr) throw pErr;
+        if (p) dName = p.name;
+      }
+      if (dName && dtExists.vehicle_number) {
+        const { data: candidates, error: candErr } = await adminClient
+          .from('trips')
+          .select('id, created_at')
+          .eq('driver_name', dName)
+          .eq('tanker_number', dtExists.vehicle_number)
+          .neq('status', 'deleted');
+        if (candErr) throw candErr;
+
+        if (candidates && candidates.length > 0) {
+          const dtTime = new Date(dtExists.created_at).getTime();
+          let best = null;
+          let minDiff = Infinity;
+          for (const cand of candidates) {
+            const diff = Math.abs(dtTime - new Date(cand.created_at).getTime());
+            if (diff < minDiff && diff < 5 * 60 * 1000) {
+              minDiff = diff;
+              best = cand;
+            }
+          }
+          if (best) {
+            tripId = best.id;
+            console.log(`[Trip Deletion Linkage] Resolved driver_trip ID ${id} to trip ID ${tripId}`);
+          }
+        }
+      }
+    } else if (tExists && !dtExists) {
+      if (tExists.driver_name && tExists.tanker_number) {
+        const { data: candidates, error: candErr } = await adminClient
+          .from('driver_trips')
+          .select('id, created_at')
+          .eq('vehicle_number', tExists.tanker_number)
+          .neq('status', 'deleted');
+        if (candErr) throw candErr;
+
+        if (candidates && candidates.length > 0) {
+          const tTime = new Date(tExists.created_at).getTime();
+          let best = null;
+          let minDiff = Infinity;
+          for (const cand of candidates) {
+            const diff = Math.abs(tTime - new Date(cand.created_at).getTime());
+            if (diff < minDiff && diff < 5 * 60 * 1000) {
+              minDiff = diff;
+              best = cand;
+            }
+          }
+          if (best) {
+            driverTripId = best.id;
+            console.log(`[Trip Deletion Linkage] Resolved trip ID ${id} to driver_trip ID ${driverTripId}`);
+          }
+        }
+      }
+    }
+
+    console.log(`[Trip Deletion Execute] Synchronizing deletion for driverTripId: ${driverTripId}, tripId: ${tripId}`);
+
+    // Clean up child records referencing trip_bmc_visits
+    const { data: visits, error: visitsErr } = await adminClient
       .from('trip_bmc_visits')
       .select('id')
-      .eq('trip_id', id);
+      .eq('trip_id', tripId);
+    if (visitsErr) throw visitsErr;
 
     const visitIds = (visits || []).map(v => v.id);
 
     if (visitIds.length > 0) {
-      await adminClient.from('ftir_tests').delete().in('visit_id', visitIds).catch(() => {});
-      await adminClient.from('gerber_tests').delete().in('visit_id', visitIds).catch(() => {});
-      await adminClient.from('bmc_issues').delete().in('visit_id', visitIds).catch(() => {});
-      await adminClient.from('bmc_ratings').delete().in('visit_id', visitIds).catch(() => {});
-      await adminClient.from('requirement_checks').delete().in('visit_id', visitIds).catch(() => {});
-      await adminClient.from('trip_bmc_visits').delete().in('id', visitIds).catch(() => {});
+      const { error: ftirErr } = await adminClient.from('ftir_tests').delete().in('visit_id', visitIds);
+      if (ftirErr) throw ftirErr;
+
+      const { error: gerberErr } = await adminClient.from('gerber_tests').delete().in('visit_id', visitIds);
+      if (gerberErr) throw gerberErr;
+
+      const { error: issueErr } = await adminClient.from('bmc_issues').delete().in('visit_id', visitIds);
+      if (issueErr) throw issueErr;
+
+      const { error: ratingErr } = await adminClient.from('bmc_ratings').delete().in('visit_id', visitIds);
+      if (ratingErr) throw ratingErr;
+
+      const { error: checkErr } = await adminClient.from('requirement_checks').delete().in('visit_id', visitIds);
+      if (checkErr) throw checkErr;
+
+      const { error: qcLabErr } = await adminClient.from('qc_lab_tests').delete().in('visit_id', visitIds);
+      if (qcLabErr) throw qcLabErr;
+
+      const { error: visitDeleteErr } = await adminClient.from('trip_bmc_visits').delete().in('id', visitIds);
+      if (visitDeleteErr) throw visitDeleteErr;
     }
-    await adminClient.from('trip_bmc_visits').delete().eq('trip_id', id).catch(() => {});
 
-    // 2. Soft delete status='deleted' in driver_trips and trips (guarantees exclusion across all queries)
-    await adminClient
-      .from('driver_trips')
-      .update({ status: 'deleted', assignment_status: 'deleted' })
-      .eq('id', id)
-      .catch(() => {});
+    const { error: tripVisitErr } = await adminClient.from('trip_bmc_visits').delete().eq('trip_id', tripId);
+    if (tripVisitErr) throw tripVisitErr;
 
-    await adminClient
-      .from('trips')
-      .update({ status: 'deleted', assignment_status: 'deleted' })
-      .eq('id', id)
-      .catch(() => {});
+    // 2. Soft delete attempt (flag status as 'deleted')
+    try {
+      const { error: dtSoftErr } = await adminClient
+        .from('driver_trips')
+        .update({ status: 'deleted' })
+        .eq('id', driverTripId);
+      if (dtSoftErr) console.warn('Warning: driver_trips soft delete update notice:', dtSoftErr.message);
 
-    // 3. Attempt hard delete from both driver_trips and trips to permanently remove the record
-    await adminClient.from('driver_trips').delete().eq('id', id).catch(() => {});
-    await adminClient.from('trips').delete().eq('id', id).catch(() => {});
+      const { error: tSoftErr } = await adminClient
+        .from('trips')
+        .update({ status: 'deleted', assignment_status: 'deleted' })
+        .eq('id', tripId);
+      if (tSoftErr) console.warn('Warning: trips soft delete update notice:', tSoftErr.message);
+    } catch (softErr) {
+      console.warn('Warning during soft delete phase:', softErr.message);
+    }
 
-    return res.json({ success: true, message: 'Trip deleted permanently.' });
+    // 3. Authoritative Hard Delete
+    const { error: dtHardErr } = await adminClient.from('driver_trips').delete().eq('id', driverTripId);
+    if (dtHardErr) {
+      console.error(`Failed to delete driver_trip ID ${driverTripId}:`, dtHardErr);
+      throw dtHardErr;
+    }
+
+    const { error: tHardErr } = await adminClient.from('trips').delete().eq('id', tripId);
+    if (tHardErr) {
+      console.error(`Failed to delete trip ID ${tripId}:`, tHardErr);
+      throw tHardErr;
+    }
+
+    console.log(`[Trip Deletion Success] Successfully deleted trip driverTripId: ${driverTripId}, tripId: ${tripId}`);
+    return res.json({ success: true, message: 'Trip deleted successfully.', tripId: id });
   } catch (err) {
     console.error('❌ Error in safeDeleteDutyHandler:', err);
-    res.status(500).json({ error: err.message || 'Failed to delete driver trip duty.' });
+    return res.status(500).json({ success: false, message: err.message || 'Failed to delete driver trip duty.' });
   }
 };
 
@@ -5934,7 +6069,7 @@ app.delete('/api/admin/executive-officers/:id/bmcs/:bmcId', requireAdminRole, as
 app.post('/api/transport/create-trip', requireTransportOfficer, async (req, res) => {
   const { adminClient, profile } = req;
   const {
-    trip_name, driver_name, tanker_number,
+    id, trip_name, driver_name, tanker_number,
     route_description, bmc_id, out_time
   } = req.body;
 
@@ -5951,7 +6086,8 @@ app.post('/api/transport/create-trip', requireTransportOfficer, async (req, res)
       .eq('created_by_to', true);
     const tripNum = `TO-${dateStr}-${String((count || 0) + 1).padStart(4, '0')}`;
 
-    const { data, error } = await adminClient.from('trips').insert({
+    const insertPayload = {
+      ...(id ? { id } : {}),
       trip_name: trip_name.trim(),
       trip_number: tripNum,
       worker_id: null,                          // Set to null until P&I AGM assigns
@@ -5964,7 +6100,9 @@ app.post('/api/transport/create-trip', requireTransportOfficer, async (req, res)
       bmc_id: bmc_id || null,
       out_time: out_time || new Date().toISOString(),
       status: 'active'
-    }).select().single();
+    };
+
+    const { data, error } = await adminClient.from('trips').insert(insertPayload).select().single();
 
     if (error) throw error;
 
