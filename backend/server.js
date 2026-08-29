@@ -52,6 +52,199 @@ async function ensureStorageBucket() {
 }
 ensureStorageBucket();
 
+// ─── LIVE MACS API DATA HELPERS ──────────────────────────────────────────────
+// Central helpers for reading MACS data from macs_api_bmc_data table.
+// All dashboard endpoints use these instead of qc_excel_import_rows.
+
+/**
+ * Convert MACS API date (DD/MM/YYYY) to ISO date (YYYY-MM-DD)
+ */
+function convertMacsDateToISO(reportDate) {
+  if (!reportDate) return null;
+  const s = String(reportDate).trim();
+  // Already in YYYY-MM-DD format?
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // DD/MM/YYYY format
+  const parts = s.split('/');
+  if (parts.length === 3) {
+    return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+  }
+  return null;
+}
+
+/**
+ * Convert ISO date (YYYY-MM-DD) to MACS API date (DD/MM/YYYY)
+ */
+function convertISOToMacsDate(isoDate) {
+  if (!isoDate) return null;
+  const s = String(isoDate).trim();
+  // Already in DD/MM/YYYY format?
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+  // YYYY-MM-DD format
+  const parts = s.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return null;
+}
+
+/**
+ * Normalize a raw macs_api_bmc_data row into a clean structure.
+ */
+function normalizeLiveMacsRecord(row) {
+  return {
+    bmc_code: String(row.macs_bmc_code).trim(),
+    bmc_name: row.macs_bmc_name || null,
+    reading_date: convertMacsDateToISO(row.report_date),
+    t1: {
+      liters: row.li_t1 !== null && row.li_t1 !== undefined ? Number(row.li_t1) : null,
+      kg_fat: row.kgfat_t1 !== null && row.kgfat_t1 !== undefined ? Number(row.kgfat_t1) : null,
+      kg_snf: row.kgsnf_t1 !== null && row.kgsnf_t1 !== undefined ? Number(row.kgsnf_t1) : null,
+      fat: row.fat_t1 !== null && row.fat_t1 !== undefined ? Number(row.fat_t1) : null,
+      snf: row.snf_t1 !== null && row.snf_t1 !== undefined ? Number(row.snf_t1) : null
+    },
+    t2: {
+      liters: row.li_t2 !== null && row.li_t2 !== undefined ? Number(row.li_t2) : null,
+      kg_fat: row.kgfat_t2 !== null && row.kgfat_t2 !== undefined ? Number(row.kgfat_t2) : null,
+      kg_snf: row.kgsnf_t2 !== null && row.kgsnf_t2 !== undefined ? Number(row.kgsnf_t2) : null,
+      fat: row.fat_t2 !== null && row.fat_t2 !== undefined ? Number(row.fat_t2) : null,
+      snf: row.snf_t2 !== null && row.snf_t2 !== undefined ? Number(row.snf_t2) : null
+    },
+    lit: row.lit !== null && row.lit !== undefined ? Number(row.lit) : null,
+    diff: row.diff !== null && row.diff !== undefined ? Number(row.diff) : null,
+    fetched_at: row.fetched_at,
+    source: 'live_macs_api'
+  };
+}
+
+/**
+ * Get the latest live MACS record for each BMC code on a given date.
+ * @param {object} adminClient - Supabase admin client
+ * @param {string} dateStr - Date in YYYY-MM-DD format (or null for today)
+ * @returns {Map<string, object>} Map keyed by bmc_code (string) → normalized record
+ */
+async function getLatestLiveMacsByBmcCode(adminClient, dateStr) {
+  if (!adminClient) return new Map();
+
+  // Convert YYYY-MM-DD to DD/MM/YYYY for macs_api_bmc_data.report_date filter
+  let macsDate;
+  if (dateStr) {
+    macsDate = convertISOToMacsDate(dateStr);
+  } else {
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    macsDate = `${dd}/${mm}/${yyyy}`;
+  }
+
+  if (!macsDate) return new Map();
+
+  try {
+    const { data: rows, error } = await adminClient
+      .from('macs_api_bmc_data')
+      .select('*')
+      .eq('report_date', macsDate)
+      .order('fetched_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ getLatestLiveMacsByBmcCode error:', error.message);
+      return new Map();
+    }
+
+    // Deduplicate: keep only the latest record (first occurrence) per bmc_code
+    const resultMap = new Map();
+    (rows || []).forEach(row => {
+      const code = String(row.macs_bmc_code).trim();
+      if (code && !resultMap.has(code)) {
+        resultMap.set(code, normalizeLiveMacsRecord(row));
+      }
+    });
+
+    return resultMap;
+  } catch (err) {
+    console.error('❌ getLatestLiveMacsByBmcCode exception:', err.message);
+    return new Map();
+  }
+}
+
+/**
+ * Get all unique available dates from macs_api_bmc_data, returned as YYYY-MM-DD sorted descending.
+ * @param {object} adminClient - Supabase admin client
+ * @returns {string[]} Array of date strings in YYYY-MM-DD format
+ */
+async function getLatestLiveMacsDatesList(adminClient) {
+  if (!adminClient) return [];
+
+  try {
+    const { data: rows, error } = await adminClient
+      .from('macs_api_bmc_data')
+      .select('report_date')
+      .order('fetched_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ getLatestLiveMacsDatesList error:', error.message);
+      return [];
+    }
+
+    const dateSet = new Set();
+    (rows || []).forEach(row => {
+      const isoDate = convertMacsDateToISO(row.report_date);
+      if (isoDate) dateSet.add(isoDate);
+    });
+
+    return Array.from(dateSet).sort((a, b) => b.localeCompare(a));
+  } catch (err) {
+    console.error('❌ getLatestLiveMacsDatesList exception:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get live MACS records for a specific BMC code across all dates (for history/detail views).
+ * Returns latest record per date, sorted by date descending.
+ * @param {object} adminClient - Supabase admin client
+ * @param {string} bmcCode - The BMC code to query
+ * @param {string} [fromDate] - Optional start date (YYYY-MM-DD)
+ * @param {string} [toDate] - Optional end date (YYYY-MM-DD)
+ * @returns {object[]} Array of normalized records, one per date
+ */
+async function getLiveMacsHistoryForBmc(adminClient, bmcCode, fromDate, toDate) {
+  if (!adminClient || !bmcCode) return [];
+
+  try {
+    let query = adminClient
+      .from('macs_api_bmc_data')
+      .select('*')
+      .eq('macs_bmc_code', parseInt(bmcCode) || bmcCode)
+      .order('fetched_at', { ascending: false });
+
+    const { data: rows, error } = await query;
+
+    if (error) {
+      console.error('❌ getLiveMacsHistoryForBmc error:', error.message);
+      return [];
+    }
+
+    // Deduplicate by report_date (keep latest fetched_at per date)
+    const dateMap = new Map();
+    (rows || []).forEach(row => {
+      const isoDate = convertMacsDateToISO(row.report_date);
+      if (!isoDate) return;
+      // Apply date range filter
+      if (fromDate && isoDate < fromDate) return;
+      if (toDate && isoDate > toDate) return;
+      if (!dateMap.has(isoDate)) {
+        dateMap.set(isoDate, normalizeLiveMacsRecord(row));
+      }
+    });
+
+    return Array.from(dateMap.values()).sort((a, b) => b.reading_date.localeCompare(a.reading_date));
+  } catch (err) {
+    console.error('❌ getLiveMacsHistoryForBmc exception:', err.message);
+    return [];
+  }
+}
 
 // ─── GET /api/config ──────────────────────────────────────────────────────────
 // Returns public-safe credentials to the browser (anon key only)
@@ -1044,16 +1237,13 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
   const trendStartIso = trendStart.toISOString();
 
   try {
-    let macsQuery = adminClient.from('qc_excel_import_rows').select('*');
-    if (startDateParam && endDateParam) {
-      macsQuery = macsQuery.gte('test_date', startDateParam).lte('test_date', endDateParam);
-    } else if (dateParam && dateParam !== 'all' && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
-      macsQuery = macsQuery.eq('test_date', dateParam);
-    }
+    // Fetch live MACS data from macs_api_bmc_data (replaces qc_excel_import_rows)
+    const macsDateForLookup = (startDateParam && endDateParam) ? startDateParam : (dateParam && dateParam !== 'all' && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) ? dateParam : new Date().toISOString().split('T')[0];
+    const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, macsDateForLookup);
 
     const [
       tripsRes, driverTripsRes, trendTripsRes, visitsRes,
-      profilesRes, driversRes, tankersRes, bmcsRes, macsRes
+      profilesRes, driversRes, tankersRes, bmcsRes
     ] = await Promise.all([
       // Trips for selected date range with lookback (exclude status='deleted')
       adminClient.from('trips').select('*').neq('status', 'deleted').neq('assignment_status', 'deleted').gte('created_at', fetchStartIso).lte('created_at', dayEndIso).order('created_at', { ascending: false }),
@@ -1070,9 +1260,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
       // All tankers
       adminClient.from('tankers').select('*').order('board_number'),
       // All BMCs
-      adminClient.from('bmcs').select('*').order('name'),
-      // MACS data for selected date / date range
-      macsQuery
+      adminClient.from('bmcs').select('*').order('name')
     ]);
 
     const rawTrips = (tripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted');
@@ -1145,7 +1333,6 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
     const driversList = driversRes.data || [];
     const tankersList = tankersRes.data || [];
     const bmcsList = bmcsRes.data || [];
-    const macsList = macsRes.data || [];
 
     // Build lookup maps
     const profileMap = {};
@@ -1274,23 +1461,22 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
             gerber_result = 'Pending';
           }
 
-          // MACS: match by bmc_id, sample_ref (code), or bmc_name
+          // MACS: match by BMC CODE using live MACS API data
           const bmcCode = String(bmcMap[v.bmc_id]?.bmc_code || '').trim();
-          const bmcNameClean = String(bmcMap[v.bmc_id]?.name || '').trim().toLowerCase();
-          const macsData = macsList.find(m => 
-            (v.bmc_id && m.bmc_id === v.bmc_id) || 
-            (bmcCode && String(m.sample_ref || m.raw_data?.bmc_code || '').trim().toLowerCase() === bmcCode.toLowerCase()) ||
-            (bmcNameClean && String(m.bmc_name || m.raw_data?.bmc_name || '').trim().toLowerCase() === bmcNameClean)
-          );
+          const macsRecord = liveMacsByCode.get(bmcCode);
           let macs_result = '—';
-          if (macsData) {
-            const liters = macsData.raw_data?.macs_quantity_liters ?? macsData.raw_data?.liters ?? macsData.raw_data?.quantity ?? macsData.liters ?? macsData.quantity ?? null;
-            const fat = macsData.fat !== null && macsData.fat !== undefined ? macsData.fat : (macsData.raw_data?.fat ?? null);
-            const snf = macsData.snf !== null && macsData.snf !== undefined ? macsData.snf : (macsData.raw_data?.snf ?? null);
+          if (macsRecord) {
             const parts = [];
-            if (liters !== null && liters !== undefined) parts.push(`Qty: ${liters} L`);
-            if (fat !== null && fat !== undefined) parts.push(`FAT: ${fat}%`);
-            if (snf !== null && snf !== undefined) parts.push(`SNF: ${snf}%`);
+            // T1 values
+            if (macsRecord.t1.liters !== null) parts.push(`T1: ${macsRecord.t1.liters} L`);
+            if (macsRecord.t1.fat !== null) parts.push(`FAT: ${macsRecord.t1.fat}%`);
+            if (macsRecord.t1.snf !== null) parts.push(`SNF: ${macsRecord.t1.snf}%`);
+            // T2 values (if different from zero/null)
+            if (macsRecord.t2.liters !== null && macsRecord.t2.liters > 0) {
+              parts.push(`T2: ${macsRecord.t2.liters} L`);
+              if (macsRecord.t2.fat !== null) parts.push(`FAT: ${macsRecord.t2.fat}%`);
+              if (macsRecord.t2.snf !== null) parts.push(`SNF: ${macsRecord.t2.snf}%`);
+            }
             if (parts.length > 0) macs_result = parts.join(' | ');
           }
 
@@ -5280,53 +5466,23 @@ app.get('/api/transport/bmcs-list', requireTransportOfficer, async (req, res) =>
     let dateStr = req.query.date || new Date().toISOString().split('T')[0];
     const period = (req.query.period || 'both').toLowerCase();
 
-    let { data: macsRows } = await adminClient
-      .from('qc_excel_import_rows')
-      .select('sample_ref, raw_data, bmc_id, bmc_name, test_date')
-      .eq('test_date', dateStr);
-
-    // Fallback: If no MACS rows for selected date, fetch the latest date available
-    if (!macsRows || macsRows.length === 0) {
-      const { data: latestRow } = await adminClient
-        .from('qc_excel_import_rows')
-        .select('test_date')
-        .order('test_date', { ascending: false })
-        .limit(1);
-
-      if (latestRow && latestRow.length > 0) {
-        dateStr = latestRow[0].test_date;
-        const { data: fallbackRows } = await adminClient
-          .from('qc_excel_import_rows')
-          .select('sample_ref, raw_data, bmc_id, bmc_name, test_date')
-          .eq('test_date', dateStr);
-        macsRows = fallbackRows || [];
-      }
-    }
-
-    // Build MACS KG Map keyed by bmc_id, bmc_code, sample_ref, and lowercase bmc_name
-    const bmcKgMap = {};
-    (macsRows || []).forEach(r => {
-      const raw = r.raw_data || {};
-      const rowPeriod = (raw.period || '').toLowerCase();
-      if (period === 'morning' && !(rowPeriod === 'morning' || rowPeriod === 'both')) return;
-      if (period === 'evening' && !(rowPeriod === 'evening' || rowPeriod === 'both')) return;
-
-      let kg = raw.macs_quantity_kg ?? (raw.macs_quantity_liters ? Number(raw.macs_quantity_liters) * 1.03 : null);
-      if (kg !== null && !isNaN(kg) && Number(kg) > 0) {
-        const val = parseFloat(Number(kg).toFixed(2));
-        if (r.bmc_id) bmcKgMap[r.bmc_id] = Math.max(bmcKgMap[r.bmc_id] || 0, val);
-        if (raw.bmc_id) bmcKgMap[raw.bmc_id] = Math.max(bmcKgMap[raw.bmc_id] || 0, val);
-        const code = String(r.sample_ref || raw.bmc_code || '').trim();
-        if (code) bmcKgMap[code] = Math.max(bmcKgMap[code] || 0, val);
-        const nameKey = String(r.bmc_name || raw.bmc_name || '').trim().toLowerCase();
-        if (nameKey) bmcKgMap[nameKey] = Math.max(bmcKgMap[nameKey] || 0, val);
-      }
-    });
+    // Fetch live MACS data from macs_api_bmc_data
+    const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, dateStr);
 
     const enrichedBmcs = (bmcs || []).map(b => {
-      const nameKey = String(b.name || '').trim().toLowerCase();
       const bmcCodeStr = String(b.bmc_code || '').trim();
-      const totalKg = bmcKgMap[b.id] ?? bmcKgMap[bmcCodeStr] ?? bmcKgMap[nameKey] ?? null;
+      const macsRecord = liveMacsByCode.get(bmcCodeStr);
+
+      let totalKg = null;
+      if (macsRecord) {
+        // Use T1 liters as primary, with kgfat values for kg calculation
+        const t1Lit = macsRecord.t1.liters;
+        const t2Lit = macsRecord.t2.liters;
+        const totalLiters = (t1Lit || 0) + (t2Lit || 0);
+        if (totalLiters > 0) {
+          totalKg = parseFloat((totalLiters * 1.03).toFixed(2));
+        }
+      }
 
       return {
         ...b,
@@ -5356,73 +5512,42 @@ app.get('/api/transport/macs-summary', requireTransportOfficer, async (req, res)
     let dateStr = req.query.date || new Date().toISOString().split('T')[0];
     const period = (req.query.period || 'all').toLowerCase();
 
-    let { data: macsRows } = await adminClient
-      .from('qc_excel_import_rows')
-      .select('sample_ref, raw_data, bmc_id, bmc_name, test_date')
-      .eq('test_date', dateStr);
-
-    // Fallback: If no MACS rows for selected date, fetch the latest date available
-    if (!macsRows || macsRows.length === 0) {
-      const { data: latestRow } = await adminClient
-        .from('qc_excel_import_rows')
-        .select('test_date')
-        .order('test_date', { ascending: false })
-        .limit(1);
-
-      if (latestRow && latestRow.length > 0) {
-        dateStr = latestRow[0].test_date;
-        const { data: fallbackRows } = await adminClient
-          .from('qc_excel_import_rows')
-          .select('sample_ref, raw_data, bmc_id, bmc_name, test_date')
-          .eq('test_date', dateStr);
-        macsRows = fallbackRows || [];
-      }
-    }
-
-    const bmcDataMap = {};
-    (macsRows || []).forEach(r => {
-      const raw = r.raw_data || {};
-      const rowPeriod = (raw.period || '').toLowerCase();
-      if (period === 'morning' && !(rowPeriod === 'morning' || rowPeriod === 'both')) return;
-      if (period === 'evening' && !(rowPeriod === 'evening' || rowPeriod === 'both')) return;
-
-      const kgVal = raw.macs_quantity_kg ?? (raw.macs_quantity_liters ? Number(raw.macs_quantity_liters) * 1.03 : null);
-      const litersVal = raw.macs_quantity_liters ?? (raw.macs_quantity_kg ? Number(raw.macs_quantity_kg) / 1.03 : null);
-
-      if ((kgVal !== null && kgVal !== undefined && Number(kgVal) > 0) || (litersVal !== null && litersVal !== undefined && Number(litersVal) > 0)) {
-        const kg = kgVal ? parseFloat(Number(kgVal).toFixed(2)) : null;
-        const liters = litersVal ? parseFloat(Number(litersVal).toFixed(2)) : null;
-        const displayBatch = rowPeriod ? (rowPeriod.charAt(0).toUpperCase() + rowPeriod.slice(1)) : 'Both';
-
-        const item = {
-          kg,
-          liters,
-          batch: displayBatch,
-          test_date: r.test_date || dateStr
-        };
-
-        if (r.bmc_id) bmcDataMap[r.bmc_id] = item;
-        if (raw.bmc_id) bmcDataMap[raw.bmc_id] = item;
-        const code = String(r.sample_ref || raw.bmc_code || '').trim();
-        if (code) bmcDataMap[code] = item;
-        const nameKey = String(r.bmc_name || raw.bmc_name || '').trim().toLowerCase();
-        if (nameKey) bmcDataMap[nameKey] = item;
-      }
-    });
+    // Fetch live MACS data from macs_api_bmc_data
+    const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, dateStr);
 
     let totalKgSum = 0;
     let totalLitersSum = 0;
     let matchedCount = 0;
 
     const list = (bmcs || []).map(b => {
-      const nameKey = String(b.name || '').trim().toLowerCase();
       const codeKey = String(b.bmc_code || '').trim();
-      const match = bmcDataMap[b.id] || bmcDataMap[codeKey] || bmcDataMap[nameKey] || null;
+      const macsRecord = liveMacsByCode.get(codeKey);
 
-      if (match) {
+      let kg = null;
+      let liters = null;
+      let displayBatch = '-';
+
+      if (macsRecord) {
+        // Combine T1 and T2 liters
+        const t1Lit = macsRecord.t1.liters || 0;
+        const t2Lit = macsRecord.t2.liters || 0;
+        liters = t1Lit + t2Lit;
+        if (liters > 0) {
+          kg = parseFloat((liters * 1.03).toFixed(2));
+          liters = parseFloat(liters.toFixed(2));
+        } else {
+          liters = null;
+        }
+        // Determine batch from T1/T2 availability
+        if (t1Lit > 0 && t2Lit > 0) displayBatch = 'Both';
+        else if (t1Lit > 0) displayBatch = 'Morning';
+        else if (t2Lit > 0) displayBatch = 'Evening';
+      }
+
+      if (macsRecord && (kg || liters)) {
         matchedCount++;
-        if (match.kg) totalKgSum += match.kg;
-        if (match.liters) totalLitersSum += match.liters;
+        if (kg) totalKgSum += kg;
+        if (liters) totalLitersSum += liters;
       }
 
       return {
@@ -5431,10 +5556,10 @@ app.get('/api/transport/macs-summary', requireTransportOfficer, async (req, res)
         bmc_name: b.name,
         location: b.location || '',
         date: dateStr,
-        batch: match ? match.batch : '-',
-        capacity_kg: match && match.kg !== null ? match.kg : null,
-        capacity_litre: match && match.liters !== null ? match.liters : null,
-        has_macs_data: !!match
+        batch: displayBatch,
+        capacity_kg: kg,
+        capacity_litre: liters,
+        has_macs_data: !!macsRecord
       };
     });
 
@@ -6781,10 +6906,9 @@ app.get('/api/qc-worker/dashboard-bmcs', requireQcWorker, async (req, res) => {
       .from('trip_bmc_visits')
       .select('*, bmc:bmcs(*), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*), trip:trips(*)');
 
-    // 3. Fetch MACS excel rows
-    const { data: macsRows } = await adminClient
-      .from('qc_excel_import_rows')
-      .select('*');
+    // 3. Fetch live MACS data from macs_api_bmc_data
+    const todayStr = new Date().toISOString().split('T')[0];
+    const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, todayStr);
 
     const visitsByCode = {};
     const visitsByBmcId = {};
@@ -6795,28 +6919,23 @@ app.get('/api/qc-worker/dashboard-bmcs', requireQcWorker, async (req, res) => {
       if (bId) visitsByBmcId[bId] = v;
     });
 
-    const macsByCode = {};
-    (macsRows || []).forEach(m => {
-      const code = String(m.sample_ref || m.raw_data?.bmc_code || '').trim();
-      if (code) macsByCode[code] = m;
-    });
-
     const bmcList = (masterBmcs || []).map(b => {
       const bCode = String(b.bmc_code || b.code || '').trim();
       const routeName = b.bmc_routes?.name || b.route_name || 'Unassigned Route';
 
       const visit = visitsByCode[bCode] || visitsByBmcId[b.id] || null;
-      const macsRow = macsByCode[bCode] || (macsRows || []).find(m => String(m.bmc_name || m.bmc?.name || '').trim().toLowerCase() === String(b.name || '').toLowerCase());
+      const macsRecord = liveMacsByCode.get(bCode);
 
       let macsData = null;
-      if (macsRow) {
-        let macsLit = macsRow.raw_data?.macs_quantity_liters ?? macsRow.raw_data?.liters ?? macsRow.liters ?? macsRow.quantity ?? null;
-        let macsKg = macsRow.raw_data?.macs_quantity_kg ?? macsRow.raw_data?.kg ?? (macsLit ? parseFloat((macsLit * 1.03).toFixed(2)) : null);
+      if (macsRecord) {
+        // Use T1 values as primary MACS data
+        const macsLit = macsRecord.t1.liters;
+        const macsKg = macsLit ? parseFloat((macsLit * 1.03).toFixed(2)) : null;
         macsData = {
           liters: macsLit,
           kg: macsKg,
-          fat: macsRow.fat ?? null,
-          snf: macsRow.snf ?? null
+          fat: macsRecord.t1.fat,
+          snf: macsRecord.t1.snf
         };
       }
 
@@ -6942,29 +7061,21 @@ app.get('/api/qc-worker/dashboard-trips', requireQcWorker, async (req, res) => {
       visitList = visits || [];
     }
 
-    // Fetch MACS excel import rows for the date range
-    const { data: macsRows } = await adminClient
-      .from('qc_excel_import_rows')
-      .select('*')
-      .gte('created_at', startIso)
-      .lte('created_at', endIso);
+    // Fetch live MACS data from macs_api_bmc_data for the date
+    const macsDateStr = startDate || new Date().toISOString().split('T')[0];
+    const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, macsDateStr);
 
     // Enrich visits with MACS and Spot Analyzer data
     (visitList || []).forEach(v => {
       const bmcCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
-      const bmcName = String(v.bmc?.name || v.bmc_name || '').trim().toLowerCase();
 
-      // MACS lookup
-      const macsRow = (macsRows || []).find(m => {
-        const mRef = String(m.sample_ref || m.raw_data?.bmc_code || '').trim();
-        const mName = String(m.bmc_name || m.bmc?.name || '').trim().toLowerCase();
-        return (bmcCode && mRef && mRef === bmcCode) || (bmcName && mName && mName === bmcName);
-      });
+      // MACS lookup by BMC code from live MACS API
+      const macsRecord = liveMacsByCode.get(bmcCode);
 
-      let macsLit = macsRow ? (macsRow.raw_data?.macs_quantity_liters ?? macsRow.raw_data?.liters ?? macsRow.liters ?? macsRow.quantity ?? null) : null;
-      let macsKg = macsRow ? (macsRow.raw_data?.macs_quantity_kg ?? macsRow.raw_data?.kg ?? (macsLit ? parseFloat((macsLit * 1.03).toFixed(2)) : null)) : null;
-      let macsFat = macsRow ? macsRow.fat : null;
-      let macsSnf = macsRow ? macsRow.snf : null;
+      let macsLit = macsRecord ? macsRecord.t1.liters : null;
+      let macsKg = macsRecord ? (macsLit ? parseFloat((macsLit * 1.03).toFixed(2)) : null) : null;
+      let macsFat = macsRecord ? macsRecord.t1.fat : null;
+      let macsSnf = macsRecord ? macsRecord.t1.snf : null;
 
       // Spot Analyzer (FTIR / Gerber)
       const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
@@ -7101,13 +7212,7 @@ app.get('/api/qc-worker/samples/:id', requireQcWorker, async (req, res) => {
 app.get('/api/qc-worker/macs/dates', requireQcWorker, async (req, res) => {
   const { adminClient } = req;
   try {
-    const { data: rows, error } = await adminClient
-      .from('qc_excel_import_rows')
-      .select('test_date')
-      .order('test_date', { ascending: false });
-
-    if (error) throw error;
-    const dates = Array.from(new Set((rows || []).map(r => r.test_date).filter(Boolean)));
+    const dates = await getLatestLiveMacsDatesList(adminClient);
     res.json({ dates });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -7189,16 +7294,15 @@ app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
   const date = req.query.date;
 
   try {
-    let query = adminClient
-      .from('qc_excel_import_rows')
-      .select('*, bmc:bmcs(*), batch:qc_excel_imports(*)');
+    // 1. Fetch live MACS data from macs_api_bmc_data
+    const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, date);
 
-    if (date) {
-      query = query.eq('test_date', date);
-    }
-
-    const { data: rows, error } = await query;
-    if (error) throw error;
+    // 2. Fetch master BMCs to map bmc_id and name
+    const { data: masterBmcs } = await adminClient.from('bmcs').select('id, name, bmc_code');
+    const masterBmcByCode = {};
+    (masterBmcs || []).forEach(b => {
+      if (b.bmc_code) masterBmcByCode[String(b.bmc_code).trim()] = b;
+    });
 
     let visitsQuery = adminClient
       .from('trip_bmc_visits')
@@ -7221,43 +7325,37 @@ app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
 
     const bmcMap = {};
 
-    (rows || []).forEach(r => {
-      const bmcCode = String(r.sample_ref || (r.raw_data && r.raw_data.bmc_code) || r.bmc_name || '').trim();
-      const key = `${bmcCode}_${r.test_date}`;
+    liveMacsByCode.forEach((r, bmcCode) => {
+      const readingDate = r.reading_date || date || new Date().toISOString().split('T')[0];
+      const key = `${bmcCode}_${readingDate}`;
+      const mb = masterBmcByCode[bmcCode];
+      const bmcId = mb ? mb.id : null;
+      const bmcName = mb ? mb.name : (r.bmc_name || 'N/A');
 
-      if (!bmcMap[key]) {
-        const liters = r.raw_data?.macs_quantity_liters ?? r.raw_data?.liters ?? r.raw_data?.quantity ?? r.liters ?? r.quantity ?? null;
-        const kg = r.raw_data?.macs_quantity_kg ?? r.raw_data?.kg ?? (liters ? parseFloat((liters * 1.03).toFixed(2)) : null);
+      const liters = r.t1.liters;
+      const kg = liters !== null ? parseFloat((liters * 1.03).toFixed(2)) : null;
 
-        bmcMap[key] = {
-          bmc_code: bmcCode,
-          bmc_name: r.bmc_name || r.bmc?.name || 'N/A',
-          bmc_id: r.bmc_id || r.bmc?.id,
-          reading_date: r.test_date,
-          worker: null,
-          qc: null,
-          macs: {
-            quantity_liters: liters,
-            quantity_kg: kg,
-            fat: r.fat,
-            snf: r.snf
-          },
-          spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, visited: false },
-          diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
-          fat_diff: null,
-          snf_diff: null,
-          status: 'NO_DATA',
-          visit_id: null,
-          is_tested: false
-        };
-      }
-
-      const src = r.overall_result || (r.raw_data && r.raw_data.source) || 'worker';
-      if (src === 'worker') {
-        bmcMap[key].worker = { fat: r.fat, snf: r.snf, id: r.id, raw: r.raw_data };
-      } else if (src === 'qc') {
-        bmcMap[key].qc = { fat: r.fat, snf: r.snf, id: r.id, raw: r.raw_data };
-      }
+      bmcMap[key] = {
+        bmc_code: bmcCode,
+        bmc_name: bmcName,
+        bmc_id: bmcId,
+        reading_date: readingDate,
+        worker: { fat: r.t1.fat, snf: r.t1.snf, raw: r },
+        qc: { fat: r.t2.fat, snf: r.t2.snf, raw: r },
+        macs: {
+          quantity_liters: liters,
+          quantity_kg: kg,
+          fat: r.t1.fat,
+          snf: r.t1.snf
+        },
+        spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, visited: false },
+        diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
+        fat_diff: null,
+        snf_diff: null,
+        status: 'NO_DATA',
+        visit_id: null,
+        is_tested: false
+      };
 
       const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
       const spotVisit = visitsMap[bmcCode];
@@ -7714,38 +7812,24 @@ app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
       }
     });
 
-    // 3. MACS Total BMC count for selected date & period
+    // 3. MACS Total BMC count for selected date & period from live MACS API
+    const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, date);
     const { data: masterBmcsList } = await adminClient
       .from('bmcs')
       .select('bmc_code');
     const masterCodesSet = new Set((masterBmcsList || []).map(b => String(b.bmc_code || '').trim().toLowerCase()).filter(Boolean));
 
-    let macsQuery = adminClient.from('qc_excel_import_rows').select('sample_ref, bmc_name, raw_data, bmc_id, fat, snf');
-    if (date) macsQuery = macsQuery.eq('test_date', date);
-
-    const { data: macsRows } = await macsQuery;
-    let macsRowsFiltered = macsRows || [];
-
-    if (period !== 'both') {
-      macsRowsFiltered = macsRowsFiltered.filter(r => {
-        const p = (r.raw_data?.period || 'morning').toLowerCase();
-        return p === period;
-      });
-    }
-
     const validMatchedBmcs = new Set();
-    macsRowsFiltered.forEach(r => {
-      const code = String(r.sample_ref || r.raw_data?.bmc_code || '').trim().toLowerCase();
-      const lit = parseFloat(r.raw_data?.macs_quantity_liters || r.raw_data?.liters || r.raw_data?.quantity || 0);
-      const kg = parseFloat(r.raw_data?.macs_quantity_kg || 0);
-      const fat = parseFloat(r.fat || r.raw_data?.macs_fat || 0);
-      const snf = parseFloat(r.snf || r.raw_data?.macs_snf || 0);
-
-      const hasValue = (lit > 0 || kg > 0 || fat > 0 || snf > 0);
-      const matchesMaster = masterCodesSet.has(code);
+    liveMacsByCode.forEach((r, code) => {
+      const codeLower = String(code).toLowerCase().trim();
+      const lit = parseFloat(r.t1.liters || 0);
+      const fat = parseFloat(r.t1.fat || 0);
+      const snf = parseFloat(r.t1.snf || 0);
+      const hasValue = (lit > 0 || fat > 0 || snf > 0);
+      const matchesMaster = masterCodesSet.has(codeLower);
 
       if (code && matchesMaster && hasValue) {
-        validMatchedBmcs.add(code);
+        validMatchedBmcs.add(codeLower);
       }
     });
 
@@ -7799,12 +7883,8 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
       }
     }
 
-    // 2. Fetch MACS import rows for this BMC
-    const { data: excelRows } = await adminClient
-      .from('qc_excel_import_rows')
-      .select('*')
-      .or(`bmc_id.eq.${bmc.id || '00000000-0000-0000-0000-000000000000'},sample_ref.eq.${bmcCode},bmc_name.eq.${bmc.name}`)
-      .order('test_date', { ascending: false });
+    // 2. Fetch live MACS history for this BMC code from macs_api_bmc_data
+    const liveMacsHistory = await getLiveMacsHistoryForBmc(adminClient, bmc.bmc_code || bmcCode);
 
     // 3. Fetch Spot Analyzer visits for this BMC
     let visitsQuery = adminClient
@@ -7837,18 +7917,19 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
     // Group records date-wise
     const recordsMap = {};
 
-    (excelRows || []).forEach(r => {
-      const d = r.test_date || new Date(r.created_at).toISOString().split('T')[0];
+    (liveMacsHistory || []).forEach(r => {
+      const d = r.reading_date;
+      if (!d) return;
       if (!recordsMap[d]) {
         recordsMap[d] = { date: d, macs: null, spot: null, diary: null };
       }
-      const lit = r.raw_data?.macs_quantity_liters ?? r.raw_data?.liters ?? (r.fat ? r.raw_data?.quantity : null);
-      const kg = r.raw_data?.macs_quantity_kg ?? (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
+      const lit = r.t1.liters;
+      const kg = lit ? parseFloat((lit * 1.03).toFixed(2)) : null;
       recordsMap[d].macs = {
         liters: lit,
         kg: kg,
-        fat: r.fat,
-        snf: r.snf
+        fat: r.t1.fat,
+        snf: r.t1.snf
       };
     });
 
@@ -8057,20 +8138,14 @@ app.get('/api/qc-agm/tests', requireQcAgm, async (req, res) => {
     const { data: visits, error } = await query;
     if (error) throw error;
 
-    const bmcIds = [...new Set((visits || []).map(v => v.bmc_id).filter(Boolean))];
-    let excelRows = [];
-    if (bmcIds.length > 0) {
-      const { data: xRows } = await adminClient
-        .from('qc_excel_import_rows')
-        .select('*')
-        .in('bmc_id', bmcIds);
-      excelRows = xRows || [];
-    }
-    
+    // Fetch live MACS data for visits by date
+    const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, date);
+
     (visits || []).forEach(v => {
-      const vDate = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : null;
-      v.macs_qc = excelRows.find(x => x.bmc_id === v.bmc_id && x.test_date === vDate && x.overall_result === 'qc') || null;
-      v.macs_worker = excelRows.find(x => x.bmc_id === v.bmc_id && x.test_date === vDate && x.overall_result === 'worker') || null;
+      const bCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
+      const macsRec = liveMacsByCode.get(bCode);
+      v.macs_qc = macsRec ? { fat: macsRec.t2.fat, snf: macsRec.t2.snf, liters: macsRec.t2.liters, source: 'live_macs_api' } : null;
+      v.macs_worker = macsRec ? { fat: macsRec.t1.fat, snf: macsRec.t1.snf, liters: macsRec.t1.liters, source: 'live_macs_api' } : null;
     });
 
     res.json({ tests: visits || [] });
@@ -8102,13 +8177,24 @@ app.get('/api/qc-agm/tests/:id', requireQcAgm, async (req, res) => {
     if (error || !visit) return res.status(404).json({ error: 'Test details not found.' });
 
     let excelRows = [];
-    if (visit.bmc_id) {
-      const { data: xRows } = await adminClient
-        .from('qc_excel_import_rows')
-        .select('*, batch:qc_excel_imports(*)')
-        .eq('bmc_id', visit.bmc_id)
-        .order('test_date', { ascending: false });
-      excelRows = xRows || [];
+    const bmcCode = String(visit.bmc?.bmc_code || visit.bmc_code || '').trim();
+    if (bmcCode) {
+      const history = await getLiveMacsHistoryForBmc(adminClient, bmcCode);
+      excelRows = (history || []).map(h => ({
+        test_date: h.reading_date,
+        fat: h.t1.fat,
+        snf: h.t1.snf,
+        liters: h.t1.liters,
+        macs_quantity_liters: h.t1.liters,
+        macs_quantity_kg: h.t1.liters ? parseFloat((h.t1.liters * 1.03).toFixed(2)) : null,
+        raw_data: {
+          macs_quantity_liters: h.t1.liters,
+          macs_quantity_kg: h.t1.liters ? parseFloat((h.t1.liters * 1.03).toFixed(2)) : null,
+          t1: h.t1,
+          t2: h.t2
+        },
+        source: 'live_macs_api'
+      }));
     }
 
     res.json({ test: visit, excel_rows: excelRows });
@@ -8210,13 +8296,24 @@ app.get('/api/qc-agm/bmcs/:bmcCode/tests', requireQcAgm, async (req, res) => {
 
     if (error) throw error;
 
-    const { data: excelRows } = await adminClient
-      .from('qc_excel_import_rows')
-      .select('*, batch:qc_excel_imports(*)')
-      .eq('bmc_id', bmcId)
-      .order('test_date', { ascending: false });
+    const history = await getLiveMacsHistoryForBmc(adminClient, req.params.bmcCode);
+    const excelRows = (history || []).map(h => ({
+      test_date: h.reading_date,
+      fat: h.t1.fat,
+      snf: h.t1.snf,
+      liters: h.t1.liters,
+      macs_quantity_liters: h.t1.liters,
+      macs_quantity_kg: h.t1.liters ? parseFloat((h.t1.liters * 1.03).toFixed(2)) : null,
+      raw_data: {
+        macs_quantity_liters: h.t1.liters,
+        macs_quantity_kg: h.t1.liters ? parseFloat((h.t1.liters * 1.03).toFixed(2)) : null,
+        t1: h.t1,
+        t2: h.t2
+      },
+      source: 'live_macs_api'
+    }));
 
-    res.json({ visits: visits || [], excel_rows: excelRows || [] });
+    res.json({ visits: visits || [], excel_rows: excelRows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -8375,13 +8472,7 @@ app.get('/api/qc-agm/excel-data', requireQcAgm, async (req, res) => {
 app.get('/api/qc-agm/macs/dates', requireQcAgm, async (req, res) => {
   const { adminClient } = req;
   try {
-    const { data: rows, error } = await adminClient
-      .from('qc_excel_import_rows')
-      .select('test_date')
-      .order('test_date', { ascending: false });
-
-    if (error) throw error;
-    const dates = Array.from(new Set((rows || []).map(r => r.test_date).filter(Boolean)));
+    const dates = await getLatestLiveMacsDatesList(adminClient);
     res.json({ dates });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -8394,16 +8485,17 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
   const date = req.query.date;
 
   try {
-    let query = adminClient
-      .from('qc_excel_import_rows')
-      .select('*, bmc:bmcs(*, bmc_routes(*)), batch:qc_excel_imports(*)');
+    // 1. Fetch live MACS data from macs_api_bmc_data
+    const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, date);
 
-    if (date) {
-      query = query.eq('test_date', date);
-    }
-
-    const { data: rows, error } = await query;
-    if (error) throw error;
+    // 2. Fetch master BMCs for ID, Name, and Routes
+    const { data: masterBmcs } = await adminClient
+      .from('bmcs')
+      .select('id, name, bmc_code, bmc_routes(*)');
+    const masterBmcByCode = {};
+    (masterBmcs || []).forEach(b => {
+      if (b.bmc_code) masterBmcByCode[String(b.bmc_code).trim()] = b;
+    });
 
     // Fetch Spot Analyzer visit records for the date if date is given
     let visitsQuery = adminClient
@@ -8423,57 +8515,45 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
       if (bCode) {
         visitsMap[bCode] = v;
       }
-      if (v.bmc?.name) {
-        visitsMap[String(v.bmc.name).toLowerCase().trim()] = v;
-      }
-      if (v.bmc_id) {
-        visitsMap[String(v.bmc_id)] = v;
-      }
     });
 
     const bmcMap = {};
 
-    (rows || []).forEach(r => {
-      const bmcCode = String(r.sample_ref || (r.raw_data && r.raw_data.bmc_code) || r.bmc_name || '').trim();
-      const key = `${bmcCode}_${r.test_date}`;
+    liveMacsByCode.forEach((r, bmcCode) => {
+      const readingDate = r.reading_date || date || new Date().toISOString().split('T')[0];
+      const key = `${bmcCode}_${readingDate}`;
+      const mb = masterBmcByCode[bmcCode];
+      const bmcId = mb ? mb.id : null;
+      const bmcName = mb ? mb.name : (r.bmc_name || 'N/A');
+      const routeName = mb?.bmc_routes?.name || mb?.route_name || null;
 
-      if (!bmcMap[key]) {
-        const liters = r.raw_data?.macs_quantity_liters ?? r.raw_data?.liters ?? r.raw_data?.quantity ?? r.liters ?? r.quantity ?? null;
-        const kg = r.raw_data?.macs_quantity_kg ?? r.raw_data?.kg ?? (liters ? parseFloat((liters * 1.03).toFixed(2)) : null);
+      const liters = r.t1.liters;
+      const kg = liters !== null ? parseFloat((liters * 1.03).toFixed(2)) : null;
 
-        const routeName = r.bmc?.bmc_routes?.name || r.bmc?.route_name || null;
-        bmcMap[key] = {
-          bmc_code: bmcCode,
-          bmc_name: r.bmc_name || r.bmc?.name || 'N/A',
-          bmc_id: r.bmc_id,
-          route_name: routeName,
-          bmc_routes: routeName ? { name: routeName } : null,
-          reading_date: r.test_date,
-          worker: null,
-          qc: null,
-          macs: {
-            quantity_liters: liters,
-            quantity_kg: kg,
-            fat: r.fat !== null && r.fat !== undefined ? parseFloat(r.fat) : null,
-            snf: r.snf !== null && r.snf !== undefined ? parseFloat(r.snf) : null
-          },
-          spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, visited: false },
-          diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
-          fat_diff: null,
-          snf_diff: null,
-          status: 'NO_DATA'
-        };
-      }
-
-      const src = r.overall_result || (r.raw_data && r.raw_data.source) || 'worker';
-      if (src === 'worker') {
-        bmcMap[key].worker = { fat: r.fat, snf: r.snf, id: r.id, raw: r.raw_data };
-      } else if (src === 'qc') {
-        bmcMap[key].qc = { fat: r.fat, snf: r.snf, id: r.id, raw: r.raw_data };
-      }
+      bmcMap[key] = {
+        bmc_code: bmcCode,
+        bmc_name: bmcName,
+        bmc_id: bmcId,
+        route_name: routeName,
+        bmc_routes: routeName ? { name: routeName } : null,
+        reading_date: readingDate,
+        worker: { fat: r.t1.fat, snf: r.t1.snf, raw: r },
+        qc: { fat: r.t2.fat, snf: r.t2.snf, raw: r },
+        macs: {
+          quantity_liters: liters,
+          quantity_kg: kg,
+          fat: r.t1.fat !== null && r.t1.fat !== undefined ? parseFloat(r.t1.fat) : null,
+          snf: r.t1.snf !== null && r.t1.snf !== undefined ? parseFloat(r.t1.snf) : null
+        },
+        spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, visited: false },
+        diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
+        fat_diff: null,
+        snf_diff: null,
+        status: 'NO_DATA'
+      };
 
       const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
-      const spotVisit = visitsMap[bmcCode] || visitsMap[String(r.bmc_id)] || (r.bmc_name ? visitsMap[String(r.bmc_name).toLowerCase().trim()] : null);
+      const spotVisit = visitsMap[bmcCode];
       if (spotVisit) {
         const ftir = unpack(spotVisit.ftir_tests);
         const gerber = unpack(spotVisit.gerber_tests);
@@ -8919,54 +8999,51 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
       return res.status(404).json({ error: `BMC with code '${bmcCode}' not found.` });
     }
 
-    let macsQuery = adminClient
-      .from('qc_excel_import_rows')
-      .select('*')
-      .or(`sample_ref.eq.${bmcCode},bmc_id.eq.${bmc.id}`);
-
-    if (from_date) macsQuery = macsQuery.gte('test_date', from_date);
-    if (to_date) macsQuery = macsQuery.lte('test_date', to_date);
-
-    const { data: rows } = await macsQuery;
+    // Fetch live MACS data for this BMC code across date range
+    const liveMacsHistory = await getLiveMacsHistoryForBmc(adminClient, bmc.bmc_code || bmcCode, from_date, to_date);
 
     const dailyMap = {};
 
-    (rows || []).forEach(r => {
-      const d = r.test_date;
-      
-      let p = (r.overall_result || 'morning').toLowerCase();
-      if (p === 'worker' || p === 'qc' || p === 'both') p = 'morning';
+    (liveMacsHistory || []).forEach(r => {
+      const d = r.reading_date;
+      if (!d) return;
 
-      if (period !== 'all' && p !== period.toLowerCase()) return;
-
-      const key = `${d}_${p}`;
-      if (!dailyMap[key]) {
-        dailyMap[key] = {
-          date: d,
-          period: p === 'morning' ? 'Morning' : 'Evening',
-          macs: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
-          spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
-          diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' }
-        };
+      // MACS has T1 (Morning) and T2 (Evening)
+      const periods = [];
+      if (r.t1.liters !== null || r.t1.fat !== null || r.t1.snf !== null) {
+        periods.push({ p: 'morning', label: 'Morning', data: r.t1 });
+      }
+      if (r.t2.liters !== null || r.t2.fat !== null || r.t2.snf !== null) {
+        periods.push({ p: 'evening', label: 'Evening', data: r.t2 });
+      }
+      // If neither has data but record exists, add morning as default
+      if (periods.length === 0) {
+        periods.push({ p: 'morning', label: 'Morning', data: r.t1 });
       }
 
-      const entry = dailyMap[key];
+      periods.forEach(({ p, label, data }) => {
+        if (period !== 'all' && p !== period.toLowerCase()) return;
+        const key = `${d}_${p}`;
+        if (!dailyMap[key]) {
+          dailyMap[key] = {
+            date: d,
+            period: label,
+            macs: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
+            spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
+            diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' }
+          };
+        }
 
-      // Treat ALL rows from qc_excel_import_rows as MACS data.
-      // Do not falsely map them to Spot Analyzer or Diary.
-      const liters = r.raw_data?.macs_quantity_liters ?? r.raw_data?.liters ?? r.raw_data?.quantity ?? r.liters ?? r.quantity ?? null;
-      const kg = r.raw_data?.macs_quantity_kg ?? r.raw_data?.kg ?? (liters ? parseFloat((liters * 1.03).toFixed(2)) : null);
+        const entry = dailyMap[key];
+        const liters = data.liters;
+        const kg = liters !== null ? parseFloat((liters * 1.03).toFixed(2)) : null;
 
-      if (liters !== null && entry.macs.quantity_liters === null) entry.macs.quantity_liters = liters;
-      if (kg !== null && entry.macs.quantity_kg === null) entry.macs.quantity_kg = kg;
-      
-      if (r.fat !== null && r.fat !== undefined) entry.macs.fat = r.fat;
-      else if (r.raw_data?.fat !== undefined) entry.macs.fat = r.raw_data.fat;
-      
-      if (r.snf !== null && r.snf !== undefined) entry.macs.snf = r.snf;
-      else if (r.raw_data?.snf !== undefined) entry.macs.snf = r.raw_data.snf;
-      
-      entry.macs.status = 'completed';
+        entry.macs.quantity_liters = liters;
+        entry.macs.quantity_kg = kg;
+        entry.macs.fat = data.fat;
+        entry.macs.snf = data.snf;
+        entry.macs.status = 'completed';
+      });
     });
 
     // Fetch Spot Analyzer (trip_bmc_visits) and Diary (trips)
