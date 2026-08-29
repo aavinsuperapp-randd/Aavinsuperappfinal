@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MACS API — AAVIN Admin</title>
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/admin.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    .macs-api-status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .macs-status-card {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 12px;
+      padding: 16px;
+      transition: box-shadow 0.2s;
+    }
+    .macs-status-card:hover {
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    }
+    .macs-status-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #64748B;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .macs-status-value {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: #0F172A;
+      word-break: break-word;
+    }
+    .macs-status-value.success { color: #16A34A; }
+    .macs-status-value.error { color: #DC2626; }
+    .macs-status-value.pending { color: #D97706; }
+    .macs-status-value.info { color: #2563EB; }
+
+    .status-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .status-dot.green { background: #16A34A; box-shadow: 0 0 6px rgba(22,163,74,0.4); }
+    .status-dot.red { background: #DC2626; box-shadow: 0 0 6px rgba(220,38,38,0.4); }
+    .status-dot.yellow { background: #D97706; box-shadow: 0 0 6px rgba(217,119,6,0.4); }
+
+    .macs-sync-btn {
+      background: linear-gradient(135deg, #2563EB, #1D4ED8);
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .macs-sync-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
+    .macs-sync-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .macs-sync-btn.syncing { animation: pulse-btn 1.5s ease-in-out infinite; }
+
+    @keyframes pulse-btn {
+      0%, 100% { opacity: 0.7; }
+      50% { opacity: 1; }
+    }
+
+    .macs-data-table-wrapper {
+      overflow-x: auto;
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 12px;
+    }
+    .macs-data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .macs-data-table thead th {
+      background: #F8FAFC;
+      color: #475569;
+      font-weight: 700;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 10px 12px;
+      border-bottom: 2px solid #E2E8F0;
+      white-space: nowrap;
+      text-align: left;
+    }
+    .macs-data-table tbody td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #F1F5F9;
+      color: #334155;
+      white-space: nowrap;
+    }
+    .macs-data-table tbody tr:hover {
+      background: #F8FAFC;
+    }
+    .macs-data-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .macs-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .macs-pagination button {
+      padding: 6px 14px;
+      border: 1px solid #CBD5E1;
+      background: #FFFFFF;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #334155;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .macs-pagination button:hover:not(:disabled) {
+      background: #F1F5F9;
+      border-color: #94A3B8;
+    }
+    .macs-pagination button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .macs-pagination button.active {
+      background: #2563EB;
+      color: white;
+      border-color: #2563EB;
+    }
+    .macs-pagination .page-info {
+      font-size: 0.8rem;
+      color: #64748B;
+      font-weight: 600;
+    }
+
+    .macs-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .macs-section-title {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #0F172A;
+      margin: 0;
+    }
+    .macs-sync-history-list {
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 12px;
+    }
+    .sync-history-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 6px 0;
+      border-bottom: 1px solid #F1F5F9;
+      font-size: 0.8rem;
+    }
+    .sync-history-row:last-child { border-bottom: none; }
+    .sync-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .sync-badge.success { background: #DCFCE7; color: #166534; }
+    .sync-badge.failed { background: #FEE2E2; color: #991B1B; }
+    .sync-badge.in_progress { background: #FEF3C7; color: #92400E; }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient Background Canvas -->
+  <div class="bg-ambient-canvas">
+    <div class="blob blob-blue-1"></div>
+    <div class="blob blob-green-1"></div>
+  </div>
+
+  <div class="admin-shell">
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>AAVIN Admin</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item">
+          <span>📊</span> Dashboard Home
+        </a>
+        <a href="verification.html" class="admin-nav-item">
+          <span>📋</span> Users & Approvals
+        </a>
+        <a href="trips.html" class="admin-nav-item">
+          <span>🚚</span> Trips Management
+        </a>
+        <a href="bmc.html" class="admin-nav-item">
+          <span>🏭</span> BMC Management
+        </a>
+        <a href="executive-officers.html" class="admin-nav-item">
+          <span>👔</span> Executive Officers
+        </a>
+        <a href="macs-api.html" class="admin-nav-item active">
+          <span>🔗</span> MACS API
+        </a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="admin-main">
+      <header class="admin-header">
+        <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+        <div class="admin-header-title">MACS API — Automatic BMC Data Collection</div>
+        <div class="admin-user-profile">
+          <div class="admin-user-name">Administrator</div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-admin-content" class="hidden">
+
+          <!-- MACS API Status Panel -->
+          <div class="macs-section-header">
+            <div>
+              <h2 class="macs-section-title">🔗 MACS API Status</h2>
+              <p class="text-muted text-xs" style="margin-top:2px;">Automatic BMC data collection from MACS software API every 15 minutes.</p>
+            </div>
+            <button id="macs-sync-btn" class="macs-sync-btn" onclick="handleManualSync()">
+              🔄 Sync Now
+            </button>
+          </div>
+
+          <div class="macs-api-status-grid" id="macs-status-grid">
+            <div class="macs-status-card">
+              <div class="macs-status-label">Connection Status</div>
+              <div class="macs-status-value" id="status-connection">
+                <span class="status-dot yellow"></span> Loading...
+              </div>
+            </div>
+            <div class="macs-status-card">
+              <div class="macs-status-label">Last Successful Sync</div>
+              <div class="macs-status-value" id="status-last-sync">—</div>
+            </div>
+            <div class="macs-status-card">
+              <div class="macs-status-label">Next Scheduled Sync</div>
+              <div class="macs-status-value info" id="status-next-sync">—</div>
+            </div>
+            <div class="macs-status-card">
+              <div class="macs-status-label">Records Fetched</div>
+              <div class="macs-status-value" id="status-fetched">—</div>
+            </div>
+            <div class="macs-status-card">
+              <div class="macs-status-label">Records Stored</div>
+              <div class="macs-status-value" id="status-stored">—</div>
+            </div>
+            <div class="macs-status-card">
+              <div class="macs-status-label">Skipped (TOTAL rows)</div>
+              <div class="macs-status-value" id="status-skipped">—</div>
+            </div>
+            <div class="macs-status-card">
+              <div class="macs-status-label">Total Sync Runs</div>
+              <div class="macs-status-value info" id="status-total-syncs">—</div>
+            </div>
+            <div class="macs-status-card">
+              <div class="macs-status-label">Last Error</div>
+              <div class="macs-status-value" id="status-last-error" style="font-size:0.82rem;">None</div>
+            </div>
+          </div>
+
+          <!-- Sync History -->
+          <div class="card p-3 mb-3">
+            <h4 style="margin:0 0 8px 0; font-size:0.95rem; font-weight:700; color:#1E293B;">📜 Recent Sync History</h4>
+            <div class="macs-sync-history-list" id="sync-history-list">
+              <div style="color:#94A3B8; font-size:0.82rem;">Loading...</div>
+            </div>
+          </div>
+
+          <!-- MACS BMC Data Table -->
+          <div class="macs-section-header" style="margin-top:24px;">
+            <h2 class="macs-section-title">📊 MACS BMC Data</h2>
+            <div class="page-info" id="data-page-info" style="font-size:0.8rem; color:#64748B; font-weight:600;"></div>
+          </div>
+
+          <div class="macs-data-table-wrapper">
+            <table class="macs-data-table" id="macs-data-table">
+              <thead>
+                <tr>
+                  <th>Fetch Time</th>
+                  <th>Report Date</th>
+                  <th>MACS BMC Code</th>
+                  <th>BMC Name</th>
+                  <th>LIT T1</th>
+                  <th>FAT T1</th>
+                  <th>SNF T1</th>
+                  <th>LIT T2</th>
+                  <th>FAT T2</th>
+                  <th>SNF T2</th>
+                  <th>SO C1</th>
+                  <th>SO C2</th>
+                  <th>LIT</th>
+                  <th>KG FAT T1</th>
+                  <th>KG SNF T1</th>
+                  <th>KG FAT T2</th>
+                  <th>KG SNF T2</th>
+                  <th>DIFF</th>
+                </tr>
+              </thead>
+              <tbody id="macs-data-tbody">
+                <tr>
+                  <td colspan="18" style="text-align:center; color:#94A3B8; padding:32px; font-weight:600;">Loading data...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="macs-pagination" id="macs-pagination"></div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/admin.js"></script>
+  <script src="../js/admin-macs-api.js"></script>
+</body>
+</html>

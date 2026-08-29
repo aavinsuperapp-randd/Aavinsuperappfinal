@@ -9687,6 +9687,378 @@ app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
   }
 });
 
+// ─── MACS API AUTOMATIC BMC FETCH ─────────────────────────────────────────────
+// Fetches BMC data from MACS API every 15 minutes and stores timestamped snapshots.
+// This is SEPARATE from Excel import — they coexist independently.
+
+const MACS_API_CONFIG = {
+  url: 'https://aavinapi.macsit.net/api/Bmc/GetBmcDataByUnionCode',
+  cCode: 0,
+  session: '0',
+  reportType: '',
+  shift: '0',
+  uCode: 2,
+  unionCode: 2,
+  syncIntervalMs: 15 * 60 * 1000, // 15 minutes
+  timeoutMs: 30000 // 30 seconds
+};
+
+// Track scheduler state for status endpoint
+let macsSchedulerState = {
+  lastSyncTime: null,
+  nextSyncTime: null,
+  isRunning: false,
+  intervalId: null
+};
+
+/**
+ * macsBmcSyncService — Reusable sync function.
+ * Called by both the 15-minute scheduler and the manual "Sync Now" button.
+ */
+async function macsBmcSyncService() {
+  const adminClient = getAdminClient();
+  if (!adminClient) {
+    return { success: false, error: 'Server database not configured.', recordsFetched: 0, recordsStored: 0, recordsSkipped: 0 };
+  }
+
+  // Generate current date in DD/MM/YYYY format
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const formattedDate = `${dd}/${mm}/${yyyy}`;
+
+  // 1. Create sync run record
+  let syncRunId = null;
+  try {
+    const { data: syncRun, error: syncErr } = await adminClient
+      .from('macs_api_sync_runs')
+      .insert({
+        started_at: now.toISOString(),
+        status: 'in_progress',
+        requested_date: formattedDate,
+        u_code: MACS_API_CONFIG.uCode,
+        union_code: MACS_API_CONFIG.unionCode
+      })
+      .select('id')
+      .single();
+
+    if (syncErr) throw new Error(`Failed to create sync run: ${syncErr.message}`);
+    syncRunId = syncRun.id;
+  } catch (dbErr) {
+    console.error('❌ MACS API Sync: Failed to create sync run record:', dbErr.message);
+    return { success: false, error: dbErr.message, recordsFetched: 0, recordsStored: 0, recordsSkipped: 0 };
+  }
+
+  try {
+    // 2. Send POST request with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), MACS_API_CONFIG.timeoutMs);
+
+    const payload = {
+      cCode: MACS_API_CONFIG.cCode,
+      session: MACS_API_CONFIG.session,
+      firstDate: formattedDate,
+      reportType: MACS_API_CONFIG.reportType,
+      secondDate: formattedDate,
+      shift: MACS_API_CONFIG.shift,
+      uCode: MACS_API_CONFIG.uCode,
+      unionCode: MACS_API_CONFIG.unionCode
+    };
+
+    console.log(`🔄 MACS API Sync: Fetching data for ${formattedDate}...`);
+
+    const response = await fetch(MACS_API_CONFIG.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    // 3. Validate HTTP response
+    if (!response.ok) {
+      throw new Error(`MACS API returned HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+
+    // 4. Validate API response structure
+    if (result.statusCode !== 200) {
+      throw new Error(`MACS API statusCode: ${result.statusCode}, message: ${result.message || 'Unknown error'}`);
+    }
+
+    if (!Array.isArray(result.data)) {
+      throw new Error('MACS API returned non-array data');
+    }
+
+    const allRecords = result.data;
+    const recordsFetched = allRecords.length;
+
+    // 5. Filter out TOTAL rows
+    const bmcRecords = allRecords.filter(r => {
+      const name = (r.name || '').trim().toUpperCase();
+      return name !== 'TOTAL' && name !== '';
+    });
+    const recordsSkipped = recordsFetched - bmcRecords.length;
+
+    // 6. Map and insert individual BMC records
+    const fetchedAt = new Date().toISOString();
+    const insertRows = bmcRecords.map(r => ({
+      sync_run_id: syncRunId,
+      macs_bmc_code: r.code,
+      macs_bmc_name: r.name,
+      u_code: r.uCode,
+      report_date: formattedDate,
+      so_c1: r.soC1,
+      so_c2: r.soC2,
+      lit: r.lit,
+      li_t1: r.liT1,
+      kgfat_t1: r.kgfaT1,
+      kgsnf_t1: r.kgsnF1,
+      fat_t1: r.faT1,
+      snf_t1: r.snF1,
+      li_t2: r.liT2,
+      kgfat_t2: r.kgfaT2,
+      kgsnf_t2: r.kgsnF2,
+      fat_t2: r.faT2,
+      snf_t2: r.snF2,
+      diff: r.diff,
+      fetched_at: fetchedAt
+    }));
+
+    let recordsStored = 0;
+    if (insertRows.length > 0) {
+      // Insert in batches of 100 to avoid payload limits
+      const batchSize = 100;
+      for (let i = 0; i < insertRows.length; i += batchSize) {
+        const batch = insertRows.slice(i, i + batchSize);
+        const { error: insertErr } = await adminClient
+          .from('macs_api_bmc_data')
+          .insert(batch);
+
+        if (insertErr) {
+          console.error(`❌ MACS API Sync: Insert batch error:`, insertErr.message);
+          throw new Error(`Database insert failed: ${insertErr.message}`);
+        }
+        recordsStored += batch.length;
+      }
+    }
+
+    // 7. Update sync run as success
+    await adminClient
+      .from('macs_api_sync_runs')
+      .update({
+        completed_at: new Date().toISOString(),
+        status: 'success',
+        records_fetched: recordsFetched,
+        records_stored: recordsStored,
+        records_skipped: recordsSkipped
+      })
+      .eq('id', syncRunId);
+
+    macsSchedulerState.lastSyncTime = new Date();
+    console.log(`✅ MACS API Sync: Success — ${recordsFetched} fetched, ${recordsStored} stored, ${recordsSkipped} skipped`);
+
+    return { success: true, recordsFetched, recordsStored, recordsSkipped, syncRunId };
+
+  } catch (err) {
+    // 8. Handle errors — mark sync as failed, preserve previous data
+    const errorMsg = err.name === 'AbortError' 
+      ? `Request timed out after ${MACS_API_CONFIG.timeoutMs / 1000}s` 
+      : err.message;
+
+    console.error(`❌ MACS API Sync: Failed — ${errorMsg}`);
+
+    if (syncRunId) {
+      try {
+        await adminClient
+          .from('macs_api_sync_runs')
+          .update({
+            completed_at: new Date().toISOString(),
+            status: 'failed',
+            error_message: errorMsg
+          })
+          .eq('id', syncRunId);
+      } catch (updateErr) {
+        console.error('❌ MACS API Sync: Failed to update sync run error status:', updateErr.message);
+      }
+    }
+
+    return { success: false, error: errorMsg, recordsFetched: 0, recordsStored: 0, recordsSkipped: 0 };
+  }
+}
+
+// ─── MACS API 15-Minute Scheduler ─────────────────────────────────────────────
+function startMacsApiScheduler() {
+  if (macsSchedulerState.intervalId) {
+    clearInterval(macsSchedulerState.intervalId);
+  }
+
+  console.log(`⏰ MACS API Scheduler: Starting — will sync every ${MACS_API_CONFIG.syncIntervalMs / 60000} minutes`);
+  
+  macsSchedulerState.nextSyncTime = new Date(Date.now() + MACS_API_CONFIG.syncIntervalMs);
+
+  macsSchedulerState.intervalId = setInterval(async () => {
+    if (macsSchedulerState.isRunning) {
+      console.log('⏭️ MACS API Scheduler: Previous sync still running, skipping this cycle');
+      return;
+    }
+
+    macsSchedulerState.isRunning = true;
+    try {
+      await macsBmcSyncService();
+    } catch (err) {
+      console.error('❌ MACS API Scheduler: Unexpected error:', err.message);
+    } finally {
+      macsSchedulerState.isRunning = false;
+      macsSchedulerState.nextSyncTime = new Date(Date.now() + MACS_API_CONFIG.syncIntervalMs);
+    }
+  }, MACS_API_CONFIG.syncIntervalMs);
+
+  // Run initial sync after a short delay (10 seconds after server start)
+  setTimeout(async () => {
+    if (macsSchedulerState.isRunning) return;
+    macsSchedulerState.isRunning = true;
+    console.log('🚀 MACS API Scheduler: Running initial sync...');
+    try {
+      await macsBmcSyncService();
+    } catch (err) {
+      console.error('❌ MACS API Scheduler: Initial sync error:', err.message);
+    } finally {
+      macsSchedulerState.isRunning = false;
+      macsSchedulerState.nextSyncTime = new Date(Date.now() + MACS_API_CONFIG.syncIntervalMs);
+    }
+  }, 10000);
+}
+
+// Start scheduler when server boots
+startMacsApiScheduler();
+
+// ─── MACS API Admin Endpoints ─────────────────────────────────────────────────
+
+// POST /api/admin/macs-api/sync — Manual "Sync Now"
+app.post('/api/admin/macs-api/sync', requireAdminRole, async (req, res) => {
+  if (macsSchedulerState.isRunning) {
+    return res.status(409).json({ error: 'A sync is already in progress. Please wait.' });
+  }
+
+  macsSchedulerState.isRunning = true;
+  try {
+    const result = await macsBmcSyncService();
+    macsSchedulerState.nextSyncTime = new Date(Date.now() + MACS_API_CONFIG.syncIntervalMs);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    macsSchedulerState.isRunning = false;
+  }
+});
+
+// GET /api/admin/macs-api/status — Sync status and scheduler info
+app.get('/api/admin/macs-api/status', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+
+  try {
+    // Get latest successful sync
+    const { data: lastSuccess } = await adminClient
+      .from('macs_api_sync_runs')
+      .select('*')
+      .eq('status', 'success')
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Get latest sync (any status)
+    const { data: lastSync } = await adminClient
+      .from('macs_api_sync_runs')
+      .select('*')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Get total records count
+    const { count: totalRecords } = await adminClient
+      .from('macs_api_bmc_data')
+      .select('*', { count: 'exact', head: true });
+
+    // Get total sync runs count
+    const { count: totalSyncs } = await adminClient
+      .from('macs_api_sync_runs')
+      .select('*', { count: 'exact', head: true });
+
+    res.json({
+      schedulerRunning: !!macsSchedulerState.intervalId,
+      isCurrentlySyncing: macsSchedulerState.isRunning,
+      lastSyncTime: macsSchedulerState.lastSyncTime,
+      nextSyncTime: macsSchedulerState.nextSyncTime,
+      syncIntervalMinutes: MACS_API_CONFIG.syncIntervalMs / 60000,
+      lastSuccessfulSync: lastSuccess,
+      lastSync: lastSync,
+      totalRecordsStored: totalRecords || 0,
+      totalSyncRuns: totalSyncs || 0
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/macs-api/data — Paginated BMC data (newest first)
+app.get('/api/admin/macs-api/data', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 50;
+  const offset = (page - 1) * limit;
+  const syncRunId = req.query.sync_run_id || null;
+
+  try {
+    let query = adminClient
+      .from('macs_api_bmc_data')
+      .select('*', { count: 'exact' });
+
+    if (syncRunId) {
+      query = query.eq('sync_run_id', syncRunId);
+    }
+
+    const { data, count, error } = await query
+      .order('fetched_at', { ascending: false })
+      .order('macs_bmc_code', { ascending: true })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    res.json({
+      data: data || [],
+      total: count || 0,
+      page,
+      limit,
+      totalPages: Math.ceil((count || 0) / limit)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/macs-api/sync-history — List sync runs
+app.get('/api/admin/macs-api/sync-history', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const limit = parseInt(req.query.limit) || 20;
+
+  try {
+    const { data, error } = await adminClient
+      .from('macs_api_sync_runs')
+      .select('*')
+      .order('started_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    res.json({ runs: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // API 404 Fallback — ensures API routes return JSON, never HTML index.html
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: `API route ${req.originalUrl} not found.` });
