@@ -349,21 +349,14 @@ function generatePreviewTable(detectedDates) {
   const tbody = document.getElementById('preview-tbody');
   tbody.innerHTML = pairs.map(p => {
     const isCodeValid = validBmcCodes.has(p.bmc_code) || validBmcNames.has(p.bmc_name.toLowerCase());
-    const w = p.worker || {};
-    const q = p.qc || {};
+    const q = p.qc || p.worker || {};
 
-    const wFatStr = w.fat !== null && w.fat !== undefined ? `${w.fat}%` : '--';
-    const wSnfStr = w.snf !== null && w.snf !== undefined ? `${w.snf}%` : '--';
     const qFatStr = q.fat !== null && q.fat !== undefined ? `${q.fat}%` : '--';
     const qSnfStr = q.snf !== null && q.snf !== undefined ? `${q.snf}%` : '--';
 
     let statusPill = `<span class="qc-pill pill-approved">VALID</span>`;
     if (!isCodeValid) {
       statusPill = `<span class="qc-pill pill-returned" style="background:#FEE2E2; color:#991B1B;">UNKNOWN BMC CODE</span>`;
-    } else if (w.fat === q.fat && w.snf === q.snf) {
-      statusPill = `<span class="qc-pill pill-approved">MATCHED</span>`;
-    } else {
-      statusPill = `<span class="qc-pill" style="background:#FEF3C7; color:#92400E;">MISMATCH</span>`;
     }
 
     const dateFormatted = new Date(p.reading_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -373,8 +366,6 @@ function generatePreviewTable(detectedDates) {
         <td><strong>${esc(p.bmc_code)}</strong></td>
         <td>${esc(p.bmc_name || 'N/A')}</td>
         <td>${esc(dateFormatted)}</td>
-        <td><strong style="color:#2563EB;">${esc(wFatStr)}</strong></td>
-        <td><strong style="color:#2563EB;">${esc(wSnfStr)}</strong></td>
         <td><strong style="color:#059669;">${esc(qFatStr)}</strong></td>
         <td><strong style="color:#059669;">${esc(qSnfStr)}</strong></td>
         <td>${statusPill}</td>

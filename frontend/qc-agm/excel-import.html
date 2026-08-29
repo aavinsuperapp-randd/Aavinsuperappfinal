@@ -39,8 +39,7 @@
         <a href="profile.html" class="qs-nav-item">
           <span>👤</span> My Profile
         </a>
-        <div class="qs-nav-divider"></div>
-        <button id="logout-btn" class="qs-nav-item" style="color:#FCA5A5;">
+        <button id="logout-btn" class="qs-nav-item logout-btn" style="margin-top: auto; margin-bottom: 16px; color: #FCA5A5;">
           <span>🚪</span> Logout
         </button>
       </nav>
@@ -64,7 +63,7 @@
 
           <div class="qc-page-top">
             <h1>MACS Reading Excel Import 📥</h1>
-            <p>Upload MACS milk laboratory reports (.xlsx / .xls). System automatically extracts BMC codes, normalizes date groups, pairs Worker vs QC MACS readings (FAT &amp; SNF only), and saves to Supabase.</p>
+            <p>Upload MACS milk laboratory reports (.xlsx / .xls). System automatically extracts BMC codes, normalizes date groups, extracts QC MACS readings (FAT &amp; SNF only), and saves to Supabase.</p>
           </div>
 
           <!-- Step 1: Upload File Zone & Date/Period Selector -->
@@ -138,8 +137,6 @@
                     <th>BMC Code</th>
                     <th>BMC Name</th>
                     <th>Reading Date</th>
-                    <th>Worker FAT</th>
-                    <th>Worker SNF</th>
                     <th>QC FAT</th>
                     <th>QC SNF</th>
                     <th>MACS Status</th>
@@ -147,7 +144,7 @@
                 </thead>
                 <tbody id="preview-tbody">
                   <tr>
-                    <td colspan="8" style="text-align:center; padding:20px; color:#64748B;">No preview rows generated.</td>
+                    <td colspan="6" style="text-align:center; padding:20px; color:#64748B;">No preview rows generated.</td>
                   </tr>
                 </tbody>
               </table>

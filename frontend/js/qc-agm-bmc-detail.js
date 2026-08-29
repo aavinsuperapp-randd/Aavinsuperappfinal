@@ -200,17 +200,30 @@ function renderBmcRecordsTable(records) {
       : dash;
 
     const spot = rec.spot || {};
-    const spotStr = (spot.liters !== null && spot.liters !== undefined)
-      ? `<div style="font-size:0.88rem; font-weight:800; color:#92400E;">${spot.liters} L <span style="font-size:0.75rem; color:#78350F; font-weight:600;">(${spot.kg || '-'} KG)</span></div><div style="font-size:0.78rem; color:#D97706; font-weight:700; margin-top:2px;">F: ${spot.fat ?? '-'}% | S: ${spot.snf ?? '-'}%</div>`
+    const spotFat = (spot.fat !== null && spot.fat !== undefined && !isNaN(parseFloat(spot.fat))) ? parseFloat(spot.fat) : null;
+    const spotSnf = (spot.snf !== null && spot.snf !== undefined && !isNaN(parseFloat(spot.snf))) ? parseFloat(spot.snf) : null;
+
+    const spotStr = (spot.liters !== null && spot.liters !== undefined || spotFat !== null)
+      ? `<div style="font-size:0.88rem; font-weight:800; color:#92400E;">${spot.liters ?? '-'} L <span style="font-size:0.75rem; color:#78350F; font-weight:600;">(${spot.kg || '-'} KG)</span></div><div style="font-size:0.78rem; color:#D97706; font-weight:700; margin-top:2px;">F: ${spotFat !== null ? spotFat : '-'}% | S: ${spotSnf !== null ? spotSnf : '-'}%</div>`
       : dash;
 
     const diary = rec.diary || {};
-    const diaryStr = (diary.liters !== null && diary.liters !== undefined)
-      ? `<div style="font-size:0.88rem; font-weight:800; color:#065F46;">${diary.liters} L <span style="font-size:0.75rem; color:#047857; font-weight:600;">(${diary.kg || '-'} KG)</span></div><div style="font-size:0.78rem; color:#059669; font-weight:700; margin-top:2px;">F: ${diary.fat ?? '-'}% | S: ${diary.snf ?? '-'}%</div>`
+    const diaryFat = (diary.fat !== null && diary.fat !== undefined && !isNaN(parseFloat(diary.fat))) ? parseFloat(diary.fat) : null;
+    const diarySnf = (diary.snf !== null && diary.snf !== undefined && !isNaN(parseFloat(diary.snf))) ? parseFloat(diary.snf) : null;
+
+    const diaryStr = (diary.liters !== null && diary.liters !== undefined || diaryFat !== null)
+      ? `<div style="font-size:0.88rem; font-weight:800; color:#065F46;">${diary.liters ?? '-'} L <span style="font-size:0.75rem; color:#047857; font-weight:600;">(${diary.kg || '-'} KG)</span></div><div style="font-size:0.78rem; color:#059669; font-weight:700; margin-top:2px;">F: ${diaryFat !== null ? diaryFat : '-'}% | S: ${diarySnf !== null ? diarySnf : '-'}%</div>`
       : dash;
 
-    const diffDisplay = rec.difference !== '-' 
-      ? `<span style="font-size:0.8rem; background:#F1F5F9; padding:3px 8px; border-radius:4px; font-weight:600; color:#334155;">${rec.difference}</span>`
+    let computedDiff = rec.difference;
+    if ((!computedDiff || computedDiff === '-') && (spotFat !== null && diaryFat !== null)) {
+      const fDiff = Math.abs(parseFloat((spotFat - diaryFat).toFixed(2)));
+      const sDiff = (spotSnf !== null && diarySnf !== null) ? Math.abs(parseFloat((spotSnf - diarySnf).toFixed(2))) : null;
+      computedDiff = sDiff !== null ? `FAT: ${fDiff}% | SNF: ${sDiff}%` : `FAT: ${fDiff}%`;
+    }
+
+    const diffDisplay = (computedDiff && computedDiff !== '-') 
+      ? `<span style="font-size:0.8rem; background:#F1F5F9; padding:3px 8px; border-radius:4px; font-weight:600; color:#334155;">${computedDiff}</span>`
       : dash;
 
     let actionBtn = '';

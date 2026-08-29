@@ -326,24 +326,38 @@ function renderFilteredReadings() {
           : dash;
 
         const spot = item.spot || {};
-        const spotStr = spot.visited 
-          ? `<div style="font-size:0.88rem; font-weight:800; color:#92400E;">${spot.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#78350F; font-weight:600;">(${spot.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#D97706; font-weight:700; margin-top:2px;">F: ${spot.fat ?? '-'}% | S: ${spot.snf ?? '-'}%</div>`
+        const spotFat = (spot.fat !== null && spot.fat !== undefined && !isNaN(parseFloat(spot.fat))) ? parseFloat(spot.fat) : null;
+        const spotSnf = (spot.snf !== null && spot.snf !== undefined && !isNaN(parseFloat(spot.snf))) ? parseFloat(spot.snf) : null;
+        const hasSpotData = Boolean(spot.visited || spotFat !== null || spotSnf !== null);
+
+        const spotStr = hasSpotData 
+          ? `<div style="font-size:0.88rem; font-weight:800; color:#92400E;">${spot.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#78350F; font-weight:600;">(${spot.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#D97706; font-weight:700; margin-top:2px;">F: ${spotFat !== null ? spotFat : '-'}% | S: ${spotSnf !== null ? spotSnf : '-'}%</div>`
           : dash;
 
         const diary = item.diary || {};
-        const validFat = diary.fat !== undefined && diary.fat !== null && diary.fat !== 'undefined' && !isNaN(parseFloat(diary.fat));
-        const validSnf = diary.snf !== undefined && diary.snf !== null && diary.snf !== 'undefined' && !isNaN(parseFloat(diary.snf));
-        const hasDiaryData = Boolean(diary.recorded && (validFat || validSnf));
+        const diaryFat = (diary.fat !== null && diary.fat !== undefined && !isNaN(parseFloat(diary.fat))) ? parseFloat(diary.fat) : null;
+        const diarySnf = (diary.snf !== null && diary.snf !== undefined && !isNaN(parseFloat(diary.snf))) ? parseFloat(diary.snf) : null;
+        const hasDiaryData = Boolean(diary.recorded || diaryFat !== null || diarySnf !== null);
 
         const diaryStr = hasDiaryData
-          ? `<div style="font-size:0.88rem; font-weight:800; color:#065F46;">${diary.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#047857; font-weight:600;">(${diary.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#059669; font-weight:700; margin-top:2px;">F: ${validFat ? parseFloat(diary.fat) : '-'}% | S: ${validSnf ? parseFloat(diary.snf) : '-'}%</div>`
+          ? `<div style="font-size:0.88rem; font-weight:800; color:#065F46;">${diary.quantity_liters ?? '-'} L <span style="font-size:0.75rem; color:#047857; font-weight:600;">(${diary.quantity_kg ?? '-'} KG)</span></div><div style="font-size:0.78rem; color:#059669; font-weight:700; margin-top:2px;">F: ${diaryFat !== null ? diaryFat : '-'}% | S: ${diarySnf !== null ? diarySnf : '-'}%</div>`
           : dash;
 
+        // Difference = spot analyser - qc worker value (never negative)
         let diffDisplay = dash;
-        if (hasDiaryData && item.fat_diff !== null && item.snf_diff !== null) {
-          const fDiffSign = item.fat_diff > 0 ? `+${item.fat_diff}` : item.fat_diff;
-          const sDiffSign = item.snf_diff > 0 ? `+${item.snf_diff}` : item.snf_diff;
-          diffDisplay = `<span style="font-size:0.8rem; background:#F1F5F9; padding:3px 8px; border-radius:4px; font-weight:600;">FAT: ${fDiffSign} | SNF: ${sDiffSign}</span>`;
+        const fatDiff = (spotFat !== null && diaryFat !== null) 
+          ? Math.abs(parseFloat((spotFat - diaryFat).toFixed(2))) 
+          : (item.fat_diff !== null && item.fat_diff !== undefined ? Math.abs(parseFloat(item.fat_diff)) : null);
+        const snfDiff = (spotSnf !== null && diarySnf !== null) 
+          ? Math.abs(parseFloat((spotSnf - diarySnf).toFixed(2))) 
+          : (item.snf_diff !== null && item.snf_diff !== undefined ? Math.abs(parseFloat(item.snf_diff)) : null);
+
+        if (fatDiff !== null && snfDiff !== null) {
+          diffDisplay = `<span style="font-size:0.8rem; background:#F1F5F9; padding:3px 8px; border-radius:4px; font-weight:600; color:#334155;">FAT: ${fatDiff}% | SNF: ${snfDiff}%</span>`;
+        } else if (fatDiff !== null) {
+          diffDisplay = `<span style="font-size:0.8rem; background:#F1F5F9; padding:3px 8px; border-radius:4px; font-weight:600; color:#334155;">FAT: ${fatDiff}%</span>`;
+        } else if (snfDiff !== null) {
+          diffDisplay = `<span style="font-size:0.8rem; background:#F1F5F9; padding:3px 8px; border-radius:4px; font-weight:600; color:#334155;">SNF: ${snfDiff}%</span>`;
         }
 
         return `
@@ -373,10 +387,28 @@ window.openDetailModal = function(idx) {
   const container = document.getElementById('macs-detail-content');
   if (!modal || !container) return;
 
+  const macs = item.macs || {};
   const w = item.worker || {};
-  const q = item.qc || {};
+  const spot = item.spot || {};
+  const diary = item.diary || {};
+
+  const spotFat = (spot.fat !== null && spot.fat !== undefined && !isNaN(parseFloat(spot.fat))) ? parseFloat(spot.fat) : null;
+  const spotSnf = (spot.snf !== null && spot.snf !== undefined && !isNaN(parseFloat(spot.snf))) ? parseFloat(spot.snf) : null;
+
+  const diaryFat = (diary.fat !== null && diary.fat !== undefined && !isNaN(parseFloat(diary.fat))) ? parseFloat(diary.fat) : null;
+  const diarySnf = (diary.snf !== null && diary.snf !== undefined && !isNaN(parseFloat(diary.snf))) ? parseFloat(diary.snf) : null;
+
+  const fatDiff = (spotFat !== null && diaryFat !== null) 
+    ? Math.abs(parseFloat((spotFat - diaryFat).toFixed(2))) 
+    : (item.fat_diff !== null && item.fat_diff !== undefined ? Math.abs(parseFloat(item.fat_diff)) : null);
+  const snfDiff = (spotSnf !== null && diarySnf !== null) 
+    ? Math.abs(parseFloat((spotSnf - diarySnf).toFixed(2))) 
+    : (item.snf_diff !== null && item.snf_diff !== undefined ? Math.abs(parseFloat(item.snf_diff)) : null);
 
   const dateFormatted = new Date(item.reading_date || selectedDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  const macsFatVal = macs.fat ?? w.fat ?? 'N/A';
+  const macsSnfVal = macs.snf ?? w.snf ?? 'N/A';
 
   container.innerHTML = `
     <div style="background:#F8FAFC; padding:16px; border-radius:12px; border:1px solid #E2E8F0; margin-bottom:16px;">
@@ -386,56 +418,73 @@ window.openDetailModal = function(idx) {
       </div>
     </div>
 
-    <!-- Worker MACS Reading -->
+    <!-- MACS Software Reading -->
     <div style="margin-bottom:16px;">
       <div style="font-size:0.8rem; font-weight:700; color:#2563EB; text-transform:uppercase; margin-bottom:8px;">
-        👷 WORKER MACS READING
+        📊 MACS SOFTWARE READING
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
         <div style="background:#EFF6FF; padding:10px; border-radius:8px; border:1px solid #BFDBFE;">
           <div style="font-size:0.7rem; color:#1E40AF; font-weight:700;">FAT %</div>
-          <div style="font-size:1.2rem; font-weight:800; color:#1E3A8A;">${w.fat !== null && w.fat !== undefined ? w.fat + '%' : 'N/A'}</div>
+          <div style="font-size:1.2rem; font-weight:800; color:#1E3A8A;">${macsFatVal !== 'N/A' ? `${macsFatVal}%` : 'N/A'}</div>
         </div>
         <div style="background:#EFF6FF; padding:10px; border-radius:8px; border:1px solid #BFDBFE;">
           <div style="font-size:0.7rem; color:#1E40AF; font-weight:700;">SNF %</div>
-          <div style="font-size:1.2rem; font-weight:800; color:#1E3A8A;">${w.snf !== null && w.snf !== undefined ? w.snf + '%' : 'N/A'}</div>
+          <div style="font-size:1.2rem; font-weight:800; color:#1E3A8A;">${macsSnfVal !== 'N/A' ? `${macsSnfVal}%` : 'N/A'}</div>
         </div>
       </div>
     </div>
 
-    <!-- QC MACS Reading -->
+    <!-- Spot Analyzer Reading -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:0.8rem; font-weight:700; color:#D97706; text-transform:uppercase; margin-bottom:8px;">
+        🔍 SPOT ANALYSER READING
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div style="background:#FEF3C7; padding:10px; border-radius:8px; border:1px solid #FDE68A;">
+          <div style="font-size:0.7rem; color:#92400E; font-weight:700;">FAT %</div>
+          <div style="font-size:1.2rem; font-weight:800; color:#78350F;">${spotFat !== null ? `${spotFat}%` : 'N/A'}</div>
+        </div>
+        <div style="background:#FEF3C7; padding:10px; border-radius:8px; border:1px solid #FDE68A;">
+          <div style="font-size:0.7rem; color:#92400E; font-weight:700;">SNF %</div>
+          <div style="font-size:1.2rem; font-weight:800; color:#78350F;">${spotSnf !== null ? `${spotSnf}%` : 'N/A'}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- QC Worker (Diary) Reading -->
     <div style="margin-bottom:16px;">
       <div style="font-size:0.8rem; font-weight:700; color:#059669; text-transform:uppercase; margin-bottom:8px;">
-        🔬 QC MACS READING
+        🔬 QC WORKER (DIARY) READING
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
         <div style="background:#ECFDF5; padding:10px; border-radius:8px; border:1px solid #A7F3D0;">
           <div style="font-size:0.7rem; color:#065F46; font-weight:700;">FAT %</div>
-          <div style="font-size:1.2rem; font-weight:800; color:#064E3B;">${q.fat !== null && q.fat !== undefined ? q.fat + '%' : 'N/A'}</div>
+          <div style="font-size:1.2rem; font-weight:800; color:#064E3B;">${diaryFat !== null ? `${diaryFat}%` : 'N/A'}</div>
         </div>
         <div style="background:#ECFDF5; padding:10px; border-radius:8px; border:1px solid #A7F3D0;">
           <div style="font-size:0.7rem; color:#065F46; font-weight:700;">SNF %</div>
-          <div style="font-size:1.2rem; font-weight:800; color:#064E3B;">${q.snf !== null && q.snf !== undefined ? q.snf + '%' : 'N/A'}</div>
+          <div style="font-size:1.2rem; font-weight:800; color:#064E3B;">${diarySnf !== null ? `${diarySnf}%` : 'N/A'}</div>
         </div>
       </div>
     </div>
 
-    <!-- Comparison -->
+    <!-- Comparison (Spot Analyser - QC Worker) -->
     <div style="margin-bottom:16px;">
       <div style="font-size:0.8rem; font-weight:700; color:#475569; text-transform:uppercase; margin-bottom:8px;">
-        📊 COMPARISON DIFFERENCES (QC - WORKER)
+        📊 COMPARISON DIFFERENCES (SPOT ANALYSER - QC WORKER)
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
         <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
           <div style="font-size:0.7rem; color:#64748B; font-weight:700;">FAT DIFFERENCE</div>
-          <div style="font-size:1.1rem; font-weight:800; color:${item.fat_diff === 0 ? '#16A34A' : '#DC2626'};">
-            ${item.fat_diff !== null && item.fat_diff !== undefined ? (item.fat_diff > 0 ? `+${item.fat_diff}` : item.fat_diff) : 'N/A'}
+          <div style="font-size:1.1rem; font-weight:800; color:${fatDiff === 0 ? '#16A34A' : '#2563EB'};">
+            ${fatDiff !== null ? `${fatDiff}%` : 'N/A'}
           </div>
         </div>
         <div style="background:#F8FAFC; padding:10px; border-radius:8px; border:1px solid #E2E8F0;">
           <div style="font-size:0.7rem; color:#64748B; font-weight:700;">SNF DIFFERENCE</div>
-          <div style="font-size:1.1rem; font-weight:800; color:${item.snf_diff === 0 ? '#16A34A' : '#DC2626'};">
-            ${item.snf_diff !== null && item.snf_diff !== undefined ? (item.snf_diff > 0 ? `+${item.snf_diff}` : item.snf_diff) : 'N/A'}
+          <div style="font-size:1.1rem; font-weight:800; color:${snfDiff === 0 ? '#16A34A' : '#2563EB'};">
+            ${snfDiff !== null ? `${snfDiff}%` : 'N/A'}
           </div>
         </div>
       </div>

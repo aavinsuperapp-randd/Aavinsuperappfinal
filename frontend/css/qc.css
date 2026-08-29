@@ -107,6 +107,22 @@ a.qs-nav-item.active {
   margin: 6px 4px;
 }
 
+.qs-nav-item.logout-btn,
+.qs-nav #logout-btn,
+button#logout-btn.qs-nav-item {
+  margin-top: auto;
+  margin-bottom: 16px;
+  color: #FCA5A5;
+}
+
+.qs-nav-item.logout-btn:hover,
+.qs-nav #logout-btn:hover,
+button#logout-btn.qs-nav-item:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #FCA5A5;
+  transform: none;
+}
+
 /* ── QC Main Content ──────────────────────────────────────── */
 .qc-main {
   flex: 1;

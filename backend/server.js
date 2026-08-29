@@ -8408,21 +8408,26 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
     // Fetch Spot Analyzer visit records for the date if date is given
     let visitsQuery = adminClient
       .from('trip_bmc_visits')
-      .select('*, bmc:bmcs(*, bmc_routes(*)), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*)')
-      .in('status', ['completed', 'visited']);
+      .select('*, bmc:bmcs(*, bmc_routes(*)), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*)');
 
     if (date) {
       const fromIso = new Date(date + 'T00:00:00.000Z').toISOString();
       const toIso = new Date(date + 'T23:59:59.999Z').toISOString();
-      visitsQuery = visitsQuery.gte('visit_end_time', fromIso).lte('visit_end_time', toIso);
+      visitsQuery = visitsQuery.or(`created_at.gte.${fromIso},visit_end_time.gte.${fromIso}`);
     }
 
     const { data: visits } = await visitsQuery;
     const visitsMap = {};
     (visits || []).forEach(v => {
-      const bCode = String(v.bmc?.bmc_code || '').trim();
+      const bCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
       if (bCode) {
         visitsMap[bCode] = v;
+      }
+      if (v.bmc?.name) {
+        visitsMap[String(v.bmc.name).toLowerCase().trim()] = v;
+      }
+      if (v.bmc_id) {
+        visitsMap[String(v.bmc_id)] = v;
       }
     });
 
@@ -8449,8 +8454,8 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
           macs: {
             quantity_liters: liters,
             quantity_kg: kg,
-            fat: r.fat,
-            snf: r.snf
+            fat: r.fat !== null && r.fat !== undefined ? parseFloat(r.fat) : null,
+            snf: r.snf !== null && r.snf !== undefined ? parseFloat(r.snf) : null
           },
           spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, visited: false },
           diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
@@ -8468,7 +8473,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
       }
 
       const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
-      const spotVisit = visitsMap[bmcCode];
+      const spotVisit = visitsMap[bmcCode] || visitsMap[String(r.bmc_id)] || (r.bmc_name ? visitsMap[String(r.bmc_name).toLowerCase().trim()] : null);
       if (spotVisit) {
         const ftir = unpack(spotVisit.ftir_tests);
         const gerber = unpack(spotVisit.gerber_tests);
@@ -8478,12 +8483,15 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
         const lit = spotVisit.sample_liters || spotVisit.milk_quantity_liters || null;
         const kg = spotVisit.milk_quantity_kg || spotVisit.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
 
+        const sFat = ftir.fat ?? gerber.fat_percentage ?? null;
+        const sSnf = ftir.snf ?? gerber.snf ?? null;
+
         bmcMap[key].spot = {
           compartment: spotVisit.compartment || null,
           quantity_liters: lit,
           quantity_kg: kg,
-          fat: ftir.fat ?? gerber.fat_percentage ?? null,
-          snf: ftir.snf ?? gerber.snf ?? null,
+          fat: sFat !== null && sFat !== undefined && !isNaN(parseFloat(sFat)) ? parseFloat(sFat) : null,
+          snf: sSnf !== null && sSnf !== undefined && !isNaN(parseFloat(sSnf)) ? parseFloat(sSnf) : null,
           ftir_fat: ftir.fat ?? null,
           ftir_snf: ftir.snf ?? null,
           gerber_fat: gerber.fat_percentage ?? null,
@@ -8493,15 +8501,15 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
           priority: issue.severity || null,
           rating: rating.overall_rating ?? null,
           remarks: rating.remarks || spotVisit.remarks || null,
-          visited: spotVisit.status === 'completed' || spotVisit.status === 'visited' || Boolean(spotVisit.visit_end_time),
+          visited: spotVisit.status === 'completed' || spotVisit.status === 'visited' || Boolean(spotVisit.visit_end_time) || sFat !== null,
           status: spotVisit.status || 'visited'
         };
 
         // Populate diary from QC worker's saved lab test (qc_lab_tests)
         const qcTest = unpack(spotVisit.qc_test);
         if (qcTest && qcTest.id) {
-          const dFat = qcTest.fat !== null && qcTest.fat !== undefined ? parseFloat(qcTest.fat) : null;
-          const dSnf = qcTest.snf !== null && qcTest.snf !== undefined ? parseFloat(qcTest.snf) : null;
+          const dFat = qcTest.fat !== null && qcTest.fat !== undefined && !isNaN(parseFloat(qcTest.fat)) ? parseFloat(qcTest.fat) : null;
+          const dSnf = qcTest.snf !== null && qcTest.snf !== undefined && !isNaN(parseFloat(qcTest.snf)) ? parseFloat(qcTest.snf) : null;
           const hasDiaryData = dFat !== null || dSnf !== null;
           bmcMap[key].diary = {
             quantity_liters: lit,
@@ -8524,37 +8532,27 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
     });
 
     const macsComparisons = Object.values(bmcMap).map(item => {
-      const w = item.worker;
-      const q = item.qc;
+      const spotFat = item.spot && item.spot.fat !== null && item.spot.fat !== undefined && !isNaN(parseFloat(item.spot.fat)) ? parseFloat(item.spot.fat) : null;
+      const spotSnf = item.spot && item.spot.snf !== null && item.spot.snf !== undefined && !isNaN(parseFloat(item.spot.snf)) ? parseFloat(item.spot.snf) : null;
 
-      const hasWorker = w && (w.fat !== null || w.snf !== null);
-      const hasQc = q && (q.fat !== null || q.snf !== null);
+      const diaryFat = item.diary && item.diary.fat !== null && item.diary.fat !== undefined && !isNaN(parseFloat(item.diary.fat)) ? parseFloat(item.diary.fat) : null;
+      const diarySnf = item.diary && item.diary.snf !== null && item.diary.snf !== undefined && !isNaN(parseFloat(item.diary.snf)) ? parseFloat(item.diary.snf) : null;
 
-      if (!hasWorker && hasQc) {
-        item.status = 'WORKER READING MISSING';
-      } else if (hasWorker && !hasQc) {
-        item.status = 'QC READING MISSING';
-      } else if (!hasWorker && !hasQc) {
-        item.status = 'NO_DATA';
+      // Difference = |spot analyser - qc worker value| (non-negative)
+      const fatDiff = (spotFat !== null && diaryFat !== null) ? Math.abs(parseFloat((spotFat - diaryFat).toFixed(2))) : null;
+      const snfDiff = (spotSnf !== null && diarySnf !== null) ? Math.abs(parseFloat((spotSnf - diarySnf).toFixed(2))) : null;
+
+      item.fat_diff = fatDiff;
+      item.snf_diff = snfDiff;
+
+      if (fatDiff === 0 && snfDiff === 0) {
+        item.status = 'MATCHED';
+      } else if (fatDiff !== null || snfDiff !== null) {
+        item.status = 'MISMATCH';
+      } else if (spotFat !== null || diaryFat !== null) {
+        item.status = 'PARTIAL_DATA';
       } else {
-        const wFat = w.fat !== null && w.fat !== undefined ? parseFloat(w.fat) : null;
-        const qFat = q.fat !== null && q.fat !== undefined ? parseFloat(q.fat) : null;
-        const wSnf = w.snf !== null && w.snf !== undefined ? parseFloat(w.snf) : null;
-        const qSnf = q.snf !== null && q.snf !== undefined ? parseFloat(q.snf) : null;
-
-        const fatDiff = (qFat !== null && wFat !== null && !isNaN(qFat) && !isNaN(wFat)) ? parseFloat((qFat - wFat).toFixed(2)) : null;
-        const snfDiff = (qSnf !== null && wSnf !== null && !isNaN(qSnf) && !isNaN(wSnf)) ? parseFloat((qSnf - wSnf).toFixed(2)) : null;
-
-        item.fat_diff = fatDiff;
-        item.snf_diff = snfDiff;
-
-        if (fatDiff === 0 && snfDiff === 0) {
-          item.status = 'MATCHED';
-        } else if (fatDiff !== null || snfDiff !== null) {
-          item.status = 'MISMATCH';
-        } else {
-          item.status = 'PARTIAL_DATA';
-        }
+        item.status = 'NO_DATA';
       }
 
       return item;
@@ -8582,8 +8580,8 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
         const qcTestNoMacs = unpack(v.qc_test);
         let diaryNoMacs = { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false };
         if (qcTestNoMacs && qcTestNoMacs.id) {
-          const dFat = qcTestNoMacs.fat !== null && qcTestNoMacs.fat !== undefined ? parseFloat(qcTestNoMacs.fat) : null;
-          const dSnf = qcTestNoMacs.snf !== null && qcTestNoMacs.snf !== undefined ? parseFloat(qcTestNoMacs.snf) : null;
+          const dFat = qcTestNoMacs.fat !== null && qcTestNoMacs.fat !== undefined && !isNaN(parseFloat(qcTestNoMacs.fat)) ? parseFloat(qcTestNoMacs.fat) : null;
+          const dSnf = qcTestNoMacs.snf !== null && qcTestNoMacs.snf !== undefined && !isNaN(parseFloat(qcTestNoMacs.snf)) ? parseFloat(qcTestNoMacs.snf) : null;
           diaryNoMacs = {
             quantity_liters: lit,
             quantity_kg: kg,
@@ -8596,6 +8594,19 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
           };
         }
 
+        const sFat = ftir.fat ?? gerber.fat_percentage ?? null;
+        const sSnf = ftir.snf ?? gerber.snf ?? null;
+        const spotFatNum = sFat !== null && sFat !== undefined && !isNaN(parseFloat(sFat)) ? parseFloat(sFat) : null;
+        const spotSnfNum = sSnf !== null && sSnf !== undefined && !isNaN(parseFloat(sSnf)) ? parseFloat(sSnf) : null;
+
+        const dFat = diaryNoMacs.fat;
+        const dSnf = diaryNoMacs.snf;
+        const diaryFatNum = dFat !== null && dFat !== undefined && !isNaN(parseFloat(dFat)) ? parseFloat(dFat) : null;
+        const diarySnfNum = dSnf !== null && dSnf !== undefined && !isNaN(parseFloat(dSnf)) ? parseFloat(dSnf) : null;
+
+        const fatDiff = (spotFatNum !== null && diaryFatNum !== null) ? Math.abs(parseFloat((spotFatNum - diaryFatNum).toFixed(2))) : null;
+        const snfDiff = (spotSnfNum !== null && diarySnfNum !== null) ? Math.abs(parseFloat((spotSnfNum - diarySnfNum).toFixed(2))) : null;
+
         noMacsReadings.push({
           bmc_code: bCode,
           bmc_name: bName,
@@ -8606,8 +8617,8 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
             compartment: v.compartment || null,
             quantity_liters: lit,
             quantity_kg: kg,
-            fat: ftir.fat ?? gerber.fat_percentage ?? null,
-            snf: ftir.snf ?? gerber.snf ?? null,
+            fat: spotFatNum,
+            snf: spotSnfNum,
             ftir_fat: ftir.fat ?? null,
             ftir_snf: ftir.snf ?? null,
             gerber_fat: gerber.fat_percentage ?? null,
@@ -8617,12 +8628,12 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
             priority: issue.severity || null,
             rating: rating.overall_rating ?? null,
             remarks: rating.remarks || v.remarks || null,
-            visited: v.status === 'completed' || v.status === 'visited' || Boolean(v.visit_end_time),
+            visited: v.status === 'completed' || v.status === 'visited' || Boolean(v.visit_end_time) || spotFatNum !== null,
             status: v.status || 'visited'
           },
           diary: diaryNoMacs,
-          fat_diff: null,
-          snf_diff: null,
+          fat_diff: fatDiff,
+          snf_diff: snfDiff,
           status: 'NO_MACS_DATA'
         });
       }
