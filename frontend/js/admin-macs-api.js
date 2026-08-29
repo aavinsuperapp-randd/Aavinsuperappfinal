@@ -1,8 +1,12 @@
 // admin-macs-api.js — MACS API Tab Frontend Logic
-// Handles: status display, manual sync, data table with pagination, sync history
+// Handles: status display, manual sync, data table with pagination, sync history inspection & live delete controls
 
 let currentPage = 1;
 const PAGE_SIZE = 50;
+
+// State tracking for deletion modal
+let pendingDeleteAction = null;
+let currentModalSyncRunId = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Auth is handled by admin.js which runs before this script
@@ -17,8 +21,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadSyncHistory()
   ]);
 
-  // Auto-refresh status every 60 seconds
-  setInterval(loadMacsApiStatus, 60000);
+  // Auto-refresh status & sync history every 60 seconds
+  setInterval(() => {
+    loadMacsApiStatus();
+    loadSyncHistory();
+  }, 60000);
 });
 
 // ─── Status Panel ─────────────────────────────────────────────────────────────
@@ -66,7 +73,7 @@ async function loadMacsApiStatus() {
     // Records fetched / stored / skipped (from last successful sync)
     const ls = status.lastSuccessfulSync;
     document.getElementById('status-fetched').textContent = ls ? ls.records_fetched : '—';
-    document.getElementById('status-stored').textContent = ls ? ls.records_stored : '—';
+    document.getElementById('status-stored').textContent = status.totalRecordsStored !== undefined ? status.totalRecordsStored : (ls ? ls.records_stored : '—');
     document.getElementById('status-skipped').textContent = ls ? ls.records_skipped : '—';
 
     // Total sync runs
@@ -84,7 +91,8 @@ async function loadMacsApiStatus() {
 
   } catch (err) {
     console.error('Failed to load MACS API status:', err);
-    document.getElementById('status-connection').innerHTML = '<span class="status-dot red"></span> Error loading status';
+    const connEl = document.getElementById('status-connection');
+    if (connEl) connEl.innerHTML = '<span class="status-dot red"></span> Error loading status';
   }
 }
 
@@ -123,45 +131,322 @@ window.handleManualSync = async function() {
   }
 };
 
-// ─── Sync History ─────────────────────────────────────────────────────────────
+// ─── Sync History & Management ────────────────────────────────────────────────
 
-async function loadSyncHistory() {
-  const container = document.getElementById('sync-history-list');
-  if (!container) return;
+window.loadSyncHistory = async function() {
+  const tbody = document.getElementById('sync-history-tbody');
+  if (!tbody) return;
 
   try {
-    const result = await adminFetch('/api/admin/macs-api/sync-history?limit=15');
+    const result = await adminFetch('/api/admin/macs-api/sync-history?limit=25');
     const runs = result.runs || [];
 
     if (runs.length === 0) {
-      container.innerHTML = '<div style="color:#94A3B8; font-size:0.82rem; padding:8px 0;">No sync runs yet. Click "Sync Now" to start.</div>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#94A3B8; padding:24px;">No sync runs recorded yet. Click "Sync Now" to start.</td></tr>';
       return;
     }
 
-    container.innerHTML = runs.map(r => {
+    tbody.innerHTML = runs.map(r => {
       const time = formatDateTime(r.started_at);
       const badgeClass = r.status === 'success' ? 'success' : (r.status === 'failed' ? 'failed' : 'in_progress');
+      const storedCount = r.currently_stored !== undefined ? r.currently_stored : (r.records_stored || 0);
+
+      // Data retention / availability badge
+      let dataBadge = '';
+      if (r.status === 'success') {
+        if (storedCount > 0) {
+          dataBadge = `<span class="sync-badge available">● ${storedCount} Live Records</span>`;
+        } else {
+          dataBadge = `<span class="sync-badge empty">0 Stored / Expired</span>`;
+        }
+      } else {
+        dataBadge = `<span class="sync-badge empty">—</span>`;
+      }
+
+      // Stats string
       const stats = r.status === 'success'
-        ? `<span style="color:#64748B;">${r.records_fetched} fetched, ${r.records_stored} stored, ${r.records_skipped} skipped</span>`
-        : (r.error_message ? `<span style="color:#DC2626; font-size:0.75rem;">${truncate(r.error_message, 60)}</span>` : '');
+        ? `${r.records_fetched || 0} fetched / ${r.records_stored || 0} inserted`
+        : '0 records';
+
+      // Message
+      const message = r.status === 'failed'
+        ? `<span style="color:#DC2626; font-size:0.75rem;">${truncate(r.error_message || 'Fetch failed', 45)}</span>`
+        : `<span style="color:#64748B; font-size:0.75rem;">Requested: ${esc(r.requested_date || 'Today')}</span>`;
+
+      // Actions
+      const viewBtn = `<button class="btn-action-view" onclick="openSyncReadingsModal('${r.id}')" title="View live readings fetched in this sync">👁️ View Readings</button>`;
+      const deleteDisabled = storedCount === 0;
+      const deleteBtn = `<button class="btn-action-delete" onclick="confirmDeleteSyncReadings('${r.id}', '${time}', ${storedCount})" ${deleteDisabled ? 'disabled' : ''} title="${deleteDisabled ? 'No live records currently stored' : 'Delete all live records for this sync'}">🗑️ Delete Data</button>`;
 
       return `
-        <div class="sync-history-row">
-          <span class="sync-badge ${badgeClass}">${r.status}</span>
-          <span style="color:#334155; font-weight:600;">${time}</span>
-          ${stats}
-        </div>
+        <tr>
+          <td style="font-weight:700; color:#1E293B;">${time}</td>
+          <td><span class="sync-badge ${badgeClass}">${r.status}</span></td>
+          <td style="font-weight:600; color:#475569;">${stats}</td>
+          <td>${dataBadge}</td>
+          <td>${message}</td>
+          <td style="text-align:right;">
+            <div style="display:inline-flex; gap:6px; align-items:center;">
+              ${viewBtn}
+              ${deleteBtn}
+            </div>
+          </td>
+        </tr>
       `;
     }).join('');
 
   } catch (err) {
-    container.innerHTML = `<div style="color:#DC2626; font-size:0.82rem;">Failed to load: ${err.message}</div>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#DC2626; padding:24px;">Failed to load sync history: ${err.message}</td></tr>`;
   }
-}
+};
 
-// ─── Data Table ───────────────────────────────────────────────────────────────
+// ─── Modal: View Sync Live Readings ───────────────────────────────────────────
 
-async function loadMacsApiData(page) {
+window.openSyncReadingsModal = async function(syncRunId) {
+  currentModalSyncRunId = syncRunId;
+  const modal = document.getElementById('sync-readings-modal');
+  const titleEl = document.getElementById('modal-sync-title');
+  const subtitleEl = document.getElementById('modal-sync-subtitle');
+  const metaEl = document.getElementById('modal-sync-meta');
+  const actionsEl = document.getElementById('modal-sync-actions');
+  const tbody = document.getElementById('modal-readings-tbody');
+
+  if (!modal || !tbody) return;
+
+  modal.classList.remove('hidden');
+  tbody.innerHTML = '<tr><td colspan="18" style="text-align:center; color:#94A3B8; padding:36px; font-weight:600;">Loading live readings...</td></tr>';
+  subtitleEl.textContent = `Sync ID: ${syncRunId}`;
+  metaEl.textContent = 'Loading sync metadata...';
+  actionsEl.innerHTML = '';
+
+  try {
+    const result = await adminFetch(`/api/admin/macs-api/sync-history/${syncRunId}/readings`);
+    const { syncRun, readings, count } = result;
+
+    const time = formatDateTime(syncRun?.started_at);
+    subtitleEl.textContent = `Sync executed at ${time} (${syncRun?.status || 'unknown'})`;
+    metaEl.innerHTML = `
+      <span>📅 Report Date: <strong>${esc(syncRun?.requested_date || '—')}</strong></span>
+      <span style="margin: 0 8px;">•</span>
+      <span>📥 Originally Inserted: <strong>${syncRun?.records_stored || 0}</strong></span>
+      <span style="margin: 0 8px;">•</span>
+      <span>📊 Currently Retained: <strong style="color:${count > 0 ? '#16A34A' : '#DC2626'};">${count} records</strong></span>
+    `;
+
+    if (count > 0) {
+      actionsEl.innerHTML = `
+        <button class="btn-action-delete" style="padding:6px 12px; font-size:0.8rem;" onclick="confirmDeleteSyncReadings('${syncRunId}', '${time}', ${count})">
+          🗑️ Delete These ${count} Readings
+        </button>
+      `;
+    } else {
+      actionsEl.innerHTML = `<span style="font-size:0.75rem; color:#64748B; font-style:italic;">No live records currently stored</span>`;
+    }
+
+    if (!readings || readings.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="18" style="text-align:center; color:#64748B; padding:48px 16px;">
+            <div style="font-size:1.8rem; margin-bottom:8px;">📭</div>
+            <div style="font-weight:700; color:#1E293B; font-size:0.95rem;">No live MACS records are currently stored for this sync.</div>
+            <div style="font-size:0.8rem; color:#64748B; margin-top:4px;">Records may have been manually deleted or automatically removed by the 4-record rolling retention policy.</div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = readings.map(r => `
+      <tr>
+        <td style="font-weight:800; color:#2563EB;">${r.macs_bmc_code}</td>
+        <td style="font-weight:700; color:#0F172A;">${esc(r.macs_bmc_name || '—')}</td>
+        <td style="font-weight:600;">${esc(r.report_date || '—')}</td>
+        <td style="font-weight:700; color:#1E3A8A;">${fmtNum(r.li_t1)}</td>
+        <td>${fmtNum(r.fat_t1)}</td>
+        <td>${fmtNum(r.snf_t1)}</td>
+        <td style="font-weight:700; color:#1E3A8A;">${fmtNum(r.li_t2)}</td>
+        <td>${fmtNum(r.fat_t2)}</td>
+        <td>${fmtNum(r.snf_t2)}</td>
+        <td style="color:#64748B;">${esc(r.so_c1 || '—')}</td>
+        <td style="color:#64748B;">${esc(r.so_c2 || '—')}</td>
+        <td style="color:#64748B;">${fmtNum(r.lit)}</td>
+        <td style="color:#64748B;">${fmtNum(r.kgfat_t1)}</td>
+        <td style="color:#64748B;">${fmtNum(r.kgsnf_t1)}</td>
+        <td style="color:#64748B;">${fmtNum(r.kgfat_t2)}</td>
+        <td style="color:#64748B;">${fmtNum(r.kgsnf_t2)}</td>
+        <td style="color:#64748B;">${fmtNum(r.diff)}</td>
+        <td style="font-size:0.75rem; color:#64748B;">${formatDateTime(r.fetched_at)}</td>
+      </tr>
+    `).join('');
+
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="18" style="text-align:center; color:#DC2626; padding:32px;">Error loading readings: ${err.message}</td></tr>`;
+  }
+};
+
+window.closeSyncReadingsModal = function() {
+  const modal = document.getElementById('sync-readings-modal');
+  if (modal) modal.classList.add('hidden');
+  currentModalSyncRunId = null;
+};
+
+// ─── Delete Confirmation & Execution ──────────────────────────────────────────
+
+window.confirmDeleteSyncReadings = function(syncRunId, syncTime, count) {
+  pendingDeleteAction = {
+    type: 'sync',
+    syncRunId,
+    syncTime,
+    count
+  };
+
+  const modal = document.getElementById('macs-delete-confirm-modal');
+  const titleEl = document.getElementById('delete-confirm-title');
+  const descEl = document.getElementById('delete-confirm-desc');
+  const detailsEl = document.getElementById('delete-confirm-details');
+
+  if (!modal) return;
+
+  titleEl.textContent = 'Delete MACS Live Data for Sync?';
+  descEl.textContent = 'This will permanently remove the live MACS readings fetched during this sync.';
+  detailsEl.innerHTML = `
+    <div><strong>Sync Time:</strong> ${syncTime}</div>
+    <div style="margin-top:4px;"><strong>Live Records Affected:</strong> ${count} records</div>
+    <div style="margin-top:4px; font-size:0.75rem; color:#64748B;">Sync ID: ${syncRunId}</div>
+  `;
+
+  modal.classList.remove('hidden');
+};
+
+window.confirmDeleteRow = function(recordId, bmcCode, bmcName) {
+  pendingDeleteAction = {
+    type: 'row',
+    recordId,
+    bmcCode,
+    bmcName
+  };
+
+  const modal = document.getElementById('macs-delete-confirm-modal');
+  const titleEl = document.getElementById('delete-confirm-title');
+  const descEl = document.getElementById('delete-confirm-desc');
+  const detailsEl = document.getElementById('delete-confirm-details');
+
+  if (!modal) return;
+
+  titleEl.textContent = 'Delete Single Live MACS Record?';
+  descEl.textContent = 'This will permanently delete this individual BMC snapshot record.';
+  detailsEl.innerHTML = `
+    <div><strong>BMC Code:</strong> ${bmcCode}</div>
+    <div style="margin-top:4px;"><strong>BMC Name:</strong> ${bmcName || '—'}</div>
+    <div style="margin-top:4px; font-size:0.75rem; color:#64748B;">Record ID: ${recordId}</div>
+  `;
+
+  modal.classList.remove('hidden');
+};
+
+window.confirmDeleteAllLiveData = function() {
+  pendingDeleteAction = {
+    type: 'all'
+  };
+
+  const modal = document.getElementById('macs-delete-confirm-modal');
+  const titleEl = document.getElementById('delete-confirm-title');
+  const descEl = document.getElementById('delete-confirm-desc');
+  const detailsEl = document.getElementById('delete-confirm-details');
+
+  if (!modal) return;
+
+  titleEl.textContent = 'Clear ALL Live MACS Data?';
+  descEl.textContent = 'This will remove all snapshot records currently stored in macs_api_bmc_data.';
+  detailsEl.innerHTML = `
+    <div style="color:#DC2626; font-weight:700;">⚠️ Extreme Action: All current live MACS snapshots will be deleted.</div>
+    <div style="margin-top:4px;">Historical sync runs and Excel imports will remain safe. Fresh records will arrive on the next 15-minute sync.</div>
+  `;
+
+  modal.classList.remove('hidden');
+};
+
+window.closeDeleteConfirmModal = function() {
+  const modal = document.getElementById('macs-delete-confirm-modal');
+  if (modal) modal.classList.add('hidden');
+  pendingDeleteAction = null;
+};
+
+window.handleConfirmedDelete = async function() {
+  if (!pendingDeleteAction) return;
+
+  const btn = document.getElementById('delete-confirm-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Deleting...';
+  }
+
+  try {
+    if (pendingDeleteAction.type === 'sync') {
+      const { syncRunId } = pendingDeleteAction;
+      const res = await adminFetch(`/api/admin/macs-api/sync-history/${syncRunId}/readings`, {
+        method: 'DELETE'
+      });
+
+      if (res.success) {
+        showToast(`🗑️ MACS live data deleted (${res.deletedCount || 0} records removed)`, 'success');
+      } else {
+        showToast(`❌ Error: ${res.error || 'Failed to delete data'}`, 'error');
+      }
+
+      // If modal for this sync is open, refresh or close it
+      if (currentModalSyncRunId === syncRunId) {
+        openSyncReadingsModal(syncRunId);
+      }
+
+    } else if (pendingDeleteAction.type === 'row') {
+      const { recordId } = pendingDeleteAction;
+      const res = await adminFetch(`/api/admin/macs-api/data/${recordId}`, {
+        method: 'DELETE'
+      });
+
+      if (res.success) {
+        showToast('🗑️ Record deleted successfully', 'success');
+      } else {
+        showToast(`❌ Error: ${res.error || 'Failed to delete record'}`, 'error');
+      }
+
+    } else if (pendingDeleteAction.type === 'all') {
+      const res = await adminFetch('/api/admin/macs-api/data', {
+        method: 'DELETE'
+      });
+
+      if (res.success) {
+        showToast(`🗑️ All live MACS data cleared (${res.deletedCount || 0} records removed)`, 'success');
+      } else {
+        showToast(`❌ Error: ${res.error || 'Failed to clear live data'}`, 'error');
+      }
+
+      closeSyncReadingsModal();
+    }
+
+    closeDeleteConfirmModal();
+
+    // Refresh UI without page reload
+    await Promise.all([
+      loadMacsApiStatus(),
+      loadSyncHistory(),
+      loadMacsApiData(currentPage)
+    ]);
+
+  } catch (err) {
+    showToast(`❌ Delete failed: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '🗑️ Delete Live Data';
+    }
+  }
+};
+
+// ─── Main Live Data Table ─────────────────────────────────────────────────────
+
+window.loadMacsApiData = async function(page) {
   currentPage = page;
   const tbody = document.getElementById('macs-data-tbody');
   const pageInfo = document.getElementById('data-page-info');
@@ -169,7 +454,7 @@ async function loadMacsApiData(page) {
 
   if (!tbody) return;
 
-  tbody.innerHTML = '<tr><td colspan="18" style="text-align:center; color:#94A3B8; padding:32px; font-weight:600;">Loading...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="19" style="text-align:center; color:#94A3B8; padding:32px; font-weight:600;">Loading...</td></tr>';
 
   try {
     const result = await adminFetch(`/api/admin/macs-api/data?page=${page}&limit=${PAGE_SIZE}`);
@@ -185,20 +470,21 @@ async function loadMacsApiData(page) {
     }
 
     if (records.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="18" style="text-align:center; color:#94A3B8; padding:40px; font-weight:600;">No MACS API data yet. Click "Sync Now" to fetch data from MACS.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="19" style="text-align:center; color:#94A3B8; padding:40px; font-weight:600;">No live MACS data currently stored in database. Click "Sync Now" to fetch latest data.</td></tr>';
       if (pagination) pagination.innerHTML = '';
       return;
     }
 
-    // Render table rows
+    // Render table rows with row-level delete button
     tbody.innerHTML = records.map(r => {
       const fetchTime = formatDateTime(r.fetched_at);
+      const bmcName = esc(r.macs_bmc_name || '');
       return `
         <tr>
           <td style="font-weight:600; color:#64748B; font-size:0.78rem;">${fetchTime}</td>
           <td style="font-weight:700;">${esc(r.report_date || '—')}</td>
           <td style="font-weight:800; color:#2563EB;">${r.macs_bmc_code}</td>
-          <td style="font-weight:700; color:#0F172A;">${esc(r.macs_bmc_name || '—')}</td>
+          <td style="font-weight:700; color:#0F172A;">${bmcName || '—'}</td>
           <td style="font-weight:700; color:#1E3A8A;">${fmtNum(r.li_t1)}</td>
           <td>${fmtNum(r.fat_t1)}</td>
           <td>${fmtNum(r.snf_t1)}</td>
@@ -213,6 +499,11 @@ async function loadMacsApiData(page) {
           <td style="color:#64748B;">${fmtNum(r.kgfat_t2)}</td>
           <td style="color:#64748B;">${fmtNum(r.kgsnf_t2)}</td>
           <td style="color:#64748B;">${fmtNum(r.diff)}</td>
+          <td style="text-align:center;">
+            <button class="btn-action-delete" onclick="confirmDeleteRow('${r.id}', '${r.macs_bmc_code}', '${bmcName}')" title="Delete this single snapshot record">
+              🗑️
+            </button>
+          </td>
         </tr>
       `;
     }).join('');
@@ -221,9 +512,9 @@ async function loadMacsApiData(page) {
     renderPagination(pagination, page, totalPages);
 
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="18" style="text-align:center; color:#DC2626; padding:32px; font-weight:600;">Failed to load data: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="19" style="text-align:center; color:#DC2626; padding:32px; font-weight:600;">Failed to load data: ${err.message}</td></tr>`;
   }
-}
+};
 
 function renderPagination(container, current, total) {
   if (!container || total <= 1) {

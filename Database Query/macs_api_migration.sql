@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS public.macs_api_bmc_data (
 CREATE INDEX IF NOT EXISTS idx_macs_api_bmc_data_fetched_at ON public.macs_api_bmc_data(fetched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_macs_api_bmc_data_sync_run ON public.macs_api_bmc_data(sync_run_id);
 CREATE INDEX IF NOT EXISTS idx_macs_api_bmc_data_bmc_code ON public.macs_api_bmc_data(macs_bmc_code);
+CREATE INDEX IF NOT EXISTS idx_macs_api_bmc_code_fetched_at ON public.macs_api_bmc_data(macs_bmc_code, fetched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_macs_api_sync_runs_status ON public.macs_api_sync_runs(status);
 CREATE INDEX IF NOT EXISTS idx_macs_api_sync_runs_started ON public.macs_api_sync_runs(started_at DESC);
 

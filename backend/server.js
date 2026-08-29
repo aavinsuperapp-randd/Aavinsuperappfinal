@@ -9789,6 +9789,94 @@ let macsSchedulerState = {
 };
 
 /**
+ * enforceMacsRetention — Keeps ONLY the latest 4 live MACS records per BMC code in macs_api_bmc_data.
+ * Evaluates records strictly by macs_bmc_code, sorted by fetched_at DESC, id DESC.
+ * Deletes older records (rn > 4) in batches.
+ * @param {object} adminClient - Supabase admin client
+ * @returns {Promise<{ deleted: number, remaining: number }>}
+ */
+async function enforceMacsRetention(adminClient) {
+  if (!adminClient) return { deleted: 0, remaining: 0 };
+
+  try {
+    // 1. Query all macs_api_bmc_data rows (id, macs_bmc_code, fetched_at)
+    const { data: allRows, error: fetchErr } = await adminClient
+      .from('macs_api_bmc_data')
+      .select('id, macs_bmc_code, fetched_at')
+      .order('fetched_at', { ascending: false });
+
+    if (fetchErr) {
+      console.error('❌ MACS retention cleanup error fetching records:', fetchErr.message);
+      return { deleted: 0, remaining: 0 };
+    }
+
+    if (!allRows || allRows.length === 0) {
+      console.log('🧹 MACS retention cleanup completed: deleted = 0, all BMCs within retention limit');
+      return { deleted: 0, remaining: 0 };
+    }
+
+    // 2. Group records by macs_bmc_code
+    const bmcGroups = new Map();
+    for (const row of allRows) {
+      const code = String(row.macs_bmc_code).trim();
+      if (!code) continue;
+      if (!bmcGroups.has(code)) {
+        bmcGroups.set(code, []);
+      }
+      bmcGroups.get(code).push(row);
+    }
+
+    // 3. For each BMC, sort by fetched_at DESC, id DESC, keep top 4, collect remainder for deletion
+    const idsToDelete = [];
+    let totalKept = 0;
+
+    for (const [code, rows] of bmcGroups.entries()) {
+      rows.sort((a, b) => {
+        const diff = new Date(b.fetched_at).getTime() - new Date(a.fetched_at).getTime();
+        if (diff !== 0) return diff;
+        return String(b.id || '').localeCompare(String(a.id || ''));
+      });
+
+      const keep = rows.slice(0, 4);
+      const remove = rows.slice(4);
+
+      totalKept += keep.length;
+      for (const r of remove) {
+        if (r.id) idsToDelete.push(r.id);
+      }
+    }
+
+    // 4. If any records need deletion, delete in batches of 100
+    let deletedCount = 0;
+    if (idsToDelete.length > 0) {
+      const batchSize = 100;
+      for (let i = 0; i < idsToDelete.length; i += batchSize) {
+        const batch = idsToDelete.slice(i, i + batchSize);
+        const { error: delErr } = await adminClient
+          .from('macs_api_bmc_data')
+          .delete()
+          .in('id', batch);
+
+        if (delErr) {
+          console.error(`❌ MACS retention cleanup error deleting batch ${i}-${i + batch.length}:`, delErr.message);
+        } else {
+          deletedCount += batch.length;
+        }
+      }
+
+      console.log(`🧹 MACS retention cleanup completed: deleted = ${deletedCount}, remaining = ${totalKept}, retention = latest 4 per BMC`);
+    } else {
+      console.log('🧹 MACS retention cleanup completed: deleted = 0, all BMCs within retention limit');
+    }
+
+    return { deleted: deletedCount, remaining: totalKept };
+  } catch (err) {
+    console.error('❌ MACS retention cleanup exception:', err.message);
+    return { deleted: 0, remaining: 0 };
+  }
+}
+
+/**
  * macsBmcSyncService — Reusable sync function.
  * Called by both the 15-minute scheduler and the manual "Sync Now" button.
  */
@@ -9937,6 +10025,9 @@ async function macsBmcSyncService() {
 
     macsSchedulerState.lastSyncTime = new Date();
     console.log(`✅ MACS API Sync: Success — ${recordsFetched} fetched, ${recordsStored} stored, ${recordsSkipped} skipped`);
+
+    // 8. Enforce rolling 4-record retention per BMC
+    await enforceMacsRetention(adminClient);
 
     return { success: true, recordsFetched, recordsStored, recordsSkipped, syncRunId };
 
@@ -10117,22 +10208,174 @@ app.get('/api/admin/macs-api/data', requireAdminRole, async (req, res) => {
   }
 });
 
-// GET /api/admin/macs-api/sync-history — List sync runs
+// GET /api/admin/macs-api/sync-history — List sync runs with currently stored counts
 app.get('/api/admin/macs-api/sync-history', requireAdminRole, async (req, res) => {
   const { adminClient } = req;
   const limit = parseInt(req.query.limit) || 20;
 
   try {
-    const { data, error } = await adminClient
+    const { data: runs, error } = await adminClient
       .from('macs_api_sync_runs')
       .select('*')
       .order('started_at', { ascending: false })
       .limit(limit);
 
     if (error) throw error;
-    res.json({ runs: data || [] });
+
+    const runIds = (runs || []).map(r => r.id);
+    let countsByRunId = {};
+
+    if (runIds.length > 0) {
+      // Query currently stored records in macs_api_bmc_data for these sync runs
+      const { data: bmcRows, error: bmcErr } = await adminClient
+        .from('macs_api_bmc_data')
+        .select('sync_run_id')
+        .in('sync_run_id', runIds);
+
+      if (!bmcErr && bmcRows) {
+        bmcRows.forEach(row => {
+          if (row.sync_run_id) {
+            countsByRunId[row.sync_run_id] = (countsByRunId[row.sync_run_id] || 0) + 1;
+          }
+        });
+      }
+    }
+
+    const enrichedRuns = (runs || []).map(r => ({
+      ...r,
+      currently_stored: countsByRunId[r.id] || 0
+    }));
+
+    res.json({ runs: enrichedRuns });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/macs-api/sync-history/:syncRunId/readings — Get live MACS readings for a specific sync
+app.get('/api/admin/macs-api/sync-history/:syncRunId/readings', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const { syncRunId } = req.params;
+
+  if (!syncRunId) {
+    return res.status(400).json({ error: 'syncRunId is required.' });
+  }
+
+  try {
+    const [syncRes, readingsRes] = await Promise.all([
+      adminClient.from('macs_api_sync_runs').select('*').eq('id', syncRunId).maybeSingle(),
+      adminClient.from('macs_api_bmc_data').select('*').eq('sync_run_id', syncRunId).order('macs_bmc_code', { ascending: true })
+    ]);
+
+    if (syncRes.error) throw syncRes.error;
+    if (readingsRes.error) throw readingsRes.error;
+
+    if (!syncRes.data) {
+      return res.status(404).json({ error: 'Sync record not found.' });
+    }
+
+    res.json({
+      syncRun: syncRes.data,
+      readings: readingsRes.data || [],
+      count: (readingsRes.data || []).length
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/macs-api/sync-history/:syncRunId/readings — Delete live MACS readings for a specific sync
+app.delete('/api/admin/macs-api/sync-history/:syncRunId/readings', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const { syncRunId } = req.params;
+
+  if (!syncRunId) {
+    return res.status(400).json({ error: 'syncRunId is required.' });
+  }
+
+  try {
+    // 1. Check existing count for this sync run
+    const { count, error: countErr } = await adminClient
+      .from('macs_api_bmc_data')
+      .select('*', { count: 'exact', head: true })
+      .eq('sync_run_id', syncRunId);
+
+    if (countErr) throw countErr;
+
+    const existingCount = count || 0;
+
+    // 2. Delete from macs_api_bmc_data only (never touch sync_runs or excel tables)
+    const { error: delErr } = await adminClient
+      .from('macs_api_bmc_data')
+      .delete()
+      .eq('sync_run_id', syncRunId);
+
+    if (delErr) throw delErr;
+
+    console.log(`🗑️ Admin MACS Delete: User ${req.user?.email || 'admin'} deleted ${existingCount} readings for syncRunId ${syncRunId}`);
+
+    res.json({
+      success: true,
+      deletedCount: existingCount,
+      syncRunId,
+      message: existingCount > 0 
+        ? `Successfully deleted ${existingCount} live MACS readings for this sync.` 
+        : 'No live MACS records were currently stored for this sync.'
+    });
+  } catch (err) {
+    console.error('❌ Error deleting MACS live readings by syncRunId:', err.message);
+    res.status(500).json({ success: false, error: err.message || 'Unable to delete MACS data. Please try again.' });
+  }
+});
+
+// DELETE /api/admin/macs-api/data/:id — Delete a single live MACS BMC record
+app.delete('/api/admin/macs-api/data/:id', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ error: 'Record id is required.' });
+  }
+
+  try {
+    const { error } = await adminClient
+      .from('macs_api_bmc_data')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
+    console.log(`🗑️ Admin MACS Delete: User ${req.user?.email || 'admin'} deleted single record ${id}`);
+    res.json({ success: true, deletedId: id });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/admin/macs-api/data — Delete all live MACS BMC data
+app.delete('/api/admin/macs-api/data', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+
+  try {
+    const { count: totalBefore } = await adminClient
+      .from('macs_api_bmc_data')
+      .select('*', { count: 'exact', head: true });
+
+    const { error } = await adminClient
+      .from('macs_api_bmc_data')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000'); // Deletes all rows
+
+    if (error) throw error;
+
+    console.log(`🗑️ Admin MACS Delete: User ${req.user?.email || 'admin'} cleared all ${totalBefore || 0} live MACS data records`);
+    res.json({
+      success: true,
+      deletedCount: totalBefore || 0,
+      message: `Cleared all ${totalBefore || 0} live MACS records.`
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -166,31 +166,247 @@
       color: #0F172A;
       margin: 0;
     }
-    .macs-sync-history-list {
-      max-height: 200px;
-      overflow-y: auto;
-      margin-top: 12px;
+    .macs-sync-history-wrapper {
+      overflow-x: auto;
     }
-    .sync-history-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 6px 0;
+    .macs-history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .macs-history-table thead th {
+      background: #F8FAFC;
+      color: #475569;
+      font-weight: 700;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 10px 12px;
+      border-bottom: 2px solid #E2E8F0;
+      white-space: nowrap;
+      text-align: left;
+    }
+    .macs-history-table tbody td {
+      padding: 10px 12px;
       border-bottom: 1px solid #F1F5F9;
-      font-size: 0.8rem;
+      color: #334155;
+      white-space: nowrap;
+      vertical-align: middle;
     }
-    .sync-history-row:last-child { border-bottom: none; }
+    .macs-history-table tbody tr:hover {
+      background: #F8FAFC;
+    }
+    .macs-history-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
     .sync-badge {
       display: inline-block;
-      padding: 2px 8px;
+      padding: 3px 8px;
       border-radius: 6px;
-      font-size: 0.7rem;
+      font-size: 0.72rem;
       font-weight: 700;
       text-transform: uppercase;
     }
     .sync-badge.success { background: #DCFCE7; color: #166534; }
     .sync-badge.failed { background: #FEE2E2; color: #991B1B; }
     .sync-badge.in_progress { background: #FEF3C7; color: #92400E; }
+    .sync-badge.available { background: #DBEAFE; color: #1E40AF; }
+    .sync-badge.empty { background: #F1F5F9; color: #64748B; }
+
+    .btn-action-view {
+      padding: 5px 12px;
+      background: #EFF6FF;
+      color: #2563EB;
+      border: 1px solid #BFDBFE;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+    .btn-action-view:hover {
+      background: #2563EB;
+      color: #FFFFFF;
+      border-color: #2563EB;
+    }
+
+    .btn-action-delete {
+      padding: 5px 10px;
+      background: #FEF2F2;
+      color: #DC2626;
+      border: 1px solid #FECACA;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s;
+    }
+    .btn-action-delete:hover:not(:disabled) {
+      background: #DC2626;
+      color: #FFFFFF;
+      border-color: #DC2626;
+    }
+    .btn-action-delete:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      border-color: #E2E8F0;
+      background: #F8FAFC;
+      color: #94A3B8;
+    }
+
+    .btn-action-clear-all {
+      padding: 6px 14px;
+      background: #FEF2F2;
+      color: #DC2626;
+      border: 1px solid #FECACA;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn-action-clear-all:hover {
+      background: #DC2626;
+      color: #FFFFFF;
+      border-color: #DC2626;
+    }
+
+    /* Modals */
+    .macs-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1050;
+      padding: 16px;
+      transition: opacity 0.2s;
+    }
+    .macs-modal-overlay.hidden {
+      display: none !important;
+    }
+    .macs-modal-card {
+      background: #FFFFFF;
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+      border: 1px solid #E2E8F0;
+      width: 100%;
+      max-width: 1000px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: modalScaleIn 0.2s ease-out;
+    }
+    .macs-modal-card.sm {
+      max-width: 520px;
+    }
+    @keyframes modalScaleIn {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .macs-modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #E2E8F0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #F8FAFC;
+    }
+    .macs-modal-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: #0F172A;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .macs-modal-close {
+      background: transparent;
+      border: none;
+      color: #64748B;
+      font-size: 1.25rem;
+      cursor: pointer;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+    .macs-modal-close:hover {
+      background: #E2E8F0;
+      color: #0F172A;
+    }
+    .macs-modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .macs-modal-footer {
+      padding: 14px 20px;
+      border-top: 1px solid #E2E8F0;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      background: #F8FAFC;
+    }
+    .btn-secondary {
+      padding: 8px 16px;
+      background: #FFFFFF;
+      color: #475569;
+      border: 1px solid #CBD5E1;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-secondary:hover {
+      background: #F1F5F9;
+      border-color: #94A3B8;
+    }
+    .btn-danger-solid {
+      padding: 8px 18px;
+      background: #DC2626;
+      color: #FFFFFF;
+      border: 1px solid #DC2626;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn-danger-solid:hover:not(:disabled) {
+      background: #B91C1C;
+      border-color: #B91C1C;
+      box-shadow: 0 4px 12px rgba(220, 38, 38, 0.25);
+    }
+    .btn-danger-solid:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -294,18 +510,50 @@
             </div>
           </div>
 
-          <!-- Sync History -->
-          <div class="card p-3 mb-3">
-            <h4 style="margin:0 0 8px 0; font-size:0.95rem; font-weight:700; color:#1E293B;">📜 Recent Sync History</h4>
-            <div class="macs-sync-history-list" id="sync-history-list">
-              <div style="color:#94A3B8; font-size:0.82rem;">Loading...</div>
+          <!-- Sync History Section -->
+          <div class="card p-3 mb-3" style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+              <div>
+                <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#1E293B;">📜 MACS Sync History & Controls</h4>
+                <p class="text-muted text-xs" style="margin:2px 0 0 0;">View live readings and manage snapshot storage for each sync execution.</p>
+              </div>
+              <button class="btn btn-secondary text-xs" onclick="loadSyncHistory()" style="padding:4px 10px; font-size:0.75rem;">
+                🔄 Refresh History
+              </button>
+            </div>
+
+            <div class="macs-sync-history-wrapper">
+              <table class="macs-history-table">
+                <thead>
+                  <tr>
+                    <th>Sync Time</th>
+                    <th>Status</th>
+                    <th>Records Fetched / Stored</th>
+                    <th>Current Live Data</th>
+                    <th>Message</th>
+                    <th style="text-align:right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="sync-history-tbody">
+                  <tr>
+                    <td colspan="6" style="text-align:center; color:#94A3B8; padding:24px;">Loading sync history...</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
           <!-- MACS BMC Data Table -->
-          <div class="macs-section-header" style="margin-top:24px;">
-            <h2 class="macs-section-title">📊 MACS BMC Data</h2>
-            <div class="page-info" id="data-page-info" style="font-size:0.8rem; color:#64748B; font-weight:600;"></div>
+          <div class="macs-section-header" style="margin-top:28px;">
+            <div>
+              <h2 class="macs-section-title">📊 Current Live MACS BMC Data</h2>
+              <div class="page-info" id="data-page-info" style="font-size:0.8rem; color:#64748B; font-weight:600; margin-top:2px;"></div>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <button class="btn-action-clear-all" onclick="confirmDeleteAllLiveData()">
+                🗑️ Clear All Live Data
+              </button>
+            </div>
           </div>
 
           <div class="macs-data-table-wrapper">
@@ -330,11 +578,12 @@
                   <th>KG FAT T2</th>
                   <th>KG SNF T2</th>
                   <th>DIFF</th>
+                  <th style="text-align:center;">Action</th>
                 </tr>
               </thead>
               <tbody id="macs-data-tbody">
                 <tr>
-                  <td colspan="18" style="text-align:center; color:#94A3B8; padding:32px; font-weight:600;">Loading data...</td>
+                  <td colspan="19" style="text-align:center; color:#94A3B8; padding:32px; font-weight:600;">Loading data...</td>
                 </tr>
               </tbody>
             </table>
@@ -344,6 +593,98 @@
 
         </div>
       </main>
+    </div>
+  </div>
+
+  <!-- ─── MODAL: View Sync Live Readings ─────────────────────────────────────────── -->
+  <div id="sync-readings-modal" class="macs-modal-overlay hidden">
+    <div class="macs-modal-card">
+      <div class="macs-modal-header">
+        <div>
+          <h3 class="macs-modal-title" id="modal-sync-title">
+            <span>📊</span> Live MACS Readings for Sync
+          </h3>
+          <div id="modal-sync-subtitle" style="font-size:0.75rem; color:#64748B; margin-top:2px;"></div>
+        </div>
+        <button type="button" class="macs-modal-close" onclick="closeSyncReadingsModal()">✕</button>
+      </div>
+
+      <div class="macs-modal-body" style="padding:16px;">
+        <div id="modal-sync-summary-bar" style="display:flex; justify-content:space-between; align-items:center; background:#F1F5F9; padding:10px 14px; border-radius:10px; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+          <div id="modal-sync-meta" style="font-size:0.82rem; color:#334155; font-weight:600;"></div>
+          <div id="modal-sync-actions"></div>
+        </div>
+
+        <div class="macs-data-table-wrapper" style="max-height: 480px; overflow-y:auto;">
+          <table class="macs-data-table">
+            <thead>
+              <tr>
+                <th>BMC Code</th>
+                <th>BMC Name</th>
+                <th>Report Date</th>
+                <th>LIT T1</th>
+                <th>FAT T1</th>
+                <th>SNF T1</th>
+                <th>LIT T2</th>
+                <th>FAT T2</th>
+                <th>SNF T2</th>
+                <th>SO C1</th>
+                <th>SO C2</th>
+                <th>LIT</th>
+                <th>KG FAT T1</th>
+                <th>KG SNF T1</th>
+                <th>KG FAT T2</th>
+                <th>KG SNF T2</th>
+                <th>DIFF</th>
+                <th>Fetch Time</th>
+              </tr>
+            </thead>
+            <tbody id="modal-readings-tbody">
+              <tr>
+                <td colspan="18" style="text-align:center; color:#94A3B8; padding:32px;">Loading readings...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="macs-modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeSyncReadingsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── MODAL: Delete Confirmation ─────────────────────────────────────────────── -->
+  <div id="macs-delete-confirm-modal" class="macs-modal-overlay hidden">
+    <div class="macs-modal-card sm">
+      <div class="macs-modal-header" style="background:#FEF2F2; border-bottom:1px solid #FEE2E2;">
+        <h3 class="macs-modal-title" style="color:#991B1B;">
+          <span>⚠️</span> <span id="delete-confirm-title">Delete MACS Live Data?</span>
+        </h3>
+        <button type="button" class="macs-modal-close" onclick="closeDeleteConfirmModal()">✕</button>
+      </div>
+
+      <div class="macs-modal-body">
+        <p id="delete-confirm-desc" style="font-size:0.9rem; color:#1E293B; margin-top:0; font-weight:600;">
+          This will permanently remove the live MACS readings.
+        </p>
+
+        <div id="delete-confirm-details" style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; padding:12px; font-size:0.82rem; margin:12px 0; color:#334155;">
+        </div>
+
+        <div style="background:#FEF3C7; border:1px solid #FDE68A; border-radius:8px; padding:10px 12px; font-size:0.78rem; color:#92400E; margin-top:12px; line-height:1.4;">
+          <strong>⚠️ Cross-Dashboard Impact:</strong> Live MACS data is shared across QC Worker, QC AGM, GM, and Transport dashboards. Deleting these readings removes them from all dashboards.
+          <br><br>
+          <em>Note: Sync history and Excel imports will remain safe and preserved.</em>
+        </div>
+      </div>
+
+      <div class="macs-modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeDeleteConfirmModal()">Cancel</button>
+        <button type="button" id="delete-confirm-btn" class="btn-danger-solid" onclick="handleConfirmedDelete()">
+          🗑️ Delete Live Data
+        </button>
+      </div>
     </div>
   </div>
 
