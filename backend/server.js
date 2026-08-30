@@ -3471,6 +3471,30 @@ app.post('/api/visits/:visitId/gerber', requireWorker, async (req, res) => {
     result = await adminClient.from('gerber_tests').insert(payload).select().single();
   }
 
+  // Graceful fallback if database schema cache lacks mbrt / mprt / acidity columns on gerber_tests
+  if (result.error && (result.error.message.includes('schema cache') || result.error.message.includes('column'))) {
+    console.warn('gerber_tests schema fallback triggered:', result.error.message);
+    const fallbackPayload = { ...payload };
+    delete fallbackPayload.mbrt;
+    delete fallbackPayload.mprt;
+    delete fallbackPayload.acidity;
+
+    const extraRemarks = [];
+    if (payload.mbrt || payload.mprt) extraRemarks.push(`MBRT/MPRT: ${payload.mbrt || payload.mprt}`);
+    if (payload.acidity !== null && payload.acidity !== undefined) extraRemarks.push(`Acidity: ${payload.acidity}%`);
+    if (extraRemarks.length > 0) {
+      fallbackPayload.remarks = fallbackPayload.remarks 
+        ? `${fallbackPayload.remarks} | ${extraRemarks.join(', ')}`
+        : extraRemarks.join(', ');
+    }
+
+    if (existing) {
+      result = await adminClient.from('gerber_tests').update(fallbackPayload).eq('id', existing.id).select().single();
+    } else {
+      result = await adminClient.from('gerber_tests').insert(fallbackPayload).select().single();
+    }
+  }
+
   // Also update trip_bmc_visits for direct visit-level access
   const visitPayload = {};
   if (mbrt !== undefined || mprt !== undefined) {
@@ -3490,7 +3514,18 @@ app.post('/api/visits/:visitId/gerber', requireWorker, async (req, res) => {
   }
 
   if (result.error) return res.status(500).json({ error: result.error.message });
-  res.json({ gerber: result.data });
+
+  // Attach mbrt / mprt / acidity to returned response object so UI gets instant access
+  const responseData = { ...result.data };
+  if (mbrt !== undefined || mprt !== undefined) {
+    responseData.mbrt = mbrt || mprt || null;
+    responseData.mprt = mbrt || mprt || null;
+  }
+  if (acidity !== undefined) {
+    responseData.acidity = acidity !== null && acidity !== '' ? parseFloat(acidity) : null;
+  }
+
+  res.json({ gerber: responseData });
 });
 
 // ─── POST /api/visits/:visitId/requirements ───────────────────────────────────
@@ -4768,18 +4803,38 @@ function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
 }
 
 // ─── PATCH /api/driver/trips/:id/location ────────────────────────────────────
-app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
+async function handleTripLocationUpdate(req, res) {
   const { adminClient, profile } = req;
   const { lat, lng, points, tracking_status } = req.body;
 
   try {
-    const { data: trip } = await adminClient
+    const { data: trip, error: tripErr } = await adminClient
       .from('driver_trips')
       .select('id, assigned_driver_id, status, remarks, start_lat, start_lng, end_lat, end_lng')
       .eq('id', req.params.id)
       .single();
 
-    if (!trip || trip.assigned_driver_id !== profile.id) {
+    if (tripErr) {
+      console.error('[GPS-API] driver_trips query error:', tripErr.message);
+    }
+
+    // Ownership check: field workers set assigned_driver_id when starting a trip
+    let isOwner = trip && trip.assigned_driver_id === profile.id;
+
+    // Fallback: also check trips table for worker_id match
+    if (!isOwner && trip) {
+      const { data: tripRecord } = await adminClient
+        .from('trips')
+        .select('worker_id')
+        .eq('id', req.params.id)
+        .maybeSingle();
+      if (tripRecord && tripRecord.worker_id === profile.id) {
+        isOwner = true;
+      }
+    }
+
+    if (!trip || !isOwner) {
+      console.warn(`[GPS-API] 403: trip=${trip ? trip.id : 'null'}, assigned_driver_id=${trip?.assigned_driver_id}, profile.id=${profile.id}`);
       return res.status(403).json({ error: 'Access denied.' });
     }
     if (!['started', 'in_progress', 'active', 'returning'].includes(trip.status)) {
@@ -4812,7 +4867,7 @@ app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
       newPoints.push({ lat: Number(lat), lng: Number(lng), timestamp: new Date().toISOString() });
     }
 
-    // Append new points while avoiding unnecessary duplicates (<5 meters & <30s)
+    // Append new points while avoiding unnecessary duplicates (<2 meters & <5s)
     let addedCount = 0;
     newPoints.forEach(pt => {
       if (journey.length > 0) {
@@ -4820,7 +4875,7 @@ app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
         const dist = calculateDistanceMeters(lastPt.lat, lastPt.lng, pt.lat, pt.lng);
         const timeDiffMs = new Date(pt.timestamp).getTime() - new Date(lastPt.timestamp || 0).getTime();
         
-        if (dist >= 5 || timeDiffMs >= 30000) {
+        if (dist >= 2 || timeDiffMs >= 5000) {
           journey.push(pt);
           addedCount++;
         }
@@ -4830,7 +4885,9 @@ app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
       }
     });
 
-    const latestPt = journey[journey.length - 1] || (newPoints.length > 0 ? newPoints[newPoints.length - 1] : null);
+    // Always use the absolute latest received position for end_lat/end_lng
+    const absoluteLatest = newPoints.length > 0 ? newPoints[newPoints.length - 1] : null;
+    const latestPt = absoluteLatest || journey[journey.length - 1] || null;
     const endLat = latestPt ? latestPt.lat : trip.end_lat;
     const endLng = latestPt ? latestPt.lng : trip.end_lng;
 
@@ -4865,8 +4922,6 @@ app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    // journey_path column does not exist in schema, relying solely on remarks encoded data
-
     const { data, error } = await adminClient
       .from('driver_trips')
       .update(updatePayload)
@@ -4887,7 +4942,10 @@ app.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
     console.error('Location update error:', err);
     res.status(500).json({ error: err.message || 'Failed to update location.' });
   }
-});
+}
+
+app.patch('/api/driver/trips/:id/location', requireDriver, handleTripLocationUpdate);
+app.patch('/api/trips/:id/location', requireWorker, handleTripLocationUpdate);
 
 // ─── GET /api/transport/active-duties-locations ──────────────────────────────
 app.get('/api/transport/active-duties-locations', requireTransportOfficer, async (req, res) => {

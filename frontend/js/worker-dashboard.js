@@ -102,10 +102,14 @@ async function loadDuties() {
 
     if (activeTrip) {
       await updateActiveTripCard(activeTrip);
+      // Auto-resume continuous GPS tracking for active trip
+      resumeTrackingIfActiveTrip();
     } else {
       activeTripData = null;
       const section = document.getElementById('active-trip-section');
       if (section) section.classList.add('hidden');
+      // No active trip — ensure tracking is stopped
+      if (workerTrackingActive) stopWorkerLocationTracking();
     }
 
     renderDutiesList(currentDuties, 'available-duties-container', 'No Available Duties', 'You have no pending planned duties at this moment.');
@@ -493,11 +497,16 @@ window.openViewTestModal = function(visitIdx) {
       gerberStatusPill.textContent = gOverallRes.toUpperCase();
     }
 
+    const gMbrtVal = gerberObj?.mbrt || gerberObj?.mprt || v.mbrt || v.mprt || '—';
+    const gAcidityVal = (gerberObj?.acidity !== undefined && gerberObj?.acidity !== null) ? `${gerberObj.acidity}%` : ((v.acidity !== undefined && v.acidity !== null) ? `${v.acidity}%` : '—');
+
     if (gerberGrid) {
       gerberGrid.innerHTML = `
         <div style="background:#FFF; padding:10px 14px; border-radius:8px; border:1px solid #E2E8F0;"><div style="font-size:0.75rem; color:#64748B; font-weight:700;">FAT (%)</div><div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-top:2px;">${gFatVal}</div></div>
         <div style="background:#FFF; padding:10px 14px; border-radius:8px; border:1px solid #E2E8F0;"><div style="font-size:0.75rem; color:#64748B; font-weight:700;">SNF (%)</div><div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-top:2px;">${gSnfVal}</div></div>
         <div style="background:#FFF; padding:10px 14px; border-radius:8px; border:1px solid #E2E8F0;"><div style="font-size:0.75rem; color:#64748B; font-weight:700;">LACTO</div><div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-top:2px;">${gLactoVal}</div></div>
+        <div style="background:#FFF; padding:10px 14px; border-radius:8px; border:1px solid #E2E8F0;"><div style="font-size:0.75rem; color:#64748B; font-weight:700;">MBRT / MPRT</div><div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-top:2px;">${gMbrtVal}</div></div>
+        <div style="background:#FFF; padding:10px 14px; border-radius:8px; border:1px solid #E2E8F0;"><div style="font-size:0.75rem; color:#64748B; font-weight:700;">ACIDITY (%)</div><div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-top:2px;">${gAcidityVal}</div></div>
       `;
     }
   } else {
@@ -595,13 +604,13 @@ window.openStartTripModal = function(tripId) {
   if (outWeightInput) outWeightInput.value = '';
 
   if (statusEl) {
-    statusEl.textContent = 'Location permission required to start trip';
+    statusEl.textContent = 'Location access is required throughout your active trip to enable continuous tracking.';
     statusEl.style.color = '#64748B';
   }
   if (coordsBox) coordsBox.style.display = 'none';
   if (skipContainer) skipContainer.style.display = 'none';
   if (reqBtn) {
-    reqBtn.textContent = '📡 Fetch Location';
+    reqBtn.textContent = '📡 Enable Tracking';
     reqBtn.disabled = false;
   }
 
@@ -628,7 +637,7 @@ async function requestStartTripLocationPermission() {
     reqBtn.textContent = `📡 Attempt ${Math.min(locationAttemptCount, 3)}/3...`;
   }
   if (statusEl) {
-    statusEl.textContent = `Fetching location (Attempt ${locationAttemptCount} of 3)...`;
+    statusEl.textContent = `Requesting location access (Attempt ${locationAttemptCount} of 3)...`;
     statusEl.style.color = '#64748B';
   }
 
@@ -640,7 +649,7 @@ async function requestStartTripLocationPermission() {
     };
 
     if (statusEl) {
-      statusEl.textContent = '✅ Location permission granted';
+      statusEl.textContent = '✅ Location access granted — continuous tracking will start when trip begins.';
       statusEl.style.color = '#16A34A';
     }
     if (latVal) latVal.textContent = pos.coords.latitude.toFixed(6);
@@ -648,11 +657,11 @@ async function requestStartTripLocationPermission() {
     if (coordsBox) coordsBox.style.display = 'block';
 
     if (reqBtn) {
-      reqBtn.textContent = '✅ Location Ready';
-      reqBtn.disabled = false;
+      reqBtn.textContent = '✅ Tracking Ready';
+      reqBtn.disabled = true;
     }
     if (skipContainer) skipContainer.style.display = 'none';
-    if (typeof showToast === 'function') showToast('Location permission granted.', 'success');
+    if (typeof showToast === 'function') showToast('Location access granted. Continuous tracking will activate on trip start.', 'success');
     return currentStartTripLocation;
   } catch (err) {
     currentStartTripLocation = null;
@@ -660,9 +669,9 @@ async function requestStartTripLocationPermission() {
     if (reqBtn) {
       reqBtn.disabled = false;
       if (locationAttemptCount < 3) {
-        reqBtn.textContent = `📡 Retry Location (${locationAttemptCount}/3)`;
+        reqBtn.textContent = `📡 Retry (${locationAttemptCount}/3)`;
       } else {
-        reqBtn.textContent = `📡 Retry Location`;
+        reqBtn.textContent = `📡 Retry`;
       }
     }
 
@@ -670,7 +679,7 @@ async function requestStartTripLocationPermission() {
       allowStartWithoutLocation = true;
       if (skipContainer) skipContainer.style.display = 'block';
       if (statusEl) {
-        statusEl.textContent = `❌ Unable to retrieve location (${err.message || 'Access denied'}). You can now Start Trip Without Location.`;
+        statusEl.textContent = `❌ Unable to access location (${err.message || 'Access denied'}). You can Start Trip Without Location.`;
         statusEl.style.color = '#DC2626';
       }
     } else {
@@ -700,7 +709,7 @@ function setupStartTripForm() {
       currentStartTripLocation = null;
       const statusEl = document.getElementById('st-location-status');
       if (statusEl) {
-        statusEl.textContent = '⚠️ Proceeding without GPS location.';
+        statusEl.textContent = '⚠️ Proceeding without GPS location. No tracking will be available.';
         statusEl.style.color = '#D97706';
       }
       if (typeof showToast === 'function') showToast('Starting trip without location data.', 'info');
@@ -749,7 +758,7 @@ function setupStartTripForm() {
 
         const res = await apiStartWorkerTrip(selectedTripId, payload);
 
-        if (typeof showToast === 'function') showToast('🚀 Trip started successfully! Active trip is now in progress.', 'success');
+        if (typeof showToast === 'function') showToast('🚀 Trip started! Continuous location tracking is now active.', 'success');
         closeStartTripModal();
 
         // Start continuous active location tracking
@@ -781,17 +790,23 @@ function getCurrentPositionPromise() {
   });
 }
 
-// ── LOCATION TRACKING SYSTEM FOR FIELD WORKER ──────────────────────────────
+// ── CONTINUOUS LOCATION TRACKING SYSTEM FOR FIELD WORKER ────────────────────
 let workerLocationWatchId = null;
 let workerTrackingActive = false;
 let workerWakeLock = null;
-let workerFallbackInterval = null;
+let workerFlushInterval = null;
 let activeTrackingTripId = null;
+let workerPendingPoints = [];
+let workerLastFlushedLocation = null;
+let workerFlushInProgress = false;
 
 async function requestWorkerWakeLock() {
   if ('wakeLock' in navigator) {
     try {
       workerWakeLock = await navigator.wakeLock.request('screen');
+      workerWakeLock.addEventListener('release', () => {
+        workerWakeLock = null;
+      });
     } catch(e) {}
   }
 }
@@ -821,21 +836,47 @@ function saveWorkerGpsQueue(tripId, queue) {
 }
 
 async function flushWorkerGpsQueue(tripId) {
-  if (!tripId) return;
-  const queue = getWorkerGpsQueue(tripId);
-  if (queue.length === 0) return;
+  if (!tripId || workerFlushInProgress) return;
+
+  // Merge in-memory pending points with any persisted offline queue
+  const offlineQueue = getWorkerGpsQueue(tripId);
+  const allPoints = [...offlineQueue, ...workerPendingPoints];
+  workerPendingPoints = [];
+
+  if (allPoints.length === 0) return;
+
+  // Persist to localStorage as fallback before attempting API call
+  saveWorkerGpsQueue(tripId, allPoints);
+  workerFlushInProgress = true;
 
   try {
-    await apiUpdateWorkerTripLocation(tripId, { points: queue });
+    await apiUpdateWorkerTripLocation(tripId, { points: allPoints });
     localStorage.removeItem(getWorkerGpsQueueKey(tripId));
+    const lastPt = allPoints[allPoints.length - 1];
+    workerLastFlushedLocation = { lat: lastPt.lat, lng: lastPt.lng, _flushedAt: Date.now() };
   } catch(err) {
-    console.warn('Worker GPS sync failed, retaining queue:', err.message);
+    console.warn('[GPS] ❌ Flush failed, points retained for retry:', err.message);
+  } finally {
+    workerFlushInProgress = false;
   }
 }
 
 async function startWorkerLocationTracking(tripId) {
   if (!tripId) return;
+
+  // Prevent duplicate tracking
+  if (workerTrackingActive && activeTrackingTripId === tripId && workerLocationWatchId) {
+    console.log('[GPS] Tracking already active for this trip, skipping duplicate start.');
+    return;
+  }
+
+  // Clean up any prior tracking
+  stopWorkerLocationTracking(true);
+
   activeTrackingTripId = tripId;
+  workerPendingPoints = [];
+  workerLastFlushedLocation = null;
+  workerFlushInProgress = false;
 
   if (!navigator.geolocation) {
     if (typeof showToast === 'function') showToast('Geolocation is not supported by your device.', 'error');
@@ -844,64 +885,84 @@ async function startWorkerLocationTracking(tripId) {
 
   workerTrackingActive = true;
   await requestWorkerWakeLock();
+
+  // Flush any offline-queued points from a previous session
   await flushWorkerGpsQueue(tripId);
 
-  if (!workerLocationWatchId) {
-    workerLocationWatchId = navigator.geolocation.watchPosition(
-      async (position) => {
-        const pt = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          timestamp: new Date().toISOString()
-        };
-        const queue = getWorkerGpsQueue(tripId);
-        queue.push(pt);
-        saveWorkerGpsQueue(tripId, queue);
-        await flushWorkerGpsQueue(tripId);
-      },
-      (error) => {
-        console.warn('Worker location watch error:', error.message);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
-    );
-  }
+  console.log(`[GPS] 🟢 Continuous tracking STARTED for trip ${tripId.slice(0,8)}…`);
 
-  if (!workerFallbackInterval) {
-    workerFallbackInterval = setInterval(() => {
-      if (!workerTrackingActive || !navigator.geolocation) return;
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const pt = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            timestamp: new Date().toISOString()
-          };
-          const queue = getWorkerGpsQueue(tripId);
-          queue.push(pt);
-          saveWorkerGpsQueue(tripId, queue);
-          await flushWorkerGpsQueue(tripId);
-        },
-        (error) => {},
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    }, 20000);
+  // Use watchPosition for real-time continuous GPS updates (~1 second on most devices)
+  workerLocationWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      if (!workerTrackingActive || !activeTrackingTripId) return;
+
+      const pt = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        timestamp: new Date().toISOString()
+      };
+
+      // Send immediately to backend on every position update
+      workerPendingPoints.push(pt);
+      flushWorkerGpsQueue(activeTrackingTripId);
+    },
+    (error) => {
+      console.warn(`[GPS] ⚠️ Watch error: ${error.message} (code: ${error.code})`);
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+  );
+
+  // Safety fallback: if watchPosition stalls, force-flush any pending points every 5 seconds
+  if (!workerFlushInterval) {
+    workerFlushInterval = setInterval(() => {
+      if (!workerTrackingActive || !activeTrackingTripId) return;
+      if (workerPendingPoints.length > 0) {
+        flushWorkerGpsQueue(activeTrackingTripId);
+      }
+    }, 5000);
   }
 }
 
-function stopWorkerLocationTracking() {
+function stopWorkerLocationTracking(isInternalSwitch) {
+  const wasTripId = activeTrackingTripId;
   workerTrackingActive = false;
+
   if (workerLocationWatchId) {
     navigator.geolocation.clearWatch(workerLocationWatchId);
     workerLocationWatchId = null;
   }
-  if (workerFallbackInterval) {
-    clearInterval(workerFallbackInterval);
-    workerFallbackInterval = null;
+
+  if (workerFlushInterval) {
+    clearInterval(workerFlushInterval);
+    workerFlushInterval = null;
   }
+
   releaseWorkerWakeLock();
-  if (activeTrackingTripId) {
-    flushWorkerGpsQueue(activeTrackingTripId);
-    activeTrackingTripId = null;
+  workerLastFlushedLocation = null;
+
+  // Final flush of any remaining points
+  if (wasTripId) {
+    // Move pending points to offline queue before final flush
+    if (workerPendingPoints.length > 0) {
+      const offlineQueue = getWorkerGpsQueue(wasTripId);
+      saveWorkerGpsQueue(wasTripId, [...offlineQueue, ...workerPendingPoints]);
+      workerPendingPoints = [];
+    }
+    workerFlushInProgress = false; // Reset so final flush can proceed
+    flushWorkerGpsQueue(wasTripId);
+    if (!isInternalSwitch) {
+      activeTrackingTripId = null;
+      console.log('[GPS] 🔴 Location tracking stopped.');
+      if (typeof showToast === 'function') showToast('Location tracking stopped.', 'info');
+    }
+  }
+}
+
+// Auto-resume tracking on page load if an active trip exists
+function resumeTrackingIfActiveTrip() {
+  if (!workerTrackingActive && activeTripData && (activeTripData.status === 'in_progress' || activeTripData.status === 'active')) {
+    console.log('[GPS] 🔄 Resuming continuous tracking for active trip on page load…');
+    startWorkerLocationTracking(activeTripData.id);
   }
 }
 
