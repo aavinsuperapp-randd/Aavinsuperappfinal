@@ -594,3 +594,29 @@ html, body {
   .item-actions { width: 100%; justify-content: space-between; margin-top: 10px; }
   .btn-prioritize-action { width: 100%; text-align: center; justify-content: center; }
 }
+
+/* ── Desktop & Tablet (With Sidebar Fixed) ── */
+@media (min-width: 901px) {
+  .admin-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: 240px !important;
+    height: 100vh !important;
+    z-index: 1000 !important;
+    overflow-y: auto !important;
+  }
+  .admin-sidebar.collapsed {
+    transform: translateX(-100%) !important;
+  }
+  .admin-main {
+    margin-left: 240px !important;
+    width: calc(100% - 240px) !important;
+    transition: margin-left 0.3s ease, width 0.3s ease !important;
+  }
+  .admin-main.expanded {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+}

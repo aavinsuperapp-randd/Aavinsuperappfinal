@@ -30,7 +30,68 @@ async function adminFetch(endpoint, options = {}) {
   return json;
 }
 
+// ── Admin Mobile Sidebar Toggle ──────────────────────────────────────────────
+function initAdminSidebarToggle() {
+  const toggleBtns = document.querySelectorAll('#sidebar-toggle-btn, .sidebar-toggle');
+  const sidebar = document.querySelector('.admin-sidebar');
+  const main = document.querySelector('.admin-main');
 
+  if (!sidebar) return;
+
+  let overlay = document.querySelector('.sidebar-overlay, #sidebar-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    overlay.id = 'sidebar-overlay';
+    document.body.appendChild(overlay);
+  }
+
+  function toggleSidebar(e) {
+    if (e) e.stopPropagation();
+    if (window.innerWidth > 900) {
+      if (sidebar) sidebar.classList.toggle('collapsed');
+      if (main) main.classList.toggle('expanded');
+    } else {
+      if (sidebar.classList.contains('open') || sidebar.classList.contains('active')) {
+        sidebar.classList.remove('open', 'active');
+        if (overlay) overlay.classList.remove('show', 'active');
+      } else {
+        sidebar.classList.add('open', 'active');
+        if (overlay) overlay.classList.add('show', 'active');
+      }
+    }
+  }
+
+  function closeSidebar() {
+    if (window.innerWidth <= 900) {
+      if (sidebar) sidebar.classList.remove('open', 'active');
+      if (overlay) overlay.classList.remove('show', 'active');
+    }
+  }
+
+  toggleBtns.forEach(btn => {
+    btn.removeEventListener('click', toggleSidebar);
+    btn.addEventListener('click', toggleSidebar);
+  });
+
+  if (overlay) {
+    overlay.removeEventListener('click', closeSidebar);
+    overlay.addEventListener('click', closeSidebar);
+  }
+
+  if (sidebar) {
+    sidebar.querySelectorAll('a, button').forEach(link => {
+      link.addEventListener('click', closeSidebar);
+    });
+  }
+}
+window.initAdminSidebarToggle = initAdminSidebarToggle;
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAdminSidebarToggle);
+} else {
+  initAdminSidebarToggle();
+}
 document.addEventListener('DOMContentLoaded', async () => {
 
   // 1. Enforce admin auth check
@@ -52,13 +113,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // Handle Mobile sidebar toggle
-    const toggleBtn = document.getElementById('sidebar-toggle-btn');
-    const navEl = document.querySelector('.admin-nav');
-    if (toggleBtn && navEl) {
-      toggleBtn.addEventListener('click', () => {
-        navEl.classList.toggle('show');
-      });
-    }
+    initAdminSidebarToggle();
 
 
 

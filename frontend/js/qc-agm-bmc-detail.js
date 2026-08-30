@@ -40,14 +40,14 @@ function setupDetailDateControls() {
 
   if (btnToday) {
     btnToday.addEventListener('click', () => {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
       setDetailDateValue(todayStr);
     });
   }
 
   if (btnYesterday) {
     btnYesterday.addEventListener('click', () => {
-      const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const yesterdayStr = new Date(Date.now() - 86400000 - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
       setDetailDateValue(yesterdayStr);
     });
   }
@@ -90,8 +90,8 @@ function updateDetailDateButtonsUI(dateStr) {
   const btnYesterday = document.getElementById('btn-detail-yesterday');
   const btnAll = document.getElementById('btn-detail-all');
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+  const yesterdayStr = new Date(Date.now() - 86400000 - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
 
   const activeStyle = 'background: #2563EB; color: #FFFFFF; border: 1px solid #1D4ED8; font-weight: 700; box-shadow: 0 2px 6px rgba(37,99,235,0.3);';
   const inactiveStyle = 'background: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; font-weight: 700; box-shadow: none;';

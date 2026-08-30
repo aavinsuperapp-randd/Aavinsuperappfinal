@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
   const dateInput = document.getElementById('macs-import-date');
-  if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+  if (dateInput) dateInput.value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
 
   await loadBmcMaster();
   setupDropZone();
@@ -377,7 +377,7 @@ function generatePreviewTable(detectedDates) {
 async function handleExecuteImport() {
   if (parsedMacsReadings.length === 0) return;
 
-  const importDate = document.getElementById('macs-import-date')?.value || new Date().toISOString().split('T')[0];
+  const importDate = document.getElementById('macs-import-date')?.value || new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
   const period = document.getElementById('macs-import-period')?.value || 'both';
 
   try {

@@ -38,8 +38,8 @@ function updateQuickDateButtonsUI(dateStr) {
   const btnToday = document.getElementById('btn-quick-today');
   const btnYesterday = document.getElementById('btn-quick-yesterday');
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+  const yesterdayStr = new Date(Date.now() - 86400000 - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
 
   const activeStyle = 'background: #2563EB; color: #FFFFFF; border: 1px solid #1D4ED8; font-weight: 700; box-shadow: 0 2px 6px rgba(37,99,235,0.3);';
   const inactiveStyle = 'background: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; font-weight: 700; box-shadow: none;';
@@ -97,14 +97,14 @@ function setupControls() {
 
   if (btnToday) {
     btnToday.addEventListener('click', () => {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
       selectOrSetDate(todayStr);
     });
   }
 
   if (btnYesterday) {
     btnYesterday.addEventListener('click', () => {
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const yesterday = new Date(Date.now() - 86400000 - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
       selectOrSetDate(yesterday);
     });
   }
@@ -144,7 +144,7 @@ async function loadAvailableDates() {
     const res = await apiQcAgmGetMacsDates();
     availableDates = res.dates || [];
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
 
     if (!availableDates.includes(todayStr)) {
       availableDates.unshift(todayStr);

@@ -381,11 +381,7 @@ function bindEvents() {
   });
 
   // Sidebar toggle
-  const toggleBtn = document.getElementById('sidebar-toggle-btn');
-  const navEl = document.querySelector('.admin-nav');
-  if (toggleBtn && navEl) {
-    toggleBtn.addEventListener('click', () => navEl.classList.toggle('show'));
-  }
+  if (typeof initAdminSidebarToggle === 'function') initAdminSidebarToggle();
 
   // Logout
   const logoutBtn = document.getElementById('logout-btn');

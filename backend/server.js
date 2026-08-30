@@ -230,9 +230,10 @@ async function getLatestLiveMacsByBmcCode(adminClient, dateStr) {
     macsDate = convertISOToMacsDate(dateStr);
   } else {
     const now = new Date();
-    const dd = String(now.getDate()).padStart(2, '0');
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const yyyy = now.getFullYear();
+    const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+    const dd = String(istNow.getUTCDate()).padStart(2, '0');
+    const mm = String(istNow.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = istNow.getUTCFullYear();
     macsDate = `${dd}/${mm}/${yyyy}`;
   }
 
@@ -8993,7 +8994,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
     const bmcMap = {};
 
     liveMacsByCode.forEach((r, bmcCode) => {
-      const readingDate = r.reading_date || date || new Date().toISOString().split('T')[0];
+      const readingDate = r.reading_date || date || new Date(Date.now() + 5.5 * 3600000).toISOString().split('T')[0];
       const key = `${bmcCode}_${readingDate}`;
       const mb = masterBmcByCode[bmcCode];
       const bmcId = mb ? mb.id : null;
@@ -10396,11 +10397,12 @@ async function macsBmcSyncService(options = {}) {
 
   const isDaily2355 = Boolean(options.isDaily2355);
 
-  // Generate current date in DD/MM/YYYY format
+  // Generate current date in DD/MM/YYYY format in IST timezone (+5:30)
   const now = new Date();
-  const dd = String(now.getDate()).padStart(2, '0');
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const yyyy = now.getFullYear();
+  const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const dd = String(istNow.getUTCDate()).padStart(2, '0');
+  const mm = String(istNow.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = istNow.getUTCFullYear();
   const formattedDate = `${dd}/${mm}/${yyyy}`;
 
   // 1. Create sync run record

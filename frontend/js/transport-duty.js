@@ -90,7 +90,7 @@ function setDatePreset(preset) {
   
   if (preset === 'today') {
     document.getElementById('btn-today').classList.add('active');
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
     document.getElementById('duty-date-filter').value = today;
     currentFilters.date = today;
     currentFilters.dateRange = '';
@@ -183,7 +183,7 @@ async function setupCreateTripModal() {
     selectedBmcs = [];
     isBmcSelectionSaved = false;
     if (dateInput && !dateInput.value) {
-      dateInput.value = new Date().toISOString().split('T')[0];
+      dateInput.value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
     }
 
     renderSelectedBmcs();
@@ -196,7 +196,7 @@ async function setupCreateTripModal() {
   btnCancel.addEventListener('click', () => closeModal('create-trip-cancel'));
 
   const handleMacsFilterChange = async () => {
-    const selDate = dateInput?.value || new Date().toISOString().split('T')[0];
+    const selDate = dateInput?.value || new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
     const selPeriod = periodSelect?.value || 'both';
     try {
       const bRes = await apiGetBmcsList(selDate, selPeriod);
@@ -605,9 +605,9 @@ async function fetchCreateTripOptions() {
     const periodSelect = document.getElementById('ct-macs-period');
     
     if (dateInput && !dateInput.value) {
-      dateInput.value = new Date().toISOString().split('T')[0];
+      dateInput.value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
     }
-    const selDate = dateInput?.value || new Date().toISOString().split('T')[0];
+    const selDate = dateInput?.value || new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
     const selPeriod = periodSelect?.value || 'both';
 
     const [dRes, vRes, bRes] = await Promise.all([
