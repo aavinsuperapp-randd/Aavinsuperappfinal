@@ -35,22 +35,64 @@ function getAdminClient() {
   });
 }
 
-// Auto-create profile_images bucket if it doesn't exist
+// Auto-create storage buckets if they don't exist
 async function ensureStorageBucket() {
   const adminClient = getAdminClient();
   if (!adminClient) return;
   try {
     const { data: buckets } = await adminClient.storage.listBuckets();
-    const exists = buckets && buckets.some(b => b.name === 'profile_images');
-    if (!exists) {
+    const profileExists = buckets && buckets.some(b => b.name === 'profile_images');
+    if (!profileExists) {
       await adminClient.storage.createBucket('profile_images', { public: true });
       console.log('📦 Created public profile_images storage bucket.');
+    }
+    const bmcExists = buckets && buckets.some(b => b.name === 'bmc_images');
+    if (!bmcExists) {
+      await adminClient.storage.createBucket('bmc_images', { public: true });
+      console.log('📦 Created public bmc_images storage bucket.');
     }
   } catch (err) {
     // Ignore error if bucket creation fails
   }
 }
 ensureStorageBucket();
+
+// Helper to safely process and store a BMC image
+async function processBmcImage(adminClient, bmcCode, base64Url) {
+  if (!base64Url || !base64Url.startsWith('data:image')) {
+    return base64Url; // Return as-is if it's already a URL or empty
+  }
+  try {
+    const extMatch = base64Url.match(/^data:image\/(\w+);base64,/);
+    let ext = extMatch ? extMatch[1] : 'jpg';
+    if (ext === 'jpeg') ext = 'jpg';
+
+    const base64Data = base64Url.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    const fileName = `bmc_${bmcCode}.${ext}`;
+
+    const { error: uploadError } = await adminClient.storage
+      .from('bmc_images')
+      .upload(fileName, buffer, {
+        contentType: `image/${ext === 'png' ? 'png' : 'jpeg'}`,
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error('❌ Failed to upload BMC image to bmc_images bucket:', uploadError.message);
+      return base64Url;
+    }
+
+    const { data: publicUrlData } = adminClient.storage.from('bmc_images').getPublicUrl(fileName);
+    if (publicUrlData && publicUrlData.publicUrl) {
+      return `${publicUrlData.publicUrl}?v=${Date.now()}`;
+    }
+    return base64Url;
+  } catch (err) {
+    console.error('❌ Exception processing BMC image:', err.message);
+    return base64Url;
+  }
+}
 
 // ─── LIVE MACS API DATA HELPERS ──────────────────────────────────────────────
 // Central helpers for reading MACS data from macs_api_bmc_data table.
@@ -890,8 +932,8 @@ async function requirePiAgm(req, res, next) {
     .from('profiles').select('*').eq('id', user.id).single();
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
-  if (!['pi_agm', 'gm', 'admin', 'executive_officer'].includes(profile.role)) {
-    return res.status(403).json({ error: 'P&I AGM, GM, or EO access required.' });
+  if (!['pi_agm', 'gm', 'admin', 'executive_officer', 'qc_agm'].includes(profile.role)) {
+    return res.status(403).json({ error: 'P&I AGM, GM, QC AGM, or EO access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
 
@@ -1655,6 +1697,9 @@ app.post('/api/gm/create-bmc', requirePiAgm, async (req, res) => {
       return res.status(409).json({ error: `A BMC with code ${bmc_code} already exists.` });
     }
 
+    // Process BMC Image if it's a base64 string
+    const finalImageUrl = await processBmcImage(adminClient, String(bmc_code).trim(), profile_image_url);
+
     const bmcPayload = {
       bmc_code: String(bmc_code).trim(),
       name: name.trim(),
@@ -1663,7 +1708,7 @@ app.post('/api/gm/create-bmc', requirePiAgm, async (req, res) => {
       contact_number: contact_number.trim(),
       latitude: parseFloat(latitude),
       longitude: parseFloat(longitude),
-      profile_image_url: profile_image_url || null,
+      profile_image_url: finalImageUrl || null,
       is_active: true
     };
     if (route_id) bmcPayload.route_id = route_id;
@@ -2388,7 +2433,11 @@ app.put('/api/gm/bmcs/:bmcCode', requirePiAgm, async (req, res) => {
       longitude: longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null,
       route_id: route_id || null
     };
-    if (profile_image_url !== undefined) payload.profile_image_url = profile_image_url;
+
+    if (profile_image_url !== undefined) {
+      const finalImageUrl = await processBmcImage(adminClient, String(bmc_code).trim(), profile_image_url);
+      payload.profile_image_url = finalImageUrl || null;
+    }
     if (total_capacity !== undefined && total_capacity !== null) {
       payload.total_capacity = parseFloat(total_capacity) || 0;
       console.log(`[GM BMC UPDATE] Setting total_capacity=${payload.total_capacity}`);
@@ -3233,7 +3282,7 @@ app.patch('/api/visits/:visitId', requireWorker, async (req, res) => {
   }
 
   // Handle other allowed columns dynamically
-  const otherKeys = ['status', 'visit_start_time', 'visit_end_time', 'remarks'];
+  const otherKeys = ['status', 'visit_start_time', 'visit_end_time', 'remarks', 'invoice_serial_no', 'temperature', 'seal_number', 'broken_seal_number'];
   for (const key of otherKeys) {
     if (req.body[key] !== undefined && existingCols.includes(key)) {
       updates[key] = req.body[key];
@@ -3276,45 +3325,10 @@ app.delete('/api/visits/:visitId', requireWorker, async (req, res) => {
   res.json({ success: true, message: 'BMC Visit deleted successfully.' });
 });
 
-// ─── POST /api/upload ─────────────────────────────────────────────────────────
-app.post('/api/upload', requireWorker, async (req, res) => {
-  const { adminClient } = req;
-  const { imageBase64, filename } = req.body;
-
-  if (!imageBase64) {
-    return res.status(400).json({ error: 'Image data is required.' });
-  }
-
-  try {
-    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-    const ext = (filename && filename.split('.').pop()) || 'jpg';
-    const filePath = `ftir-tests/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${ext}`;
-
-    const { error: uploadErr } = await adminClient.storage
-      .from('profile_images')
-      .upload(filePath, buffer, {
-        contentType: `image/${ext === 'png' ? 'png' : 'jpeg'}`,
-        upsert: true
-      });
-
-    if (uploadErr) {
-      console.warn('Backend storage upload error, returning data URL:', uploadErr.message);
-      return res.json({ publicUrl: imageBase64 });
-    }
-
-    const { data: publicUrlData } = adminClient.storage.from('profile_images').getPublicUrl(filePath);
-    res.json({ publicUrl: publicUrlData.publicUrl });
-  } catch (err) {
-    console.error('Upload endpoint error:', err);
-    res.json({ publicUrl: imageBase64 });
-  }
-});
-
 // ─── POST /api/visits/:visitId/ftir ──────────────────────────────────────────
 app.post('/api/visits/:visitId/ftir', requireWorker, async (req, res) => {
   const { adminClient } = req;
-  const { fat, snf, protein, lactose, water_percentage, temperature, remarks, image_url } = req.body;
+  const { fat, snf, protein, lactose, water_percentage, temperature, remarks } = req.body;
 
   const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId);
   if (error) return res.status(code || 400).json({ error });
@@ -3326,11 +3340,6 @@ app.post('/api/visits/:visitId/ftir', requireWorker, async (req, res) => {
 
   const { data: existing } = await adminClient.from('ftir_tests').select('id').eq('visit_id', req.params.visitId).maybeSingle();
 
-  let formattedRemarks = remarks || '';
-  if (image_url && !formattedRemarks.includes('[FTIR_IMAGE:')) {
-    formattedRemarks = formattedRemarks ? `${formattedRemarks} [FTIR_IMAGE: ${image_url}]` : `[FTIR_IMAGE: ${image_url}]`;
-  }
-
   const payload = {
     visit_id: req.params.visitId,
     fat: fat !== undefined ? fat : null,
@@ -3340,24 +3349,13 @@ app.post('/api/visits/:visitId/ftir', requireWorker, async (req, res) => {
     water_percentage: water_percentage || null,
     temperature: temperature || null,
     overall_result,
-    remarks: formattedRemarks,
+    remarks: remarks || '',
     tested_at: new Date()
   };
-
-  if (image_url) {
-    payload.image_url = image_url;
-  }
 
   let result = existing 
     ? await adminClient.from('ftir_tests').update(payload).eq('id', existing.id).select().single()
     : await adminClient.from('ftir_tests').insert(payload).select().single();
-
-  if (result.error && result.error.message && result.error.message.includes('image_url')) {
-    delete payload.image_url;
-    result = existing
-      ? await adminClient.from('ftir_tests').update(payload).eq('id', existing.id).select().single()
-      : await adminClient.from('ftir_tests').insert(payload).select().single();
-  }
 
   if (result.error) return res.status(500).json({ error: result.error.message });
   res.json({ ftir: result.data });
@@ -4515,10 +4513,9 @@ app.post('/api/driver/trips/:id/accept', requireDriver, async (req, res) => {
 // ─── POST /api/driver/trips/:id/start ────────────────────────────────────────
 app.post('/api/driver/trips/:id/start', requireDriver, async (req, res) => {
   const { adminClient, profile } = req;
-  const { out_km, out_km_photo, out_tanker_weight, latitude, longitude } = req.body;
+  const { out_km, out_tanker_weight, latitude, longitude } = req.body;
 
   if (out_km === undefined || out_km === null || out_km === '') return res.status(400).json({ error: 'out_km is required.' });
-  if (!out_km_photo) return res.status(400).json({ error: 'out_km_photo (Out KM photo proof) is required.' });
   if (out_tanker_weight === undefined || out_tanker_weight === null || out_tanker_weight === '') return res.status(400).json({ error: 'out_tanker_weight is required.' });
   if (latitude === undefined || longitude === undefined || latitude === null || longitude === null) return res.status(400).json({ error: 'Current GPS location (latitude, longitude) is required.' });
 
@@ -4537,12 +4534,6 @@ app.post('/api/driver/trips/:id/start', requireDriver, async (req, res) => {
       return res.status(409).json({ error: 'Trip has already been started.' });
     }
 
-    // If photo is a raw base64 DataURL (storage fallback), truncate to avoid
-    // Supabase PostgREST rejecting the oversized update payload.
-    const safePhotoValue = (out_km_photo && out_km_photo.startsWith('data:'))
-      ? out_km_photo.substring(0, 500) + '...[base64_truncated]'
-      : out_km_photo;
-
     const { data: updated, error } = await adminClient
       .from('driver_trips')
       .update({
@@ -4550,7 +4541,6 @@ app.post('/api/driver/trips/:id/start', requireDriver, async (req, res) => {
         started_at: new Date().toISOString(),
         out_km: Number(out_km),
         out_weight: Number(out_tanker_weight),
-        out_weight_photo: safePhotoValue,
         start_lat: Number(latitude),
         start_lng: Number(longitude),
         updated_at: new Date().toISOString()
@@ -4573,11 +4563,10 @@ app.post('/api/driver/trips/:id/start', requireDriver, async (req, res) => {
 // ─── POST /api/driver/trips/:id/complete ─────────────────────────────────────
 app.post('/api/driver/trips/:id/complete', requireDriver, async (req, res) => {
   const { adminClient, profile } = req;
-  const { in_km, in_weight, in_weight_photo, end_lat, end_lng, remarks } = req.body;
+  const { in_km, in_weight, end_lat, end_lng, remarks } = req.body;
 
   if (!in_km && in_km !== 0) return res.status(400).json({ error: 'in_km is required.' });
   if (!in_weight && in_weight !== 0) return res.status(400).json({ error: 'in_weight is required.' });
-  if (!in_weight_photo) return res.status(400).json({ error: 'in_weight_photo is required.' });
   if (!end_lat || !end_lng) return res.status(400).json({ error: 'GPS location (end_lat, end_lng) is required.' });
 
   try {
@@ -5034,34 +5023,6 @@ app.get('/api/driver/vehicle', requireDriver, async (req, res) => {
   }
 });
 
-// ─── POST /api/driver/upload ──────────────────────────────────────────────────
-app.post('/api/driver/upload', requireDriver, async (req, res) => {
-  const { adminClient } = req;
-  const { imageBase64, filename } = req.body;
-  if (!imageBase64) return res.status(400).json({ error: 'Image data is required.' });
-
-  try {
-    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-    const ext = (filename && filename.split('.').pop()) || 'jpg';
-    const filePath = `driver-photos/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${ext}`;
-
-    const { error: uploadErr } = await adminClient.storage
-      .from('profile_images')
-      .upload(filePath, buffer, { contentType: `image/${ext === 'png' ? 'png' : 'jpeg'}`, upsert: true });
-
-    if (uploadErr) {
-      console.warn('Driver photo upload error, returning data URL:', uploadErr.message);
-      return res.json({ publicUrl: imageBase64 });
-    }
-
-    const { data: publicUrlData } = adminClient.storage.from('profile_images').getPublicUrl(filePath);
-    res.json({ publicUrl: publicUrlData.publicUrl });
-  } catch (err) {
-    console.error('Driver upload error:', err);
-    res.json({ publicUrl: imageBase64 }); // Fallback: return base64
-  }
-});
 
 // ─── TRANSPORT OFFICER: Assign Driver Trips ────────────────────────────────────
 app.post('/api/transport/driver-trips', requireTransportOfficer, async (req, res) => {
@@ -6422,6 +6383,304 @@ app.post('/api/transport/create-trip', requireTransportOfficer, async (req, res)
   } catch (err) {
     console.error('❌ Transport Officer create-trip error:', err);
     res.status(500).json({ error: err.message || 'Failed to create trip.' });
+  }
+});
+
+// ─── GET /api/worker/invoices/:visitId ──────────────────────────────────────────
+app.get('/api/worker/invoices/:visitId', requireWorker, async (req, res) => {
+  const { adminClient } = req;
+  const visitId = req.params.visitId;
+
+  try {
+    const { data: visit, error } = await adminClient
+      .from('trip_bmc_visits')
+      .select(`*, bmc:bmcs(id, name, bmc_code, district, location), ftir_tests(*), gerber_tests(*)`)
+      .eq('id', visitId)
+      .single();
+
+    if (error || !visit) throw new Error('Invoice visit not found');
+
+    // Also fetch qc_lab_tests if available
+    const { data: qcTests } = await adminClient.from('qc_lab_tests').select('*').eq('visit_id', visitId);
+    visit.qc_lab_tests = qcTests || [];
+
+    let tripData = {};
+    if (visit.trip_id) {
+      const { data: dTrip } = await adminClient.from('driver_trips').select('*').eq('id', visit.trip_id).maybeSingle();
+      if (dTrip) {
+        tripData = {
+          trip_number: dTrip.trip_number,
+          route: dTrip.route || dTrip.destination || '—',
+          driver_name: dTrip.driver_name || '—',
+          tanker_number: dTrip.vehicle_number || dTrip.tanker_number || '—',
+          duty_type: dTrip.duty_type || '—',
+          selected_bmcs: dTrip.selected_bmcs || [],
+          out_km: dTrip.out_km,
+          started_at: dTrip.started_at || dTrip.scheduled_start_time,
+          assigned_driver_id: dTrip.assigned_driver_id,
+          assigned_worker_id: dTrip.assigned_worker_id || dTrip.worker_id
+        };
+      } else {
+        const { data: trip } = await adminClient.from('trips').select('*').eq('id', visit.trip_id).maybeSingle();
+        if (trip) {
+          tripData = {
+            trip_number: trip.trip_number,
+            route: trip.route_description || '—',
+            driver_name: trip.driver_name || '—',
+            tanker_number: trip.tanker_number || '—',
+            duty_type: '—',
+            selected_bmcs: [],
+            out_km: trip.out_km,
+            started_at: trip.out_time,
+            assigned_worker_id: trip.worker_id
+          };
+        }
+      }
+
+      // Resolve driver name
+      const driverId = tripData.assigned_driver_id;
+      if (driverId && (!tripData.driver_name || tripData.driver_name === '—' || tripData.driver_name === 'Driver')) {
+        const { data: dRec } = await adminClient.from('drivers').select('name').eq('id', driverId).maybeSingle();
+        if (dRec && dRec.name) tripData.driver_name = dRec.name;
+        else {
+          const { data: pRec } = await adminClient.from('profiles').select('name').eq('id', driverId).maybeSingle();
+          if (pRec && pRec.name) tripData.driver_name = pRec.name;
+        }
+      }
+
+      // Resolve spot analyzer / worker name
+      const workerId = visit.worker_id || tripData.assigned_worker_id || (req.user ? req.user.id : null);
+      if (workerId) {
+        const { data: wRec } = await adminClient.from('profiles').select('name').eq('id', workerId).maybeSingle();
+        if (wRec && wRec.name) tripData.spot_analyzer_name = wRec.name;
+      }
+    }
+    if (!tripData.spot_analyzer_name && req.user && req.user.id) {
+      const { data: wRec } = await adminClient.from('profiles').select('name').eq('id', req.user.id).maybeSingle();
+      if (wRec && wRec.name) tripData.spot_analyzer_name = wRec.name;
+    }
+
+    visit.trip = tripData;
+    res.json({ success: true, visit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/gm/invoices ─────────────────────────────────────────────────────
+// List all BMC visits that are closed/completed or have invoice_serial_no
+app.get('/api/gm/invoices', requirePiAgm, async (req, res) => {
+  const { adminClient } = req;
+  const searchQuery = (req.query.q || '').trim().toLowerCase();
+
+  try {
+    // Select all completed / visited BMC visits
+    let query = adminClient
+      .from('trip_bmc_visits')
+      .select(`*, bmc:bmcs(id, name, bmc_code, district, location)`)
+      .or(`status.eq.completed,status.eq.visited,visit_end_time.not.is.null,invoice_serial_no.not.is.null`)
+      .order('visit_end_time', { ascending: false });
+
+    const { data: visits, error } = await query.limit(300);
+    if (error) throw error;
+
+    // Enrich with trip + driver data
+    const tripIds = [...new Set((visits || []).map(v => v.trip_id).filter(Boolean))];
+    let tripMap = {};
+
+    if (tripIds.length > 0) {
+      // Fetch from driver_trips
+      const { data: driverTrips } = await adminClient
+        .from('driver_trips')
+        .select('*')
+        .in('id', tripIds);
+
+      (driverTrips || []).forEach(dt => {
+        tripMap[dt.id] = {
+          trip_number: dt.trip_number,
+          route: dt.route || dt.destination || dt.bmc_name || '—',
+          driver_name: dt.driver_name || '—',
+          tanker_number: dt.vehicle_number || dt.tanker_number || '—',
+          duty_type: dt.duty_type || '—',
+          selected_bmcs: dt.selected_bmcs || [],
+          started_at: dt.started_at,
+          scheduled_start_time: dt.scheduled_start_time,
+          assigned_driver_id: dt.assigned_driver_id
+        };
+      });
+
+      // Check trips table for missing
+      const missingIds = tripIds.filter(id => !tripMap[id]);
+      if (missingIds.length > 0) {
+        const { data: trips } = await adminClient
+          .from('trips')
+          .select('*')
+          .in('id', missingIds);
+        (trips || []).forEach(t => {
+          if (!tripMap[t.id]) {
+            tripMap[t.id] = {
+              trip_number: t.trip_number,
+              route: t.route_description || '—',
+              driver_name: t.driver_name || '—',
+              tanker_number: t.tanker_number || '—',
+              duty_type: '—',
+              selected_bmcs: [],
+              started_at: t.out_time,
+              scheduled_start_time: t.out_time
+            };
+          }
+        });
+      }
+
+      // Resolve driver names
+      const driverIds = Object.values(tripMap)
+        .filter(t => t.assigned_driver_id && (!t.driver_name || t.driver_name === '—' || t.driver_name === 'Driver'))
+        .map(t => t.assigned_driver_id);
+      if (driverIds.length > 0) {
+        const { data: drivers } = await adminClient.from('drivers').select('id, name').in('id', driverIds);
+        (drivers || []).forEach(d => {
+          Object.values(tripMap).forEach(t => {
+            if (t.assigned_driver_id === d.id) t.driver_name = d.name;
+          });
+        });
+      }
+    }
+
+    let enriched = (visits || []).map(v => {
+      const tripData = tripMap[v.trip_id] || {};
+      const bmcCode = v.bmc ? (v.bmc.bmc_code || '') : (v.bmc_code || '');
+      const bmcName = v.bmc ? v.bmc.name : (v.bmc_name || '—');
+      const serialNo = v.invoice_serial_no || (`INV-${bmcCode || 'BMC'}-${String(v.id).slice(0, 6).toUpperCase()}`);
+
+      return {
+        visit_id: v.id,
+        trip_id: v.trip_id,
+        bmc_name: bmcName,
+        bmc_code: bmcCode,
+        invoice_serial_no: serialNo,
+        temperature: v.temperature,
+        seal_number: v.seal_number,
+        broken_seal_number: v.broken_seal_number,
+        visit_start_time: v.visit_start_time,
+        visit_end_time: v.visit_end_time || v.updated_at || v.created_at,
+        compartment: v.compartment,
+        milk_quantity_liters: v.milk_quantity_liters,
+        milk_quantity_kg: v.milk_quantity_kg,
+        trip_number: tripData.trip_number || '—',
+        route: tripData.route || '—',
+        driver_name: tripData.driver_name || '—',
+        tanker_number: tripData.tanker_number || '—',
+        duty_type: tripData.duty_type || '—'
+      };
+    });
+
+    // Filter by searchQuery if provided (search by BMC Code, BMC Name, or Invoice Serial Number)
+    if (searchQuery) {
+      enriched = enriched.filter(inv => {
+        const serial = (inv.invoice_serial_no || '').toLowerCase();
+        const code = (inv.bmc_code || '').toLowerCase();
+        const name = (inv.bmc_name || '').toLowerCase();
+        return serial.includes(searchQuery) || code.includes(searchQuery) || name.includes(searchQuery);
+      });
+    }
+
+    res.json({ invoices: enriched });
+  } catch (err) {
+    console.error('❌ GM Invoices list error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch invoices.' });
+  }
+});
+
+// ─── GET /api/gm/invoices/:visitId ────────────────────────────────────────────
+// Full invoice data for a specific BMC visit (for PDF generation)
+app.get('/api/gm/invoices/:visitId', requirePiAgm, async (req, res) => {
+  const { adminClient } = req;
+
+  try {
+    const { data: visit, error } = await adminClient
+      .from('trip_bmc_visits')
+      .select(`*, bmc:bmcs(id, name, bmc_code, district, location),
+        ftir_tests(*), gerber_tests(*)`)
+      .eq('id', req.params.visitId)
+      .single();
+
+    if (error || !visit) return res.status(404).json({ error: 'Visit not found.' });
+
+    // Fetch qc_lab_tests
+    const { data: qcTests } = await adminClient.from('qc_lab_tests').select('*').eq('visit_id', req.params.visitId);
+    visit.qc_lab_tests = qcTests || [];
+
+    // Fetch trip data
+    let tripData = {};
+    if (visit.trip_id) {
+      const { data: dTrip } = await adminClient
+        .from('driver_trips')
+        .select('*')
+        .eq('id', visit.trip_id)
+        .maybeSingle();
+
+      if (dTrip) {
+        tripData = {
+          trip_number: dTrip.trip_number,
+          route: dTrip.route || dTrip.destination || '—',
+          driver_name: dTrip.driver_name || '—',
+          tanker_number: dTrip.vehicle_number || dTrip.tanker_number || '—',
+          duty_type: dTrip.duty_type || '—',
+          selected_bmcs: dTrip.selected_bmcs || [],
+          out_km: dTrip.out_km,
+          started_at: dTrip.started_at || dTrip.scheduled_start_time,
+          assigned_driver_id: dTrip.assigned_driver_id,
+          assigned_worker_id: dTrip.assigned_worker_id || dTrip.worker_id
+        };
+      } else {
+        const { data: trip } = await adminClient
+          .from('trips')
+          .select('*')
+          .eq('id', visit.trip_id)
+          .maybeSingle();
+        if (trip) {
+          tripData = {
+            trip_number: trip.trip_number,
+            route: trip.route_description || '—',
+            driver_name: trip.driver_name || '—',
+            tanker_number: trip.tanker_number || '—',
+            duty_type: '—',
+            selected_bmcs: [],
+            out_km: trip.out_km,
+            started_at: trip.out_time,
+            assigned_worker_id: trip.worker_id
+          };
+        }
+      }
+
+      // Resolve driver name if missing
+      const driverId = tripData.assigned_driver_id;
+      if (driverId && (!tripData.driver_name || tripData.driver_name === '—' || tripData.driver_name === 'Driver')) {
+        const { data: dRec } = await adminClient.from('drivers').select('name').eq('id', driverId).maybeSingle();
+        if (dRec && dRec.name) tripData.driver_name = dRec.name;
+        else {
+          const { data: pRec } = await adminClient.from('profiles').select('name').eq('id', driverId).maybeSingle();
+          if (pRec && pRec.name) tripData.driver_name = pRec.name;
+        }
+      }
+
+      // Resolve spot analyzer / worker name
+      const workerId = visit.worker_id || tripData.assigned_worker_id;
+      if (workerId) {
+        const { data: wRec } = await adminClient.from('profiles').select('name').eq('id', workerId).maybeSingle();
+        if (wRec && wRec.name) tripData.spot_analyzer_name = wRec.name;
+      }
+    }
+
+    res.json({
+      visit: {
+        ...visit,
+        trip: tripData
+      }
+    });
+  } catch (err) {
+    console.error('❌ GM Invoice detail error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch invoice data.' });
   }
 });
 
@@ -9796,9 +10055,8 @@ let macsSchedulerState = {
 };
 
 /**
- * enforceMacsRetention — Keeps ONLY the latest 4 live MACS records per BMC code in macs_api_bmc_data.
- * Evaluates records strictly by macs_bmc_code, sorted by fetched_at DESC, id DESC.
- * Deletes older records (rn > 4) in batches.
+ * enforceMacsRetention — Keeps ONLY the latest 4 live intraday polling MACS records per BMC code in macs_api_bmc_data.
+ * PERMANENT 23:55 daily snapshot records are EXCLUDED from deletion and preserved forever.
  * @param {object} adminClient - Supabase admin client
  * @returns {Promise<{ deleted: number, remaining: number }>}
  */
@@ -9806,10 +10064,29 @@ async function enforceMacsRetention(adminClient) {
   if (!adminClient) return { deleted: 0, remaining: 0 };
 
   try {
-    // 1. Query all macs_api_bmc_data rows (id, macs_bmc_code, fetched_at)
+    // 1. Fetch daily 23:55 sync run IDs
+    const { data: dailySyncRuns } = await adminClient
+      .from('macs_api_sync_runs')
+      .select('id, started_at, u_code, error_message');
+
+    const dailySyncRunIds = new Set();
+
+    (dailySyncRuns || []).forEach(r => {
+      const isExplicitTag = r.error_message === 'DAILY_2355_SNAPSHOT' || String(r.u_code) === 'DAILY_2355';
+      let is2355Time = false;
+      if (r.started_at) {
+        const d = new Date(r.started_at);
+        is2355Time = d.getHours() === 23 && d.getMinutes() >= 50;
+      }
+      if (isExplicitTag || is2355Time) {
+        dailySyncRunIds.add(r.id);
+      }
+    });
+
+    // 2. Query all macs_api_bmc_data rows (id, macs_bmc_code, fetched_at, sync_run_id)
     const { data: allRows, error: fetchErr } = await adminClient
       .from('macs_api_bmc_data')
-      .select('id, macs_bmc_code, fetched_at')
+      .select('id, macs_bmc_code, fetched_at, sync_run_id')
       .order('fetched_at', { ascending: false });
 
     if (fetchErr) {
@@ -9822,9 +10099,25 @@ async function enforceMacsRetention(adminClient) {
       return { deleted: 0, remaining: 0 };
     }
 
-    // 2. Group records by macs_bmc_code
-    const bmcGroups = new Map();
+    // 3. Separate permanent daily 23:55 snapshots from 15-minute intraday polling rows
+    const pollingRows = [];
+    let permanentCount = 0;
+
     for (const row of allRows) {
+      const isDailyRun = row.sync_run_id && dailySyncRunIds.has(row.sync_run_id);
+      const fetchedDate = row.fetched_at ? new Date(row.fetched_at) : null;
+      const is2355Time = fetchedDate && fetchedDate.getHours() === 23 && fetchedDate.getMinutes() >= 50;
+
+      if (isDailyRun || is2355Time) {
+        permanentCount++; // Permanent daily snapshot — DO NOT DELETE
+      } else {
+        pollingRows.push(row);
+      }
+    }
+
+    // 4. Group temporary intraday polling records by macs_bmc_code
+    const bmcGroups = new Map();
+    for (const row of pollingRows) {
       const code = String(row.macs_bmc_code).trim();
       if (!code) continue;
       if (!bmcGroups.has(code)) {
@@ -9833,9 +10126,9 @@ async function enforceMacsRetention(adminClient) {
       bmcGroups.get(code).push(row);
     }
 
-    // 3. For each BMC, sort by fetched_at DESC, id DESC, keep top 4, collect remainder for deletion
+    // 5. For each BMC, keep latest 4 intraday polling rows, collect remainder for deletion
     const idsToDelete = [];
-    let totalKept = 0;
+    let pollingKept = 0;
 
     for (const [code, rows] of bmcGroups.entries()) {
       rows.sort((a, b) => {
@@ -9847,13 +10140,13 @@ async function enforceMacsRetention(adminClient) {
       const keep = rows.slice(0, 4);
       const remove = rows.slice(4);
 
-      totalKept += keep.length;
+      pollingKept += keep.length;
       for (const r of remove) {
         if (r.id) idsToDelete.push(r.id);
       }
     }
 
-    // 4. If any records need deletion, delete in batches of 100
+    // 6. Delete older intraday polling records in batches of 100
     let deletedCount = 0;
     if (idsToDelete.length > 0) {
       const batchSize = 100;
@@ -9865,18 +10158,18 @@ async function enforceMacsRetention(adminClient) {
           .in('id', batch);
 
         if (delErr) {
-          console.error(`❌ MACS retention cleanup error deleting batch ${i}-${i + batch.length}:`, delErr.message);
+          console.error(`❌ MACS retention cleanup error deleting batch:`, delErr.message);
         } else {
           deletedCount += batch.length;
         }
       }
 
-      console.log(`🧹 MACS retention cleanup completed: deleted = ${deletedCount}, remaining = ${totalKept}, retention = latest 4 per BMC`);
+      console.log(`🧹 MACS retention cleanup completed: deleted ${deletedCount} temporary polling records. Permanent 23:55 records preserved: ${permanentCount}. Total remaining: ${pollingKept + permanentCount}`);
     } else {
-      console.log('🧹 MACS retention cleanup completed: deleted = 0, all BMCs within retention limit');
+      console.log(`🧹 MACS retention cleanup completed: deleted 0 records. Permanent 23:55 records preserved: ${permanentCount}. Total remaining: ${pollingKept + permanentCount}`);
     }
 
-    return { deleted: deletedCount, remaining: totalKept };
+    return { deleted: deletedCount, remaining: pollingKept + permanentCount };
   } catch (err) {
     console.error('❌ MACS retention cleanup exception:', err.message);
     return { deleted: 0, remaining: 0 };
@@ -9885,13 +10178,16 @@ async function enforceMacsRetention(adminClient) {
 
 /**
  * macsBmcSyncService — Reusable sync function.
- * Called by both the 15-minute scheduler and the manual "Sync Now" button.
+ * Called by the 15-minute scheduler, the 23:55 daily scheduler, and manual "Sync Now" trigger.
+ * @param {object} [options] - Sync options (e.g. { isDaily2355: true })
  */
-async function macsBmcSyncService() {
+async function macsBmcSyncService(options = {}) {
   const adminClient = getAdminClient();
   if (!adminClient) {
     return { success: false, error: 'Server database not configured.', recordsFetched: 0, recordsStored: 0, recordsSkipped: 0 };
   }
+
+  const isDaily2355 = Boolean(options.isDaily2355);
 
   // Generate current date in DD/MM/YYYY format
   const now = new Date();
@@ -9909,8 +10205,9 @@ async function macsBmcSyncService() {
         started_at: now.toISOString(),
         status: 'in_progress',
         requested_date: formattedDate,
-        u_code: MACS_API_CONFIG.uCode,
-        union_code: MACS_API_CONFIG.unionCode
+        u_code: parseInt(MACS_API_CONFIG.uCode, 10) || 2,
+        union_code: parseInt(MACS_API_CONFIG.unionCode, 10) || 2,
+        error_message: isDaily2355 ? 'DAILY_2355_SNAPSHOT' : null
       })
       .select('id')
       .single();
@@ -9938,7 +10235,7 @@ async function macsBmcSyncService() {
       unionCode: MACS_API_CONFIG.unionCode
     };
 
-    console.log(`🔄 MACS API Sync: Fetching data for ${formattedDate}...`);
+    console.log(`🔄 MACS API Sync${isDaily2355 ? ' [DAILY 23:55 SNAPSHOT]' : ''}: Fetching data for ${formattedDate}...`);
 
     const response = await fetch(MACS_API_CONFIG.url, {
       method: 'POST',
@@ -10026,14 +10323,15 @@ async function macsBmcSyncService() {
         status: 'success',
         records_fetched: recordsFetched,
         records_stored: recordsStored,
-        records_skipped: recordsSkipped
+        records_skipped: recordsSkipped,
+        error_message: isDaily2355 ? 'DAILY_2355_SNAPSHOT' : null
       })
       .eq('id', syncRunId);
 
     macsSchedulerState.lastSyncTime = new Date();
-    console.log(`✅ MACS API Sync: Success — ${recordsFetched} fetched, ${recordsStored} stored, ${recordsSkipped} skipped`);
+    console.log(`✅ MACS API Sync${isDaily2355 ? ' [DAILY 23:55 SNAPSHOT]' : ''}: Success — ${recordsFetched} fetched, ${recordsStored} stored, ${recordsSkipped} skipped`);
 
-    // 8. Enforce rolling 4-record retention per BMC
+    // 8. Enforce rolling retention (preserves 23:55 daily records permanently)
     await enforceMacsRetention(adminClient);
 
     return { success: true, recordsFetched, recordsStored, recordsSkipped, syncRunId };
@@ -10108,13 +10406,43 @@ function startMacsApiScheduler() {
   }, 10000);
 }
 
-// Start scheduler when server boots
+// ─── MACS API Dedicated 23:55 Daily Scheduler ────────────────────────────────
+function scheduleNextDaily2355Sync() {
+  const now = new Date();
+  const next2355 = new Date();
+  next2355.setHours(23, 55, 0, 0);
+
+  // If 23:55 today has already passed, schedule for 23:55 tomorrow
+  if (now.getTime() >= next2355.getTime()) {
+    next2355.setDate(next2355.getDate() + 1);
+  }
+
+  const msUntilNext2355 = next2355.getTime() - now.getTime();
+  const nextFormatted = next2355.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const dateFormatted = next2355.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  console.log(`🌙 MACS API 23:55 Daily Scheduler: Next snapshot scheduled for ${dateFormatted} at ${nextFormatted} (in ${(msUntilNext2355 / 60000).toFixed(1)} mins)`);
+
+  setTimeout(async () => {
+    console.log('🌙 MACS API 23:55 Daily Scheduler: Executing dedicated 23:55 daily MACS fetch...');
+    try {
+      await macsBmcSyncService({ isDaily2355: true });
+    } catch (err) {
+      console.error('❌ MACS API 23:55 Daily Scheduler error:', err.message);
+    } finally {
+      // Schedule next run for tomorrow at 23:55
+      scheduleNextDaily2355Sync();
+    }
+  }, msUntilNext2355);
+}
+
+// Start schedulers when server boots
 startMacsApiScheduler();
+scheduleNextDaily2355Sync();
 
 // ─── MACS API Admin Endpoints ─────────────────────────────────────────────────
 
 // POST /api/admin/macs-api/sync — Manual "Sync Now"
-app.post('/api/admin/macs-api/sync', requireAdminRole, async (req, res) => {
+app.post('/api/admin/macs-api/sync', requireAuthAny, async (req, res) => {
   if (macsSchedulerState.isRunning) {
     return res.status(409).json({ error: 'A sync is already in progress. Please wait.' });
   }
@@ -10176,6 +10504,142 @@ app.get('/api/admin/macs-api/status', requireAdminRole, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── DAILY MACS SNAPSHOTS ENDPOINTS ─────────────────────────────────────────
+
+// GET /api/admin/macs-api/daily-snapshots — List saved 23:55 daily MACS snapshots
+app.get('/api/admin/macs-api/daily-snapshots', requireAuthAny, async (req, res) => {
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Database not configured.' });
+
+  try {
+    const { data: runs, error } = await adminClient
+      .from('macs_api_sync_runs')
+      .select('*')
+      .order('started_at', { ascending: false });
+
+    if (error) throw error;
+
+    const dailyMap = new Map();
+
+    (runs || []).forEach(run => {
+      if (run.status !== 'success') return;
+      const dateKey = run.requested_date;
+      if (!dateKey) return;
+
+      const isExplicitDaily = run.error_message === 'DAILY_2355_SNAPSHOT' || String(run.u_code) === 'DAILY_2355';
+      const startDate = run.started_at ? new Date(run.started_at) : null;
+      const is2355Time = startDate && startDate.getHours() === 23 && startDate.getMinutes() >= 50;
+
+      if (!dailyMap.has(dateKey)) {
+        if (isExplicitDaily || is2355Time) {
+          dailyMap.set(dateKey, { ...run, is_explicit_daily: isExplicitDaily });
+        }
+      } else if (isExplicitDaily && !dailyMap.get(dateKey).is_explicit_daily) {
+        dailyMap.set(dateKey, { ...run, is_explicit_daily: true });
+      }
+    });
+
+    const snapshots = Array.from(dailyMap.values());
+
+    for (const snap of snapshots) {
+      const { count } = await adminClient
+        .from('macs_api_bmc_data')
+        .select('id', { count: 'exact', head: true })
+        .eq('sync_run_id', snap.id);
+      snap.currently_stored = count || 0;
+    }
+
+    res.json({ success: true, snapshots });
+  } catch (err) {
+    console.error('Error fetching daily MACS snapshots:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/admin/macs-api/daily-snapshots/:date — Get 23:55 saved MACS records for a specific date
+app.get('/api/admin/macs-api/daily-snapshots/:date', requireAuthAny, async (req, res) => {
+  const adminClient = getAdminClient();
+  if (!adminClient) return res.status(503).json({ error: 'Database not configured.' });
+
+  const rawDate = decodeURIComponent(req.params.date);
+  let macsDate = rawDate;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+    macsDate = convertISOToMacsDate(rawDate);
+  }
+
+  try {
+    const { data: runs, error: runErr } = await adminClient
+      .from('macs_api_sync_runs')
+      .select('*')
+      .eq('requested_date', macsDate)
+      .eq('status', 'success')
+      .order('started_at', { ascending: false });
+
+    if (runErr) throw runErr;
+
+    let targetRun = (runs || []).find(r => r.error_message === 'DAILY_2355_SNAPSHOT' || String(r.u_code) === 'DAILY_2355');
+    if (!targetRun) {
+      targetRun = (runs || []).find(r => {
+        if (!r.started_at) return false;
+        const d = new Date(r.started_at);
+        return d.getHours() === 23 && d.getMinutes() >= 50;
+      });
+    }
+    if (!targetRun && runs && runs.length > 0) {
+      targetRun = runs[0];
+    }
+
+    if (!targetRun) {
+      return res.status(404).json({ success: false, error: `No 23:55 MACS snapshot found for date ${macsDate}` });
+    }
+
+    const { data: records, error: dataErr } = await adminClient
+      .from('macs_api_bmc_data')
+      .select('*')
+      .eq('sync_run_id', targetRun.id)
+      .order('macs_bmc_code', { ascending: true });
+
+    if (dataErr) throw dataErr;
+
+    const { data: bmcMasters } = await adminClient
+      .from('bmcs')
+      .select('bmc_code, name, location, district, total_capacity');
+
+    const bmcMasterMap = new Map();
+    (bmcMasters || []).forEach(b => {
+      if (b.bmc_code) bmcMasterMap.set(String(b.bmc_code).trim(), b);
+    });
+
+    const mappedRecords = (records || []).map(r => {
+      const code = String(r.macs_bmc_code || '').trim();
+      const master = bmcMasterMap.get(code) || null;
+      return {
+        ...r,
+        bmc_master_name: master ? master.name : r.macs_bmc_name,
+        district: master ? master.district : null,
+        location: master ? master.location : null,
+        total_capacity: master ? master.total_capacity : null
+      };
+    });
+
+    res.json({
+      success: true,
+      snapshot: {
+        sync_run_id: targetRun.id,
+        requested_date: targetRun.requested_date,
+        started_at: targetRun.started_at,
+        completed_at: targetRun.completed_at,
+        records_count: mappedRecords.length
+      },
+      records: mappedRecords
+    });
+
+  } catch (err) {
+    console.error('Error fetching daily MACS snapshot detail:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

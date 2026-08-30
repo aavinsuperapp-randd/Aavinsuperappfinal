@@ -456,137 +456,245 @@
       <main class="admin-content">
         <div id="main-admin-content" class="hidden">
 
-          <!-- MACS API Status Panel -->
-          <div class="macs-section-header">
-            <div>
-              <h2 class="macs-section-title">🔗 MACS API Status</h2>
-              <p class="text-muted text-xs" style="margin-top:2px;">Automatic BMC data collection from MACS software API every 15 minutes.</p>
-            </div>
-            <button id="macs-sync-btn" class="macs-sync-btn" onclick="handleManualSync()">
-              🔄 Sync Now
+          <!-- Top Sub-Tabs Navigation -->
+          <div style="display:flex; gap:12px; border-bottom:2px solid #E2E8F0; margin-bottom:24px;">
+            <button id="tab-btn-live-macs" class="macs-tab-nav-btn active" onclick="switchMacsSubTab('live')" style="padding:10px 18px; font-weight:700; font-size:0.9rem; border:none; background:transparent; border-bottom:3px solid #2563EB; color:#2563EB; cursor:pointer;">
+              ⚡ Live MACS API Sync
+            </button>
+            <button id="tab-btn-daily-macs" class="macs-tab-nav-btn" onclick="switchMacsSubTab('daily')" style="padding:10px 18px; font-weight:700; font-size:0.9rem; border:none; background:transparent; border-bottom:3px solid transparent; color:#64748B; cursor:pointer;">
+              📅 Daily MACS Snapshots (23:55)
             </button>
           </div>
 
-          <div class="macs-api-status-grid" id="macs-status-grid">
-            <div class="macs-status-card">
-              <div class="macs-status-label">Connection Status</div>
-              <div class="macs-status-value" id="status-connection">
-                <span class="status-dot yellow"></span> Loading...
-              </div>
-            </div>
-            <div class="macs-status-card">
-              <div class="macs-status-label">Last Successful Sync</div>
-              <div class="macs-status-value" id="status-last-sync">—</div>
-            </div>
-            <div class="macs-status-card">
-              <div class="macs-status-label">Next Scheduled Sync</div>
-              <div class="macs-status-value info" id="status-next-sync">—</div>
-            </div>
-            <div class="macs-status-card">
-              <div class="macs-status-label">Records Fetched</div>
-              <div class="macs-status-value" id="status-fetched">—</div>
-            </div>
-            <div class="macs-status-card">
-              <div class="macs-status-label">Records Stored</div>
-              <div class="macs-status-value" id="status-stored">—</div>
-            </div>
-            <div class="macs-status-card">
-              <div class="macs-status-label">Skipped (TOTAL rows)</div>
-              <div class="macs-status-value" id="status-skipped">—</div>
-            </div>
-            <div class="macs-status-card">
-              <div class="macs-status-label">Total Sync Runs</div>
-              <div class="macs-status-value info" id="status-total-syncs">—</div>
-            </div>
-            <div class="macs-status-card">
-              <div class="macs-status-label">Last Error</div>
-              <div class="macs-status-value" id="status-last-error" style="font-size:0.82rem;">None</div>
-            </div>
-          </div>
-
-          <!-- Sync History Section -->
-          <div class="card p-3 mb-3" style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+          <!-- ─── LIVE MACS API SYNC SECTION ──────────────────────────────────────── -->
+          <div id="live-macs-container">
+            <!-- MACS API Status Panel -->
+            <div class="macs-section-header">
               <div>
-                <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#1E293B;">📜 MACS Sync History & Controls</h4>
-                <p class="text-muted text-xs" style="margin:2px 0 0 0;">View live readings and manage snapshot storage for each sync execution.</p>
+                <h2 class="macs-section-title">🔗 MACS API Status</h2>
+                <p class="text-muted text-xs" style="margin-top:2px;">Automatic BMC data collection from MACS software API every 15 minutes.</p>
               </div>
-              <button class="btn btn-secondary text-xs" onclick="loadSyncHistory()" style="padding:4px 10px; font-size:0.75rem;">
-                🔄 Refresh History
+              <button id="macs-sync-btn" class="macs-sync-btn" onclick="handleManualSync()">
+                🔄 Sync Now
               </button>
             </div>
 
-            <div class="macs-sync-history-wrapper">
-              <table class="macs-history-table">
+            <div class="macs-api-status-grid" id="macs-status-grid">
+              <div class="macs-status-card">
+                <div class="macs-status-label">Connection Status</div>
+                <div class="macs-status-value" id="status-connection">
+                  <span class="status-dot yellow"></span> Loading...
+                </div>
+              </div>
+              <div class="macs-status-card">
+                <div class="macs-status-label">Last Successful Sync</div>
+                <div class="macs-status-value" id="status-last-sync">—</div>
+              </div>
+              <div class="macs-status-card">
+                <div class="macs-status-label">Next Scheduled Sync</div>
+                <div class="macs-status-value info" id="status-next-sync">—</div>
+              </div>
+              <div class="macs-status-card">
+                <div class="macs-status-label">Records Fetched</div>
+                <div class="macs-status-value" id="status-fetched">—</div>
+              </div>
+              <div class="macs-status-card">
+                <div class="macs-status-label">Records Stored</div>
+                <div class="macs-status-value" id="status-stored">—</div>
+              </div>
+              <div class="macs-status-card">
+                <div class="macs-status-label">Skipped (TOTAL rows)</div>
+                <div class="macs-status-value" id="status-skipped">—</div>
+              </div>
+              <div class="macs-status-card">
+                <div class="macs-status-label">Total Sync Runs</div>
+                <div class="macs-status-value info" id="status-total-syncs">—</div>
+              </div>
+              <div class="macs-status-card">
+                <div class="macs-status-label">Last Error</div>
+                <div class="macs-status-value" id="status-last-error" style="font-size:0.82rem;">None</div>
+              </div>
+            </div>
+
+            <!-- Sync History Section -->
+            <div class="card p-3 mb-3" style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+                <div>
+                  <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#1E293B;">📜 MACS Sync History & Controls</h4>
+                  <p class="text-muted text-xs" style="margin:2px 0 0 0;">View live readings and manage snapshot storage for each sync execution.</p>
+                </div>
+                <button class="btn btn-secondary text-xs" onclick="loadSyncHistory()" style="padding:4px 10px; font-size:0.75rem;">
+                  🔄 Refresh History
+                </button>
+              </div>
+
+              <div class="macs-sync-history-wrapper">
+                <table class="macs-history-table">
+                  <thead>
+                    <tr>
+                      <th>Sync Time</th>
+                      <th>Status</th>
+                      <th>Records Fetched / Stored</th>
+                      <th>Current Live Data</th>
+                      <th>Message</th>
+                      <th style="text-align:right;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sync-history-tbody">
+                    <tr>
+                      <td colspan="6" style="text-align:center; color:#94A3B8; padding:24px;">Loading sync history...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- MACS BMC Data Table -->
+            <div class="macs-section-header" style="margin-top:28px;">
+              <div>
+                <h2 class="macs-section-title">📊 Current Live MACS BMC Data</h2>
+                <div class="page-info" id="data-page-info" style="font-size:0.8rem; color:#64748B; font-weight:600; margin-top:2px;"></div>
+              </div>
+              <div style="display:flex; gap:10px; align-items:center;">
+                <button class="btn-action-clear-all" onclick="confirmDeleteAllLiveData()">
+                  🗑️ Clear All Live Data
+                </button>
+              </div>
+            </div>
+
+            <div class="macs-data-table-wrapper">
+              <table class="macs-data-table" id="macs-data-table">
                 <thead>
                   <tr>
-                    <th>Sync Time</th>
-                    <th>Status</th>
-                    <th>Records Fetched / Stored</th>
-                    <th>Current Live Data</th>
-                    <th>Message</th>
-                    <th style="text-align:right;">Actions</th>
+                    <th>Fetch Time</th>
+                    <th>Report Date</th>
+                    <th>MACS BMC Code</th>
+                    <th>BMC Name</th>
+                    <th>LIT T1</th>
+                    <th>FAT T1</th>
+                    <th>SNF T1</th>
+                    <th>LIT T2</th>
+                    <th>FAT T2</th>
+                    <th>SNF T2</th>
+                    <th>SO C1</th>
+                    <th>SO C2</th>
+                    <th>LIT</th>
+                    <th>KG FAT T1</th>
+                    <th>KG SNF T1</th>
+                    <th>KG FAT T2</th>
+                    <th>KG SNF T2</th>
+                    <th>DIFF</th>
+                    <th style="text-align:center;">Action</th>
                   </tr>
                 </thead>
-                <tbody id="sync-history-tbody">
+                <tbody id="macs-data-tbody">
                   <tr>
-                    <td colspan="6" style="text-align:center; color:#94A3B8; padding:24px;">Loading sync history...</td>
+                    <td colspan="19" style="text-align:center; color:#94A3B8; padding:32px; font-weight:600;">Loading data...</td>
                   </tr>
                 </tbody>
               </table>
             </div>
+
+            <div class="macs-pagination" id="macs-pagination"></div>
           </div>
 
-          <!-- MACS BMC Data Table -->
-          <div class="macs-section-header" style="margin-top:28px;">
-            <div>
-              <h2 class="macs-section-title">📊 Current Live MACS BMC Data</h2>
-              <div class="page-info" id="data-page-info" style="font-size:0.8rem; color:#64748B; font-weight:600; margin-top:2px;"></div>
-            </div>
-            <div style="display:flex; gap:10px; align-items:center;">
-              <button class="btn-action-clear-all" onclick="confirmDeleteAllLiveData()">
-                🗑️ Clear All Live Data
+          <!-- ─── DAILY MACS SNAPSHOTS SECTION ──────────────────────────────────────── -->
+          <div id="daily-macs-container" class="hidden">
+            <div class="macs-section-header">
+              <div>
+                <h2 class="macs-section-title">📅 Permanently Saved 23:55 Daily MACS Snapshots</h2>
+                <p class="text-muted text-xs" style="margin-top:2px;">Dedicated daily snapshots fetched automatically at 23:55:00 every night. Saved permanently for historical record keeping.</p>
+              </div>
+              <button class="btn btn-secondary text-xs" onclick="loadDailySnapshots()" style="padding:6px 12px; font-weight:700;">
+                🔄 Refresh Daily Snapshots
               </button>
             </div>
-          </div>
 
-          <div class="macs-data-table-wrapper">
-            <table class="macs-data-table" id="macs-data-table">
-              <thead>
-                <tr>
-                  <th>Fetch Time</th>
-                  <th>Report Date</th>
-                  <th>MACS BMC Code</th>
-                  <th>BMC Name</th>
-                  <th>LIT T1</th>
-                  <th>FAT T1</th>
-                  <th>SNF T1</th>
-                  <th>LIT T2</th>
-                  <th>FAT T2</th>
-                  <th>SNF T2</th>
-                  <th>SO C1</th>
-                  <th>SO C2</th>
-                  <th>LIT</th>
-                  <th>KG FAT T1</th>
-                  <th>KG SNF T1</th>
-                  <th>KG FAT T2</th>
-                  <th>KG SNF T2</th>
-                  <th>DIFF</th>
-                  <th style="text-align:center;">Action</th>
-                </tr>
-              </thead>
-              <tbody id="macs-data-tbody">
-                <tr>
-                  <td colspan="19" style="text-align:center; color:#94A3B8; padding:32px; font-weight:600;">Loading data...</td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="card p-3 mb-3" style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:12px;">
+              <div class="macs-sync-history-wrapper">
+                <table class="macs-history-table">
+                  <thead>
+                    <tr>
+                      <th>Snapshot Date</th>
+                      <th>Time Fetched</th>
+                      <th>BMCs Saved</th>
+                      <th>Storage Status</th>
+                      <th style="text-align:right;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="daily-snapshots-tbody">
+                    <tr>
+                      <td colspan="5" style="text-align:center; color:#94A3B8; padding:24px;">Loading daily MACS snapshots...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-
-          <div class="macs-pagination" id="macs-pagination"></div>
 
         </div>
       </main>
+    </div>
+  </div>
+
+  <!-- ─── MODAL: View Daily 23:55 MACS Snapshot ─────────────────────────────────── -->
+  <div id="daily-snapshot-detail-modal" class="macs-modal-overlay hidden">
+    <div class="macs-modal-card" style="max-width:1100px;">
+      <div class="macs-modal-header" style="background:#EFF6FF; border-bottom:1px solid #DBEAFE;">
+        <div>
+          <h3 class="macs-modal-title" style="color:#1E40AF;">
+            <span>📅</span> Daily MACS Snapshot — <span id="daily-modal-date-title">—</span>
+          </h3>
+          <div id="daily-modal-subtitle" style="font-size:0.78rem; color:#3B82F6; margin-top:2px; font-weight:600;">
+            Fetched at 23:55:00 • Permanent Historical Record
+          </div>
+        </div>
+        <button type="button" class="macs-modal-close" onclick="closeDailySnapshotModal()">✕</button>
+      </div>
+
+      <div class="macs-modal-body" style="padding:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+          <input type="text" id="daily-modal-search" class="date-picker-input" placeholder="🔍 Search BMC Code or BMC Name..." oninput="filterDailyModalTable()" style="min-width:260px; padding:6px 12px; border-radius:8px; border:1px solid #CBD5E1;">
+          <span id="daily-modal-count-badge" class="sync-badge available" style="font-size:0.8rem; padding:6px 12px;">0 BMC Records</span>
+        </div>
+
+        <div class="macs-data-table-wrapper" style="max-height: 480px; overflow-y:auto;">
+          <table class="macs-data-table">
+            <thead>
+              <tr>
+                <th>S.No</th>
+                <th>MACS BMC Code</th>
+                <th>BMC Name</th>
+                <th>Report Date</th>
+                <th>Fetch Time</th>
+                <th>LIT T1</th>
+                <th>FAT T1 %</th>
+                <th>SNF T1 %</th>
+                <th>LIT T2</th>
+                <th>FAT T2 %</th>
+                <th>SNF T2 %</th>
+                <th>SO C1</th>
+                <th>SO C2</th>
+                <th>Total Liters (LIT)</th>
+                <th>KG FAT T1</th>
+                <th>KG SNF T1</th>
+                <th>DIFF</th>
+              </tr>
+            </thead>
+            <tbody id="daily-modal-tbody">
+              <tr>
+                <td colspan="17" style="text-align:center; color:#94A3B8; padding:32px;">Loading 23:55 snapshot records...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="macs-modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeDailySnapshotModal()">Close</button>
+      </div>
+    </div>
+  </div>
     </div>
   </div>
 

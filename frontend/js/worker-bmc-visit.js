@@ -441,22 +441,16 @@ function setupSaveButtonListeners() {
 }
 
 window.handleCloseBmcVisit = async function() {
-  const closeBtns = document.querySelectorAll('#btn-header-back, .btn-close-visit, button[onclick="handleCloseBmcVisit()"]');
-  closeBtns.forEach(btn => {
-    btn.disabled = true;
-    if (!btn.dataset.origHtml) btn.dataset.origHtml = btn.innerHTML;
-    btn.innerHTML = '⌛ Closing BMC Visit...';
-  });
-
   const tripId = getUrlParam('tripId') || currentTripId;
   const bmcId = getUrlParam('bmcId') || currentBmcId;
   const bmcCode = getUrlParam('bmcCode') || currentBmcCode;
 
-  try {
-    let targetVisitId = (currentVisitData && currentVisitData.id) ? currentVisitData.id : (currentVisitId && !currentVisitId.startsWith('virtual-') ? currentVisitId : null);
+  let targetVisitId = (currentVisitData && currentVisitData.id) ? currentVisitData.id : (currentVisitId && !currentVisitId.startsWith('virtual-') ? currentVisitId : null);
 
-    if (!targetVisitId || targetVisitId.startsWith('virtual-')) {
-      if (tripId) {
+  // If no real visit ID, create one first
+  if (!targetVisitId || targetVisitId.startsWith('virtual-')) {
+    if (tripId) {
+      try {
         const createRes = await workerFetch(`/api/trips/${tripId}/visits`, {
           method: 'POST',
           body: JSON.stringify({ bmc_id: bmcId || bmcCode || null, bmc_code: bmcCode || null })
@@ -465,29 +459,117 @@ window.handleCloseBmcVisit = async function() {
           targetVisitId = createRes.visit.id;
           currentVisitData = createRes.visit;
         }
+      } catch(e) {
+        alert('Could not resolve visit record: ' + e.message);
+        return;
       }
     }
+  }
 
-    if (targetVisitId && !targetVisitId.startsWith('virtual-')) {
-      const updateRes = await apiUpdateVisitWeight(targetVisitId, {
+  if (!targetVisitId || targetVisitId.startsWith('virtual-')) {
+    alert('Could not resolve a valid BMC visit record to close.');
+    return;
+  }
+
+  // Check if invoice data already exists (re-open case)
+  const existingSerial = currentVisitData?.invoice_serial_no || '';
+  const existingTemp = currentVisitData?.temperature || '';
+  const existingSeal = currentVisitData?.seal_number || '';
+  const existingBroken = currentVisitData?.broken_seal_number || '';
+
+  // Show the close visit invoice modal
+  showCloseVisitInvoiceModal(targetVisitId, tripId, existingSerial, existingTemp, existingSeal, existingBroken);
+};
+
+function showCloseVisitInvoiceModal(visitId, tripId, serialVal, tempVal, sealVal, brokenVal) {
+  // Remove old modal if present
+  let existing = document.getElementById('close-visit-invoice-modal');
+  if (existing) existing.remove();
+
+  const bmcName = currentVisitData?.bmc?.name || currentVisitData?.bmc_name || 'BMC';
+
+  const modal = document.createElement('div');
+  modal.id = 'close-visit-invoice-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);">
+      <div style="padding:20px 24px 14px;border-bottom:1px solid #E2E8F0;display:flex;align-items:center;justify-content:space-between;">
+        <h3 style="margin:0;font-size:1.05rem;font-weight:800;color:#0F172A;">🔒 Close BMC Visit — Invoice Details</h3>
+        <button id="cvi-modal-cancel" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#94A3B8;padding:4px;">✕</button>
+      </div>
+      <div style="padding:12px 24px;background:#F0FDF4;border-bottom:1px solid #D1FAE5;font-size:0.85rem;color:#065F46;font-weight:600;">
+        📍 ${bmcName}
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px;">
+        <div>
+          <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Invoice Serial Number <span style="color:#EF4444;">*</span></label>
+          <input id="cvi-serial" type="text" value="${serialVal}" placeholder="e.g. INV-2026-001" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
+        </div>
+        <div>
+          <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Temperature (°C) <span style="color:#EF4444;">*</span></label>
+          <input id="cvi-temperature" type="number" step="0.1" value="${tempVal}" placeholder="e.g. 4.5" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
+        </div>
+        <div>
+          <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Seal Number <span style="color:#EF4444;">*</span></label>
+          <input id="cvi-seal" type="text" value="${sealVal}" placeholder="e.g. SL-0042" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
+        </div>
+        <div>
+          <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Broken Seal Number <span style="color:#EF4444;">*</span></label>
+          <input id="cvi-broken-seal" type="text" value="${brokenVal}" placeholder="e.g. BSL-0019" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
+        </div>
+      </div>
+      <div style="padding:16px 24px;border-top:1px solid #E2E8F0;display:flex;gap:10px;justify-content:flex-end;">
+        <button id="cvi-modal-back" style="padding:8px 18px;border:1.5px solid #CBD5E1;border-radius:10px;background:#F8FAFC;color:#475569;font-weight:600;font-size:0.88rem;cursor:pointer;">← Cancel</button>
+        <button id="cvi-modal-confirm" style="padding:8px 22px;border:none;border-radius:10px;background:linear-gradient(135deg,#16A34A,#15803D);color:#fff;font-weight:700;font-size:0.88rem;cursor:pointer;box-shadow:0 2px 8px rgba(22,163,74,0.3);">🔒 Close & Save Invoice</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // Event handlers
+  document.getElementById('cvi-modal-cancel').addEventListener('click', () => modal.remove());
+  document.getElementById('cvi-modal-back').addEventListener('click', () => modal.remove());
+
+  document.getElementById('cvi-modal-confirm').addEventListener('click', async () => {
+    const serial = document.getElementById('cvi-serial').value.trim();
+    const temperature = document.getElementById('cvi-temperature').value.trim();
+    const seal = document.getElementById('cvi-seal').value.trim();
+    const brokenSeal = document.getElementById('cvi-broken-seal').value.trim();
+
+    if (!serial) { alert('Invoice Serial Number is mandatory.'); return; }
+    if (!temperature) { alert('Temperature is mandatory.'); return; }
+    if (!seal) { alert('Seal Number is mandatory.'); return; }
+    if (!brokenSeal) { alert('Broken Seal Number is mandatory.'); return; }
+
+    const confirmBtn = document.getElementById('cvi-modal-confirm');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = '⌛ Saving...';
+
+    try {
+      const updateRes = await apiUpdateVisitWeight(visitId, {
         status: 'completed',
-        visit_end_time: new Date().toISOString()
+        visit_end_time: new Date().toISOString(),
+        invoice_serial_no: serial,
+        temperature: parseFloat(temperature),
+        seal_number: seal,
+        broken_seal_number: brokenSeal
       });
       if (updateRes && updateRes.visit) {
         currentVisitData = updateRes.visit;
       }
-    } else {
-      throw new Error('Could not resolve a valid BMC visit record to close.');
-    }
 
-    // Redirect to trip dashboard only AFTER database update succeeds
-    window.location.href = tripId ? `dashboard.html?tripId=${tripId}` : 'dashboard.html';
-  } catch (e) {
-    console.error('Error closing BMC visit:', e);
-    alert(e.message || 'Failed to close BMC visit. Please try again.');
-    closeBtns.forEach(btn => {
-      btn.disabled = false;
-      if (btn.dataset.origHtml) btn.innerHTML = btn.dataset.origHtml;
-    });
-  }
-};
+      modal.remove();
+      // Redirect to trip dashboard
+      window.location.href = tripId ? `dashboard.html?tripId=${tripId}` : 'dashboard.html';
+    } catch (e) {
+      console.error('Error closing BMC visit with invoice:', e);
+      alert(e.message || 'Failed to close BMC visit. Please try again.');
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = '🔒 Close & Save Invoice';
+    }
+  });
+
+  // Focus first input
+  setTimeout(() => document.getElementById('cvi-serial')?.focus(), 100);
+}
+

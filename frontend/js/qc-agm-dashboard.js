@@ -572,6 +572,46 @@ function closeDetailModal() {
   }
 }
 
+window.handleManualSync = async function() {
+  const btn = document.getElementById('macs-sync-btn');
+  if (!btn) return;
+
+  btn.disabled = true;
+  btn.classList.add('syncing');
+  btn.innerHTML = '⏳ Syncing...';
+
+  try {
+    const result = await qcAgmFetch('/api/admin/macs-api/sync', { method: 'POST' });
+
+    if (result.success) {
+      if (typeof showToast === 'function') {
+        showToast(`✅ Sync complete — ${result.recordsFetched} fetched, ${result.recordsStored} stored`, 'success');
+      } else {
+        alert(`✅ Sync complete — ${result.recordsFetched} fetched, ${result.recordsStored} stored`);
+      }
+    } else {
+      if (typeof showToast === 'function') {
+        showToast(`❌ Sync failed: ${result.error || 'Unknown error'}`, 'error');
+      } else {
+        alert(`❌ Sync failed: ${result.error || 'Unknown error'}`);
+      }
+    }
+
+    await loadAvailableDates();
+
+  } catch (err) {
+    if (typeof showToast === 'function') {
+      showToast(`❌ Sync error: ${err.message}`, 'error');
+    } else {
+      alert(`❌ Sync error: ${err.message}`);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('syncing');
+    btn.innerHTML = '🔄 Sync Now';
+  }
+};
+
 window.navigateToBmcDetails = function(bmcCode) {
   if (!bmcCode) return;
   window.location.href = `bmc-detail.html?code=${encodeURIComponent(bmcCode)}`;

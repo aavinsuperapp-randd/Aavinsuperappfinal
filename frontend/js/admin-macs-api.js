@@ -594,3 +594,191 @@ function truncate(str, len) {
   if (!str) return '';
   return str.length > len ? str.substring(0, len) + '...' : str;
 }
+
+// ─── Sub-Tab Navigation ──────────────────────────────────────────────────────
+
+window.switchMacsSubTab = function(tabName) {
+  const liveContainer = document.getElementById('live-macs-container');
+  const dailyContainer = document.getElementById('daily-macs-container');
+  const btnLive = document.getElementById('tab-btn-live-macs');
+  const btnDaily = document.getElementById('tab-btn-daily-macs');
+
+  if (tabName === 'daily') {
+    if (liveContainer) liveContainer.classList.add('hidden');
+    if (dailyContainer) dailyContainer.classList.remove('hidden');
+    if (btnLive) {
+      btnLive.classList.remove('active');
+      btnLive.style.borderBottomColor = 'transparent';
+      btnLive.style.color = '#64748B';
+    }
+    if (btnDaily) {
+      btnDaily.classList.add('active');
+      btnDaily.style.borderBottomColor = '#2563EB';
+      btnDaily.style.color = '#2563EB';
+    }
+    loadDailySnapshots();
+  } else {
+    if (dailyContainer) dailyContainer.classList.add('hidden');
+    if (liveContainer) liveContainer.classList.remove('hidden');
+    if (btnDaily) {
+      btnDaily.classList.remove('active');
+      btnDaily.style.borderBottomColor = 'transparent';
+      btnDaily.style.color = '#64748B';
+    }
+    if (btnLive) {
+      btnLive.classList.add('active');
+      btnLive.style.borderBottomColor = '#2563EB';
+      btnLive.style.color = '#2563EB';
+    }
+  }
+};
+
+// ─── Daily MACS Snapshots List ───────────────────────────────────────────────
+
+let dailySnapshotModalRecords = [];
+
+window.loadDailySnapshots = async function() {
+  const tbody = document.getElementById('daily-snapshots-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#94A3B8; padding:24px;">Loading daily MACS snapshots...</td></tr>';
+
+  try {
+    const res = await adminFetch('/api/admin/macs-api/daily-snapshots');
+    if (!res.success || !res.snapshots || res.snapshots.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#94A3B8; padding:24px;">No 23:55 daily MACS snapshots saved yet. Daily snapshots are fetched every night at 23:55:00.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = res.snapshots.map(s => {
+      const dateStr = esc(s.requested_date);
+      const timeStr = s.started_at ? formatTimeOnly(s.started_at) : '23:55:00';
+      const bmcCount = s.currently_stored !== undefined ? s.currently_stored : (s.records_stored || 0);
+
+      return `
+        <tr>
+          <td style="font-weight:700; color:#1E293B;">📅 ${dateStr}</td>
+          <td style="font-weight:600; color:#475569;">⏰ ${timeStr}</td>
+          <td style="font-weight:700; color:#2563EB;">🏭 ${bmcCount} BMCs</td>
+          <td><span class="sync-badge success">● Saved Permanently</span></td>
+          <td style="text-align:right;">
+            <button class="btn-action-view" onclick="openDailySnapshotModal('${dateStr}')" style="background:#2563EB; color:#FFF; border-color:#2563EB;">
+              👁️ View Saved MACS Data
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+  } catch (err) {
+    console.error('Error loading daily MACS snapshots:', err);
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#DC2626; padding:24px;">Failed to load daily MACS snapshots: ${esc(err.message)}</td></tr>`;
+  }
+};
+
+// ─── Daily MACS Snapshot Detail Modal ────────────────────────────────────────
+
+window.openDailySnapshotModal = async function(dateStr) {
+  const modal = document.getElementById('daily-snapshot-detail-modal');
+  const dateTitle = document.getElementById('daily-modal-date-title');
+  const tbody = document.getElementById('daily-modal-tbody');
+  const countBadge = document.getElementById('daily-modal-count-badge');
+  const searchInput = document.getElementById('daily-modal-search');
+
+  if (!modal || !tbody) return;
+
+  if (dateTitle) dateTitle.textContent = dateStr;
+  if (searchInput) searchInput.value = '';
+  tbody.innerHTML = '<tr><td colspan="17" style="text-align:center; color:#94A3B8; padding:32px;">Loading 23:55 saved snapshot records...</td></tr>';
+  if (countBadge) countBadge.textContent = 'Loading...';
+
+  modal.classList.remove('hidden');
+
+  try {
+    const res = await adminFetch(`/api/admin/macs-api/daily-snapshots/${encodeURIComponent(dateStr)}`);
+    if (!res.success || !res.records) {
+      tbody.innerHTML = `<tr><td colspan="17" style="text-align:center; color:#DC2626; padding:32px;">${esc(res.error || 'Failed to load records')}</td></tr>`;
+      return;
+    }
+
+    dailySnapshotModalRecords = res.records;
+    renderDailyModalRows(dailySnapshotModalRecords);
+
+  } catch (err) {
+    console.error('Error fetching snapshot detail:', err);
+    tbody.innerHTML = `<tr><td colspan="17" style="text-align:center; color:#DC2626; padding:32px;">Error: ${esc(err.message)}</td></tr>`;
+  }
+};
+
+window.closeDailySnapshotModal = function() {
+  const modal = document.getElementById('daily-snapshot-detail-modal');
+  if (modal) modal.classList.add('hidden');
+  dailySnapshotModalRecords = [];
+};
+
+function renderDailyModalRows(records) {
+  const tbody = document.getElementById('daily-modal-tbody');
+  const countBadge = document.getElementById('daily-modal-count-badge');
+
+  if (countBadge) countBadge.textContent = `${records.length} BMC Records`;
+
+  if (records.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="17" style="text-align:center; color:#94A3B8; padding:32px;">No matching MACS records found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = records.map((r, idx) => {
+    const bmcCode = esc(r.macs_bmc_code || '—');
+    const bmcName = esc(r.bmc_master_name || r.macs_bmc_name || '—');
+    const reportDate = esc(r.report_date || '—');
+    const fetchTime = r.fetched_at ? formatTimeOnly(r.fetched_at) : '23:55:00';
+
+    return `
+      <tr>
+        <td style="font-weight:600; color:#64748B;">${idx + 1}</td>
+        <td style="font-weight:700; color:#2563EB;">${bmcCode}</td>
+        <td style="font-weight:700; color:#0F172A;">${bmcName}</td>
+        <td style="font-weight:600; color:#475569;">${reportDate}</td>
+        <td style="font-weight:600; color:#059669;">${fetchTime}</td>
+        <td>${fmtNum(r.li_t1)}</td>
+        <td>${fmtNum(r.fat_t1)}</td>
+        <td>${fmtNum(r.snf_t1)}</td>
+        <td>${fmtNum(r.li_t2)}</td>
+        <td>${fmtNum(r.fat_t2)}</td>
+        <td>${fmtNum(r.snf_t2)}</td>
+        <td>${fmtNum(r.so_c1)}</td>
+        <td>${fmtNum(r.so_c2)}</td>
+        <td style="font-weight:700; color:#1E293B;">${fmtNum(r.lit)}</td>
+        <td>${fmtNum(r.kgfat_t1)}</td>
+        <td>${fmtNum(r.kgsnf_t1)}</td>
+        <td>${fmtNum(r.diff)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+window.filterDailyModalTable = function() {
+  const query = (document.getElementById('daily-modal-search')?.value || '').toLowerCase().trim();
+  if (!query) {
+    renderDailyModalRows(dailySnapshotModalRecords);
+    return;
+  }
+
+  const filtered = dailySnapshotModalRecords.filter(r => {
+    const code = String(r.macs_bmc_code || '').toLowerCase();
+    const name = String(r.bmc_master_name || r.macs_bmc_name || '').toLowerCase();
+    return code.includes(query) || name.includes(query);
+  });
+
+  renderDailyModalRows(filtered);
+};
+
+function formatTimeOnly(isoStr) {
+  if (!isoStr) return '23:55:00';
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch {
+    return isoStr;
+  }
+}

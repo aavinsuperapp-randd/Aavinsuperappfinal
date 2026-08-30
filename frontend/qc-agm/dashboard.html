@@ -31,6 +31,9 @@
         <a href="dashboard.html" class="qs-nav-item active">
           <span>📊</span> Dashboard Overview
         </a>
+        <a href="invoices.html" class="qs-nav-item">
+          <span>🧾</span> Invoices
+        </a>
         <a href="excel-import.html" class="qs-nav-item">
           <span>📥</span> Excel Import
         </a>
@@ -73,6 +76,7 @@
                 <span style="font-weight:700; color:#334155; font-size:0.85rem; margin-right:4px;">Date Presets:</span>
                 <button type="button" id="btn-quick-today" class="btn-qc btn-qc-outline" style="padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer;">Today</button>
                 <button type="button" id="btn-quick-yesterday" class="btn-qc btn-qc-outline" style="padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer;">Yesterday</button>
+                <button type="button" id="macs-sync-btn" onclick="handleManualSync()" class="btn-qc btn-qc-primary" style="margin-left:auto; padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer; background:linear-gradient(135deg, #0D9488, #0F766E); color:#FFFFFF; border:none; display:inline-flex; align-items:center; gap:6px;">🔄 Sync Now</button>
               </div>
 
               <!-- Row 2: Route, Date, Period & Search -->

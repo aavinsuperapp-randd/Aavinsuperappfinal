@@ -988,6 +988,7 @@ window.openTripDetailModal = async function(tripId) {
             : (v.status === 'in_progress' ? '<span class="badge badge-blue">In Progress</span>' : '<span class="badge badge-warning">Pending</span>');
 
           const viewTestBtn = `<button type="button" class="btn btn-outline btn-sm" style="padding: 5px 12px; font-weight:700; font-size:0.78rem; border-color:#3B82F6; color:#1D4ED8;" onclick="openPiAgmViewTestModal(${idx})">🧪 View Test</button>`;
+          const pdfBtn = v.invoice_serial_no ? `<button type="button" class="btn btn-outline btn-sm" style="padding: 5px 12px; font-weight:700; font-size:0.78rem; border-color:#DC2626; color:#DC2626; margin-left:6px;" onclick="downloadInvoicePdf('${v.id}')">📄 PDF</button>` : '';
 
           return `
             <tr>
@@ -997,6 +998,7 @@ window.openTripDetailModal = async function(tripId) {
               <td>${statusBadge}</td>
               <td style="text-align: right; white-space: nowrap;">
                 ${viewTestBtn}
+                ${pdfBtn}
               </td>
             </tr>
           `;

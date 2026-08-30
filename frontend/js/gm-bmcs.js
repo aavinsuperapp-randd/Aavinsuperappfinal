@@ -872,24 +872,7 @@ async function saveBmc() {
     let imageUrl = editingBmcId ? (allBmcs.find(b => b.id === editingBmcId)?.profile_image_url || null) : null;
 
     if (selectedFile) {
-      const client = await initSupabase();
-      if (client) {
-        try {
-          const ext = selectedFile.name.split('.').pop();
-          const storagePath = `bmcs/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-          const { error: uploadErr } = await client.storage.from('profile_images').upload(storagePath, selectedFile, { cacheControl: '3600', upsert: true });
-          if (!uploadErr) {
-            const { data: { publicUrl } } = client.storage.from('profile_images').getPublicUrl(storagePath);
-            imageUrl = publicUrl;
-          } else {
-            imageUrl = await getOptimizedBase64(selectedFile);
-          }
-        } catch (imgErr) {
-          imageUrl = await getOptimizedBase64(selectedFile);
-        }
-      } else {
-        imageUrl = await getOptimizedBase64(selectedFile);
-      }
+      imageUrl = await getOptimizedBase64(selectedFile);
     }
 
     const payload = {

@@ -141,10 +141,7 @@
                 <span class="check-icon">⭕</span>
                 <span>Out KM Reading</span>
               </div>
-              <div class="pretrip-check-item" id="check-out-photo">
-                <span class="check-icon">⭕</span>
-                <span>Out KM Photo Proof</span>
-              </div>
+
               <div class="pretrip-check-item" id="check-out-weight">
                 <span class="check-icon">⭕</span>
                 <span>Out Tanker Weight</span>
@@ -162,34 +159,7 @@
               <div class="form-hint-driver">Enter the vehicle odometer reading before departure.</div>
             </div>
 
-            <!-- Out KM Photo Proof -->
-            <div class="form-group">
-              <label class="form-label-driver">Out KM Photo Proof <span class="required">*</span></label>
-              <div class="photo-upload-area" id="out-photo-upload-area">
-                <img id="out-photo-preview" src="" alt="Out KM Photo" class="photo-preview hidden">
-                <div id="out-photo-placeholder" class="photo-placeholder">
-                  <div class="photo-placeholder-icon">📷</div>
-                  <p>Take a photo or choose from gallery</p>
-                </div>
-                <!-- Camera: opens device camera directly -->
-                <input type="file" id="out-photo-input-camera" accept="image/*" capture="environment" style="display:none;">
-                <!-- Gallery: opens file picker, accepts all image formats -->
-                <input type="file" id="out-photo-input-gallery" accept="image/*" style="display:none;">
-                <div class="photo-actions" style="gap:8px;">
-                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('out-photo-input-camera').click()">
-                    📸 Open Camera
-                  </button>
-                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('out-photo-input-gallery').click()">
-                    🖼️ From Gallery
-                  </button>
-                  <button type="button" class="btn btn-ghost btn-sm" id="out-photo-remove" onclick="removePhoto('out')" style="display:none;">✕ Remove</button>
-                </div>
-              </div>
-              <div id="out-photo-progress" class="upload-progress hidden">
-                <div class="progress-bar"><div class="progress-fill" id="out-progress-fill"></div></div>
-                <span>Uploading...</span>
-              </div>
-            </div>
+
 
             <!-- Out Weight -->
             <div class="form-group">
@@ -300,34 +270,7 @@
               <div id="mileage-error" class="mileage-error hidden"></div>
             </div>
 
-            <!-- In KM Photo Proof -->
-            <div class="form-group">
-              <label class="form-label-driver">In KM Photo Proof <span class="required">*</span></label>
-              <div class="photo-upload-area" id="in-photo-upload-area">
-                <img id="in-photo-preview" src="" alt="In KM Photo Proof" class="photo-preview hidden">
-                <div id="in-photo-placeholder" class="photo-placeholder">
-                  <div class="photo-placeholder-icon">📷</div>
-                  <p>Take photo of final odometer reading or choose from gallery</p>
-                </div>
-                <!-- Camera: opens device camera directly -->
-                <input type="file" id="in-photo-input-camera" accept="image/*" capture="environment" style="display:none;">
-                <!-- Gallery: opens file picker -->
-                <input type="file" id="in-photo-input-gallery" accept="image/*" style="display:none;">
-                <div class="photo-actions" style="gap:8px;">
-                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('in-photo-input-camera').click()">
-                    📸 Open Camera
-                  </button>
-                  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('in-photo-input-gallery').click()">
-                    🖼️ From Gallery
-                  </button>
-                  <button type="button" class="btn btn-ghost btn-sm" id="in-photo-remove" onclick="removePhoto('in')" style="display:none;">✕ Remove</button>
-                </div>
-              </div>
-              <div id="in-photo-progress" class="upload-progress hidden">
-                <div class="progress-bar"><div class="progress-fill" id="in-progress-fill"></div></div>
-                <span>Uploading...</span>
-              </div>
-            </div>
+
 
             <!-- Return Location -->
             <div class="form-group">

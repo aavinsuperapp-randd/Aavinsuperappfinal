@@ -384,6 +384,7 @@ window.openViewDutyModal = async function(tripId) {
 
           // Action Buttons: Always show View Test button, plus Visit button if in_progress
           const viewTestBtn = `<button type="button" class="btn btn-outline btn-sm" style="padding: 5px 12px; font-weight:700; font-size:0.78rem; border-color:#3B82F6; color:#1D4ED8;" onclick="openViewTestModal(${idx})">🧪 View Test</button>`;
+          const pdfBtn = v.invoice_serial_no ? `<button type="button" class="btn btn-outline btn-sm" style="padding: 5px 12px; font-weight:700; font-size:0.78rem; border-color:#DC2626; color:#DC2626; margin-left:6px;" onclick="downloadInvoicePdf('${v.id}')">📄 PDF</button>` : '';
 
           let visitBtn = '';
           if (isStarted) {
@@ -401,6 +402,7 @@ window.openViewDutyModal = async function(tripId) {
               <td style="text-align: right; white-space: nowrap;">
                 <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
                   ${viewTestBtn}
+                  ${pdfBtn}
                   ${visitBtn}
                 </div>
               </td>
@@ -848,23 +850,104 @@ function esc(str) {
 let currentVisitData = null;
 
 window.closeBmcVisitRow = async function(visitId) {
-  if (!visitId) return;
-  try {
-    if (!visitId.startsWith('virtual-')) {
+  if (!visitId || visitId.startsWith('virtual-')) {
+    if (typeof showToast === 'function') showToast('Cannot close a virtual visit. Open the visit first.', 'error');
+    return;
+  }
+
+  // Fetch existing visit data to pre-fill any saved invoice fields
+  let existingVisit = null;
+  if (activeTripData && activeTripData.visits) {
+    existingVisit = activeTripData.visits.find(v => v.id === visitId);
+  }
+
+  const serialVal = existingVisit?.invoice_serial_no || '';
+  const tempVal = existingVisit?.temperature || '';
+  const sealVal = existingVisit?.seal_number || '';
+  const brokenVal = existingVisit?.broken_seal_number || '';
+  const bmcName = existingVisit?.bmc?.name || existingVisit?.bmc_name || 'BMC';
+
+  // Show invoice modal
+  let existing = document.getElementById('close-visit-invoice-modal-dash');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'close-visit-invoice-modal-dash';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);">
+      <div style="padding:20px 24px 14px;border-bottom:1px solid #E2E8F0;display:flex;align-items:center;justify-content:space-between;">
+        <h3 style="margin:0;font-size:1.05rem;font-weight:800;color:#0F172A;">🔒 Close BMC Visit — Invoice Details</h3>
+        <button class="cvid-cancel" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#94A3B8;padding:4px;">✕</button>
+      </div>
+      <div style="padding:12px 24px;background:#F0FDF4;border-bottom:1px solid #D1FAE5;font-size:0.85rem;color:#065F46;font-weight:600;">
+        📍 ${esc(bmcName)}
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px;">
+        <div>
+          <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Invoice Serial Number <span style="color:#EF4444;">*</span></label>
+          <input id="cvid-serial" type="text" value="${esc(String(serialVal))}" placeholder="e.g. INV-2026-001" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;">
+        </div>
+        <div>
+          <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Temperature (°C) <span style="color:#EF4444;">*</span></label>
+          <input id="cvid-temperature" type="number" step="0.1" value="${esc(String(tempVal))}" placeholder="e.g. 4.5" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;">
+        </div>
+        <div>
+          <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Seal Number <span style="color:#EF4444;">*</span></label>
+          <input id="cvid-seal" type="text" value="${esc(String(sealVal))}" placeholder="e.g. SL-0042" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;">
+        </div>
+        <div>
+          <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Broken Seal Number <span style="color:#EF4444;">*</span></label>
+          <input id="cvid-broken-seal" type="text" value="${esc(String(brokenVal))}" placeholder="e.g. BSL-0019" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;">
+        </div>
+      </div>
+      <div style="padding:16px 24px;border-top:1px solid #E2E8F0;display:flex;gap:10px;justify-content:flex-end;">
+        <button class="cvid-cancel" style="padding:8px 18px;border:1.5px solid #CBD5E1;border-radius:10px;background:#F8FAFC;color:#475569;font-weight:600;font-size:0.88rem;cursor:pointer;">← Cancel</button>
+        <button id="cvid-confirm" style="padding:8px 22px;border:none;border-radius:10px;background:linear-gradient(135deg,#16A34A,#15803D);color:#fff;font-weight:700;font-size:0.88rem;cursor:pointer;box-shadow:0 2px 8px rgba(22,163,74,0.3);">🔒 Close & Save Invoice</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.querySelectorAll('.cvid-cancel').forEach(btn => btn.addEventListener('click', () => modal.remove()));
+
+  document.getElementById('cvid-confirm').addEventListener('click', async () => {
+    const serial = document.getElementById('cvid-serial').value.trim();
+    const temperature = document.getElementById('cvid-temperature').value.trim();
+    const seal = document.getElementById('cvid-seal').value.trim();
+    const brokenSeal = document.getElementById('cvid-broken-seal').value.trim();
+
+    if (!serial) { if (typeof showToast === 'function') showToast('Invoice Serial Number is mandatory.', 'error'); return; }
+    if (!temperature) { if (typeof showToast === 'function') showToast('Temperature is mandatory.', 'error'); return; }
+    if (!seal) { if (typeof showToast === 'function') showToast('Seal Number is mandatory.', 'error'); return; }
+    if (!brokenSeal) { if (typeof showToast === 'function') showToast('Broken Seal Number is mandatory.', 'error'); return; }
+
+    const confirmBtn = document.getElementById('cvid-confirm');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = '⌛ Saving...';
+
+    try {
       await apiUpdateVisitWeight(visitId, {
         status: 'completed',
-        visit_end_time: new Date().toISOString()
+        visit_end_time: new Date().toISOString(),
+        invoice_serial_no: serial,
+        temperature: parseFloat(temperature),
+        seal_number: seal,
+        broken_seal_number: brokenSeal
       });
+      if (typeof showToast === 'function') showToast('BMC visit closed with invoice data saved.', 'success');
+      modal.remove();
+      if (selectedTripId) await openViewDutyModal(selectedTripId);
+      await loadDuties();
+    } catch (err) {
+      console.error('Error closing BMC visit row:', err);
+      if (typeof showToast === 'function') showToast(err.message || 'Failed to close BMC visit.', 'error');
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = '🔒 Close & Save Invoice';
     }
-    if (typeof showToast === 'function') showToast('BMC visit marked as closed.', 'success');
-    if (selectedTripId) {
-      await openViewDutyModal(selectedTripId);
-    }
-    await loadDuties();
-  } catch (err) {
-    console.error('Error closing BMC visit row:', err);
-    if (typeof showToast === 'function') showToast(err.message || 'Failed to close BMC visit.', 'error');
-  }
+  });
+
+  setTimeout(() => document.getElementById('cvid-serial')?.focus(), 100);
 };
 
 window.openBmcVisitModal = function(visitId, tripId, bmcId, bmcCode) {

@@ -193,26 +193,6 @@ function setupPreTripForm() {
   document.getElementById('input-out-km').addEventListener('input', validatePreTripForm);
   document.getElementById('input-out-weight').addEventListener('input', validatePreTripForm);
 
-  // Photo upload — camera input
-  const outPhotoCamera = document.getElementById('out-photo-input-camera');
-  if (outPhotoCamera) {
-    outPhotoCamera.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      await handlePhotoUpload('out', file);
-    });
-  }
-
-  // Photo upload — gallery input
-  const outPhotoGallery = document.getElementById('out-photo-input-gallery');
-  if (outPhotoGallery) {
-    outPhotoGallery.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      await handlePhotoUpload('out', file);
-    });
-  }
-
   // Location
   const startLocBtn = document.getElementById('btn-get-start-location');
   if (startLocBtn) {
@@ -228,11 +208,9 @@ function setupPreTripForm() {
 function validatePreTripForm() {
   const outKm = document.getElementById('input-out-km').value;
   const outWeight = document.getElementById('input-out-weight').value;
-  const hasPhoto = outPhotoUrl !== null;
 
   const checks = {
     'check-out-km': !!outKm && Number(outKm) >= 0,
-    'check-out-photo': hasPhoto,
     'check-out-weight': !!outWeight && Number(outWeight) > 0,
     'check-out-location': startLocation !== null
   };
@@ -263,87 +241,6 @@ function validatePreTripForm() {
   }
 }
 
-async function handlePhotoUpload(type, file) {
-  // Validate file
-  if (!file.type.startsWith('image/')) {
-    showToast('Please select a valid image file.', 'error');
-    return;
-  }
-  if (file.size > 10 * 1024 * 1024) {
-    showToast('Image must be smaller than 10MB.', 'error');
-    return;
-  }
-
-  const progressEl = document.getElementById(`${type}-photo-progress`);
-  const previewEl = document.getElementById(`${type}-photo-preview`);
-  const placeholderEl = document.getElementById(`${type}-photo-placeholder`);
-  const removeBtn = document.getElementById(`${type}-photo-remove`);
-  const uploadAreaEl = document.getElementById(`${type}-photo-upload-area`);
-
-  progressEl.classList.remove('hidden');
-
-  try {
-    // Convert file to base64 DataURL for upload
-    const dataUrl = await fileToBase64(file);
-
-    // Show preview immediately while upload runs
-    previewEl.src = dataUrl;
-    previewEl.classList.remove('hidden');
-    placeholderEl.classList.add('hidden');
-
-    // Upload to server — must return a proper URL, not raw base64
-    const result = await apiUploadDriverPhoto(dataUrl, file.name);
-    const url = result.publicUrl;
-
-    if (!url) throw new Error('Photo upload failed: no URL returned from server.');
-
-    // If server returned raw base64 as fallback, that means storage failed.
-    // Store it anyway — the backend will handle it as a text column.
-    if (type === 'out') {
-      outPhotoUrl = url;
-    } else {
-      inPhotoUrl = url;
-    }
-
-    progressEl.classList.add('hidden');
-    uploadAreaEl.classList.add('has-photo');
-    removeBtn.style.display = 'inline-flex';
-    showToast('Photo uploaded successfully.', 'success');
-    validatePreTripForm();
-
-  } catch (err) {
-    progressEl.classList.add('hidden');
-    console.error('Photo upload error:', err);
-    showToast(err.message || 'Photo upload failed. Please try again.', 'error');
-  }
-}
-
-function removePhoto(type) {
-  if (type === 'out') {
-    outPhotoUrl = null;
-    document.getElementById('out-photo-preview').src = '';
-    document.getElementById('out-photo-preview').classList.add('hidden');
-    document.getElementById('out-photo-placeholder').classList.remove('hidden');
-    document.getElementById('out-photo-upload-area').classList.remove('has-photo');
-    document.getElementById('out-photo-remove').style.display = 'none';
-    const cam = document.getElementById('out-photo-input-camera');
-    const gal = document.getElementById('out-photo-input-gallery');
-    if (cam) cam.value = '';
-    if (gal) gal.value = '';
-  } else {
-    inPhotoUrl = null;
-    document.getElementById('in-photo-preview').src = '';
-    document.getElementById('in-photo-preview').classList.add('hidden');
-    document.getElementById('in-photo-placeholder').classList.remove('hidden');
-    document.getElementById('in-photo-upload-area').classList.remove('has-photo');
-    document.getElementById('in-photo-remove').style.display = 'none';
-    const cam = document.getElementById('in-photo-input-camera');
-    const gal = document.getElementById('in-photo-input-gallery');
-    if (cam) cam.value = '';
-    if (gal) gal.value = '';
-  }
-  validatePreTripForm();
-}
 
 async function getStartLocation() {
   const btn = document.getElementById('btn-get-start-location');
@@ -394,7 +291,6 @@ async function handleStartTrip() {
 
   // Validate
   if (isNaN(outKm) || outKm < 0) { showToast('Please enter a valid Out KM reading.', 'error'); return; }
-  if (!outPhotoUrl) { showToast('Out KM photo proof is required to start the trip.', 'error'); return; }
   if (isNaN(outWeight) || outWeight <= 0) { showToast('Please enter a valid Out Tanker Weight.', 'error'); return; }
   if (!startLocation) { showToast('Please capture your current GPS location.', 'error'); return; }
 
@@ -404,7 +300,6 @@ async function handleStartTrip() {
   try {
     const payload = {
       out_km: outKm,
-      out_km_photo: outPhotoUrl,
       out_tanker_weight: outWeight,
       latitude: startLocation.lat,
       longitude: startLocation.lng
@@ -693,25 +588,7 @@ function setupCompleteTripForm() {
   document.getElementById('input-in-km').addEventListener('input', updateMileagePreview);
   document.getElementById('input-in-weight').addEventListener('input', updateMileagePreview);
 
-  // In KM photo proof camera input
-  const inPhotoCamera = document.getElementById('in-photo-input-camera');
-  if (inPhotoCamera) {
-    inPhotoCamera.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      await handlePhotoUpload('in', file);
-    });
-  }
 
-  // In KM photo proof gallery input
-  const inPhotoGallery = document.getElementById('in-photo-input-gallery');
-  if (inPhotoGallery) {
-    inPhotoGallery.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      await handlePhotoUpload('in', file);
-    });
-  }
 
   // Return location
   document.getElementById('btn-get-return-location').addEventListener('click', getReturnLocation);
@@ -841,7 +718,6 @@ async function handleCompleteTrip() {
   if (outWeight !== null && outWeight !== undefined && inWeight > outWeight) {
     showToast(`In Weight (${inWeight}) cannot exceed Out Weight (${outWeight} kg).`, 'error'); return;
   }
-  if (!inPhotoUrl) { showToast('Please upload the In Weight photo.', 'error'); return; }
   if (!returnLocation) { showToast('Please capture your return location.', 'error'); return; }
 
   btn.disabled = true;
@@ -851,7 +727,6 @@ async function handleCompleteTrip() {
     const payload = {
       in_km: inKm,
       in_weight: inWeight,
-      in_weight_photo: inPhotoUrl,
       end_lat: returnLocation.lat,
       end_lng: returnLocation.lng,
       remarks
