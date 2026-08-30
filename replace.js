@@ -1,97 +1,53 @@
 const fs = require('fs');
-let code = fs.readFileSync('backend/server.js', 'utf8');
+const path = require('path');
 
-code = code.replace(/adminClient\.from\('trips'\)\.select\('\*'\)\.order/g, 'adminClient.from(\'trips\').select(\'*\').neq(\'status\', \'deleted\').order');
-code = code.replace(/adminClient\.from\('trips'\)\.select\('\*'\)\.gte/g, 'adminClient.from(\'trips\').select(\'*\').neq(\'status\', \'deleted\').gte');
-code = code.replace(/adminClient\.from\('driver_trips'\)\.select\('\*'\)/g, 'adminClient.from(\'driver_trips\').select(\'*\').neq(\'status\', \'deleted\')');
-code = code.replace(/adminClient\.from\('trips'\)\.select\('\*'\)/g, 'adminClient.from(\'trips\').select(\'*\').neq(\'status\', \'deleted\')');
-
-code = code.replace(
-  /\.from\('driver_trips'\)\s*\n\s*\.delete\(\)\s*\n\s*\.eq\('id', id\);/g,
-  '.from(\'driver_trips\').update({ status: \'deleted\' }).eq(\'id\', id);'
-);
-code = code.replace(
-  /\.from\('trips'\)\s*\n\s*\.delete\(\)\s*\n\s*\.eq\('id', id\);/g,
-  '.from(\'trips\').update({ status: \'deleted\' }).eq(\'id\', id);'
-);
-
-const oldPatch = \pp.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
-  const { adminClient, profile } = req;
-  const { lat, lng } = req.body;
-  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng are required.' });
-
-  try {
-    const { data, error } = await adminClient
-      .from('driver_trips')
-      .update({
-        end_lat: Number(lat),
-        end_lng: Number(lng),
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', req.params.id)
-      .select('id, end_lat, end_lng');\;
-
-const newPatch = \pp.patch('/api/driver/trips/:id/location', requireDriver, async (req, res) => {
-  const { adminClient, profile } = req;
-  const { lat, lng, tracking_status } = req.body;
-  
-  if (!lat && !lng && !tracking_status) return res.status(400).json({ error: 'lat/lng or tracking_status required.' });
-
-  try {
-    const { data: trip } = await adminClient.from('driver_trips').select('remarks, start_lat, start_lng').eq('id', req.params.id).single();
+function processHtmlFiles() {
+    const htmlDir = path.join(__dirname, 'frontend', 'eo');
+    if (!fs.existsSync(htmlDir)) return;
+    const files = fs.readdirSync(htmlDir).filter(f => f.endsWith('.html'));
     
-    let remarks = trip.remarks || '';
-    
-    let journey = [];
-    if (remarks.includes('__JOURNEY_DATA__=')) {
-      try {
-        const jStr = remarks.split('__JOURNEY_DATA__=')[1].split('\\n')[0];
-        journey = JSON.parse(jStr);
-      } catch(e) {}
+    for (const f of files) {
+        const file = path.join(htmlDir, f);
+        let content = fs.readFileSync(file, 'utf8');
+        content = content.replace(/General Manager/g, 'Executive Officer');
+        content = content.replace(/GM PORTAL/g, 'EO PORTAL');
+        content = content.replace(/gm-sidebar/g, 'eo-sidebar');
+        content = content.replace(/header-gm-name/g, 'header-eo-name');
+        content = content.replace(/main-gm-content/g, 'main-eo-content');
+        content = content.replace(/gm-api\.js/g, 'eo-api.js');
+        content = content.replace(/gm-dashboard\.js/g, 'eo-dashboard.js');
+        content = content.replace(/gm-qc-overview\.js/g, 'eo-qc-overview.js');
+        content = content.replace(/gm-bmcs\.js/g, 'eo-bmcs.js');
+        content = content.replace(/gm-bmc-profile\.js/g, 'eo-bmc-profile.js');
+        content = content.replace(/<div class="header-avatar">GM<\/div>/g, '<div class="header-avatar">EO</div>');
+        content = content.replace(/<a href="fleet\.html".*?<\/a>\r?\n?/g, '');
+        content = content.replace(/<a href="analysis\.html".*?<\/a>\r?\n?/g, '');
+        content = content.replace(/<a href="requirements\.html".*?<\/a>\r?\n?/g, '');
+        content = content.replace(/<a href="issues\.html".*?<\/a>\r?\n?/g, '');
+        fs.writeFileSync(file, content);
+        console.log('Processed', file);
     }
-    
-    let interruptions = [];
-    if (remarks.includes('__INTERRUPTIONS_DATA__=')) {
-      try {
-        const iStr = remarks.split('__INTERRUPTIONS_DATA__=')[1].split('\\n')[0];
-        interruptions = JSON.parse(iStr);
-      } catch(e) {}
-    }
-
-    const now = new Date().toISOString();
-    let updatePayload = { updated_at: now };
-
-    if (lat && lng) {
-      updatePayload.end_lat = Number(lat);
-      updatePayload.end_lng = Number(lng);
-      journey.push({ lat: Number(lat), lng: Number(lng), timestamp: now });
-      if (!trip.start_lat) {
-        updatePayload.start_lat = Number(lat);
-        updatePayload.start_lng = Number(lng);
-      }
-    }
-
-    if (tracking_status) {
-      interruptions.push({ status: tracking_status, timestamp: now });
-    }
-    
-    let cleanRemarks = remarks.split('\\n__JOURNEY_DATA__=')[0].split('\\n__INTERRUPTIONS_DATA__=')[0];
-    let newRemarks = cleanRemarks;
-    if (journey.length > 0) newRemarks += '\\n__JOURNEY_DATA__=' + JSON.stringify(journey);
-    if (interruptions.length > 0) newRemarks += '\\n__INTERRUPTIONS_DATA__=' + JSON.stringify(interruptions);
-    updatePayload.remarks = newRemarks;
-
-    const { data, error } = await adminClient
-      .from('driver_trips')
-      .update(updatePayload)
-      .eq('id', req.params.id)
-      .select('id, end_lat, end_lng, remarks');\;
-
-if(code.includes(oldPatch)) {
-  code = code.replace(oldPatch, newPatch);
-  fs.writeFileSync('backend/server.js', code);
-  console.log('Successfully updated server.js');
-} else {
-  console.log('Could not find oldPatch in server.js');
 }
 
+function processJsFiles() {
+    const jsDir = path.join(__dirname, 'frontend', 'js');
+    if (!fs.existsSync(jsDir)) return;
+    const files = fs.readdirSync(jsDir).filter(f => f.startsWith('eo-') && f.endsWith('.js'));
+    
+    for (const f of files) {
+        const file = path.join(jsDir, f);
+        let content = fs.readFileSync(file, 'utf8');
+        content = content.replace(/'gm'/g, "'executive_officer'");
+        content = content.replace(/"gm"/g, '"executive_officer"');
+        content = content.replace(/GM PORTAL/g, 'EO PORTAL');
+        content = content.replace(/main-gm-content/g, 'main-eo-content');
+        content = content.replace(/header-gm-name/g, 'header-eo-name');
+        content = content.replace(/gm-sidebar/g, 'eo-sidebar');
+        content = content.replace(/gmFetch/g, 'eoFetch');
+        fs.writeFileSync(file, content);
+        console.log('Processed', file);
+    }
+}
+
+processHtmlFiles();
+processJsFiles();

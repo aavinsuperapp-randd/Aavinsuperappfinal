@@ -56,7 +56,6 @@ async function loadDashboard() {
     document.getElementById('kpi-total-vehicles').textContent = data.totalVehicles || 0;
     document.getElementById('kpi-total-drivers').textContent = data.totalDrivers || 0;
 
-    document.getElementById('kpi-available-vehicles').textContent = data.availableVehicles || 0;
     document.getElementById('kpi-vehicles-on-trip').textContent = data.vehiclesOnTrip || 0;
     document.getElementById('kpi-today-duties').textContent = data.todayDuties || 0;
     document.getElementById('kpi-completed-trips').textContent = data.completedTrips || 0;

@@ -305,7 +305,7 @@ window.openViewDutyModal = async function(tripId) {
   if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-3">Loading BMC list...</td></tr>`;
 
   const reportContainer = document.getElementById('vd-reports-review-container');
-  if (reportContainer) reportContainer.innerHTML = `<div class="text-muted" style="font-size:0.88rem; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; padding:14px 16px;">Loading reports & review...</div>`;
+  if (reportContainer) reportContainer.innerHTML = `<div class="text-muted" style="font-size:0.88rem; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; padding:14px 16px;">Loading reports...</div>`;
 
   modal.classList.remove('hidden');
 
@@ -499,23 +499,18 @@ function renderReportsAndReview(visits = []) {
   if (!container) return;
 
   const allIssues = [];
-  const allRatings = [];
 
   visits.forEach(v => {
     const bmcName = v.bmc ? v.bmc.name : (v.bmc_name || 'BMC');
     if (v.bmc_issues && Array.isArray(v.bmc_issues) && v.bmc_issues.length > 0) {
       v.bmc_issues.forEach(i => allIssues.push({ ...i, bmc_name: bmcName }));
     }
-    if (v.bmc_ratings) {
-      const rList = Array.isArray(v.bmc_ratings) ? v.bmc_ratings : [v.bmc_ratings];
-      rList.forEach(r => allRatings.push({ ...r, bmc_name: bmcName }));
-    }
   });
 
-  if (allIssues.length === 0 && allRatings.length === 0) {
+  if (allIssues.length === 0) {
     container.innerHTML = `
       <div style="font-size: 0.88rem; color: #64748B; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px 16px; font-style: italic;">
-        No issues reported or reviews submitted for this trip.
+        No issues reported for this trip.
       </div>
     `;
     return;
@@ -537,30 +532,6 @@ function renderReportsAndReview(visits = []) {
               <div style="font-size: 0.85rem; color: #7F1D1D; margin-top: 4px;">${esc(issue.description || issue.remarks || 'No detailed description')}</div>
             </div>
           `).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  if (allRatings.length > 0) {
-    html += `
-      <div>
-        <div style="font-size: 0.85rem; font-weight: 800; color: #059669; margin-bottom: 8px;">⭐ BMC Reviews (${allRatings.length})</div>
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-          ${allRatings.map(rating => {
-            const score = Number(rating.overall_rating || rating.behaviour || rating.cleanliness || 5);
-            const starsStr = '⭐'.repeat(Math.min(5, Math.max(1, Math.round(score))));
-
-            return `
-              <div style="background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 8px; padding: 10px 14px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                  <span style="font-size: 0.82rem; font-weight: 800; color: #065F46;">🏢 ${esc(rating.bmc_name)}</span>
-                  <span style="font-size: 0.88rem; letter-spacing: 1px;">${starsStr} (${score}/5)</span>
-                </div>
-                ${rating.remarks ? `<div style="font-size: 0.84rem; color: #047857; font-weight: 500; margin-top: 4px;">Remarks: "${esc(rating.remarks)}"</div>` : ''}
-              </div>
-            `;
-          }).join('')}
         </div>
       </div>
     `;
@@ -875,7 +846,6 @@ function esc(str) {
 // ── PHASE 2 — BMC VISIT & TESTING FLOW ──────────────────────────────────────
 
 let currentVisitData = null;
-let selectedStarRating = 5;
 
 window.closeBmcVisitRow = async function(visitId) {
   if (!visitId) return;

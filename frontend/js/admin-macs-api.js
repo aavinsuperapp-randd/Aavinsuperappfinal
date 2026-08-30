@@ -139,7 +139,15 @@ window.loadSyncHistory = async function() {
 
   try {
     const result = await adminFetch('/api/admin/macs-api/sync-history?limit=25');
-    const runs = result.runs || [];
+    
+    // Filter out successful syncs that have 0 stored/expired records (deleted data)
+    const runs = (result.runs || []).filter(r => {
+      if (r.status === 'success') {
+        const storedCount = r.currently_stored !== undefined ? r.currently_stored : (r.records_stored || 0);
+        return storedCount > 0;
+      }
+      return true;
+    });
 
     if (runs.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#94A3B8; padding:24px;">No sync runs recorded yet. Click "Sync Now" to start.</td></tr>';

@@ -429,7 +429,14 @@ app.delete('/api/admin/users/:id', requireAdminRole, async (req, res) => {
     .eq('id', userId);
 
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true, message: 'User profile deleted successfully.' });
+
+  // Delete from Supabase Auth as well
+  const authResponse = await req.adminClient.auth.admin.deleteUser(userId);
+  if (authResponse.error) {
+    console.warn(`Failed to delete user from Auth, but profile was deleted: ${authResponse.error.message}`);
+  }
+
+  res.json({ success: true, message: 'User deleted successfully from system.' });
 });
 
 // Helper function for safe table cleanup without builder syntax errors
@@ -857,8 +864,8 @@ async function requireGm(req, res, next) {
     .from('profiles').select('*').eq('id', user.id).single();
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
-  if (profile.role !== 'gm' && profile.role !== 'admin') {
-    return res.status(403).json({ error: 'GM access required.' });
+  if (!['gm', 'admin', 'executive_officer'].includes(profile.role)) {
+    return res.status(403).json({ error: 'GM or EO access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
 
@@ -883,8 +890,8 @@ async function requirePiAgm(req, res, next) {
     .from('profiles').select('*').eq('id', user.id).single();
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
-  if (profile.role !== 'pi_agm' && profile.role !== 'gm' && profile.role !== 'admin') {
-    return res.status(403).json({ error: 'P&I AGM or GM access required.' });
+  if (!['pi_agm', 'gm', 'admin', 'executive_officer'].includes(profile.role)) {
+    return res.status(403).json({ error: 'P&I AGM, GM, or EO access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
 
@@ -982,8 +989,8 @@ async function requireQcAgm(req, res, next) {
     .from('profiles').select('*').eq('id', user.id).single();
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
-  if (!['qc_agm', 'admin', 'gm', 'pi_agm'].includes(profile.role)) {
-    return res.status(403).json({ error: 'QC AGM or GM access required.' });
+  if (!['qc_agm', 'admin', 'gm', 'pi_agm', 'executive_officer'].includes(profile.role)) {
+    return res.status(403).json({ error: 'QC AGM, GM, or EO access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
 

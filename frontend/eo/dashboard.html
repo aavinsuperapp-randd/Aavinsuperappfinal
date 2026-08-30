@@ -3,127 +3,332 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EO Monitoring Dashboard — AAVIN BMC</title>
-  <link rel="stylesheet" href="../css/global.css">
+  <title>Executive Overview — P&I AGM Portal</title>
+  <meta name="description" content="P&I AGM Dashboard — AAVIN operational metrics, trip assignment, field worker management and analytics.">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/css/gm-portal.css">
   <link rel="stylesheet" href="../css/gm-portal.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
   <style>
-    .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-    .metric-card { background: #FFFFFF; border-radius: 14px; border: 1px solid #E2E8F0; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
-    .metric-title { font-size: 0.8rem; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }
-    .metric-value { font-size: 2rem; font-weight: 800; color: #0F172A; margin-top: 6px; }
-    .metric-sub { font-size: 0.78rem; color: #94A3B8; margin-top: 4px; }
-
-    .bmc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
-    .bmc-card { background: #FFFFFF; border-radius: 14px; border: 1px solid #E2E8F0; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; }
-    .bmc-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); border-color: #BFDBFE; }
-    .bmc-card-title { font-size: 1.15rem; font-weight: 800; color: #0F172A; display: flex; justify-content: space-between; align-items: center; }
-    .bmc-code-badge { font-size: 0.75rem; background: #F1F5F9; color: #475569; padding: 3px 8px; border-radius: 6px; font-weight: 700; }
-    .bmc-info-row { display: flex; justify-content: space-between; font-size: 0.84rem; color: #475569; margin-top: 8px; }
+    /* ── Pending Trips Section ─────────────────────────────────────── */
+    .pending-trips-section { margin-top: 28px; }
+    .pending-trips-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .pending-trips-header h3 {
+      font-size: 1.05rem; font-weight: 700; color: #0F172A;
+      display: flex; align-items: center; gap: 8px; margin: 0;
+    }
+    .pending-badge {
+      background: #EF4444; color: #fff; border-radius: 20px;
+      padding: 2px 9px; font-size: 0.75rem; font-weight: 700;
+    }
+    .assign-status-badge {
+      display: inline-block; padding: 3px 10px; border-radius: 20px;
+      font-size: 0.73rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    .assign-status-badge.pending_assignment { background: #FEF3C7; color: #92400E; }
+    .assign-status-badge.worker_assigned   { background: #D1FAE5; color: #065F46; }
+    .assign-status-badge.in_progress       { background: #DBEAFE; color: #1E40AF; }
+    .assign-status-badge.testing_completed { background: #EDE9FE; color: #5B21B6; }
+    .assign-status-badge.report_submitted  { background: #D1FAE5; color: #065F46; }
+    .assign-status-badge.completed         { background: #F0FDF4; color: #15803D; }
+    .btn-assign {
+      background: linear-gradient(135deg, #2563EB, #1D4ED8);
+      color: #fff; border: none; border-radius: 8px;
+      padding: 6px 14px; font-size: 0.8rem; font-weight: 600;
+      cursor: pointer; transition: opacity 0.15s;
+    }
+    .btn-assign:hover { opacity: 0.88; }
+    .btn-assign:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-reassign {
+      background: #F1F5F9; color: #475569; border: 1px solid #CBD5E1;
+      border-radius: 8px; padding: 5px 12px; font-size: 0.78rem;
+      font-weight: 600; cursor: pointer; transition: background 0.15s;
+    }
+    .btn-reassign:hover { background: #E2E8F0; }
+    /* ── Assign Worker Modal ──────────────────────────────────────── */
+    .aw-modal-overlay {
+      position: fixed; inset: 0; background: rgba(15,23,42,0.55);
+      z-index: 9000; display: flex; align-items: center; justify-content: center;
+    }
+    .aw-modal-overlay.hidden { display: none; }
+    .aw-modal {
+      background: #fff; border-radius: 16px; width: 520px; max-width: 95vw;
+      max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.22);
+    }
+    .aw-modal-header {
+      padding: 20px 24px 16px; border-bottom: 1px solid #E2E8F0;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .aw-modal-header h3 { margin: 0; font-size: 1rem; font-weight: 700; color: #0F172A; }
+    .aw-modal-close {
+      background: none; border: none; font-size: 1.2rem; cursor: pointer;
+      color: #94A3B8; padding: 4px 8px; border-radius: 6px; transition: color 0.15s;
+    }
+    .aw-modal-close:hover { color: #EF4444; }
+    .aw-trip-info {
+      padding: 14px 24px; background: #F8FAFC; border-bottom: 1px solid #E2E8F0;
+      font-size: 0.82rem; color: #475569; line-height: 1.6;
+    }
+    .aw-trip-info strong { color: #0F172A; }
+    .aw-worker-list {
+      flex: 1; overflow-y: auto; padding: 12px 24px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .aw-worker-item {
+      display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+      border: 2px solid #E2E8F0; border-radius: 10px; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .aw-worker-item:hover { border-color: #2563EB; background: #EFF6FF; }
+    .aw-worker-item.selected { border-color: #2563EB; background: #DBEAFE; }
+    .aw-worker-avatar {
+      width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#2563EB,#7C3AED);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .aw-worker-name { font-weight: 600; font-size: 0.88rem; color: #0F172A; }
+    .aw-worker-avail {
+      font-size: 0.75rem; font-weight: 500; padding: 2px 8px; border-radius: 12px;
+    }
+    .aw-worker-avail.free { background: #D1FAE5; color: #065F46; }
+    .aw-worker-avail.busy { background: #FEE2E2; color: #991B1B; }
+    .aw-modal-footer {
+      padding: 16px 24px; border-top: 1px solid #E2E8F0;
+      display: flex; gap: 10px; justify-content: flex-end;
+    }
+    .aw-empty { text-align: center; color: #94A3B8; padding: 32px 0; font-size: 0.9rem; }
   </style>
 </head>
 <body>
-
   <div class="admin-shell">
-    <!-- Navigation Sidebar -->
-    <aside class="admin-sidebar">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar" id="eo-sidebar">
       <div class="admin-sidebar-logo">
         <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
-        <span>AAVIN EO Portal</span>
+        <span>EO PORTAL</span>
       </div>
       <nav class="admin-nav">
-        <a href="dashboard.html" class="admin-nav-item active">
-          <span>📊</span> Overview Dashboard
-        </a>
-        <a href="bmc.html" class="admin-nav-item">
-          <span>🏭</span> My Assigned BMCs
-        </a>
-        <a href="test-results.html" class="admin-nav-item">
-          <span>🧪</span> Milk Test Results
-        </a>
-        <a href="reports.html" class="admin-nav-item">
-          <span>📋</span> Worker Reports
-        </a>
-        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top: auto; margin-bottom: 16px;">
-          <span>🚪</span> Logout
-        </button>
+        <a href="dashboard.html" class="admin-nav-item active"><span>🏠</span> Overview</a>
+        <a href="qc-overview.html" class="admin-nav-item"><span>🔬</span> QC MACS Overview</a>
+        <a href="bmcs.html" class="admin-nav-item"><span>🏭</span> BMC Management</a>
+                        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
       </nav>
     </aside>
 
-    <!-- Main Content Panel -->
     <div class="admin-main">
-      <header class="admin-header" style="background: #0F172A; color: #FFF; padding: 16px 24px;">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <div style="font-size: 1.2rem; font-weight: 800;">Executive Officer Portal</div>
-          <span class="badge badge-primary" style="font-size: 0.75rem;">View-Only Monitor</span>
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <div class="header-greeting">
+            <h2>EO PORTAL</h2>
+            <p id="dashboard-date-subtitle">Executive Operational Overview &amp; Analytics</p>
+          </div>
         </div>
-        <div class="header-user-info" style="display: flex; align-items: center; gap: 10px;">
-          <div id="user-display-name" style="font-weight: 700; font-size: 0.95rem;">Executive Officer</div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-eo-name">Executive Officer</div>
+              <div class="header-user-role">Executive Operational Command</div>
+            </div>
+          </div>
         </div>
       </header>
 
-      <main class="admin-content" style="padding: 24px;">
-        <div id="main-dashboard-content" class="hidden">
-          
-          <div style="margin-bottom: 20px;">
-            <h2 style="font-size: 1.4rem; font-weight: 800; color: #0F172A; margin: 0;">Operational Summary</h2>
-            <p style="color: #64748B; font-size: 0.88rem; margin-top: 2px;">Monitoring overview for your assigned Bulk Milk Cooling Centers.</p>
-          </div>
+      <main class="admin-content">
+        <div id="main-eo-content">
 
-          <!-- Summary Metric Cards -->
-          <div class="metric-grid">
-            <div class="metric-card">
-              <div class="metric-title">Total Assigned BMCs</div>
-              <div class="metric-value" id="card-total-bmcs">0</div>
-              <div class="metric-sub">Monitored centers</div>
+          <!-- Top Controls & Date Selector -->
+          <div class="top-controls-bar">
+            <div class="date-presets-row">
+              <button class="date-preset-btn active" id="btn-preset-today">Today</button>
+              <button class="date-preset-btn" id="btn-preset-yesterday">Yesterday</button>
             </div>
-            <div class="metric-card">
-              <div class="metric-title">Active BMCs</div>
-              <div class="metric-value" style="color: #16A34A;" id="card-active-bmcs">0</div>
-              <div class="metric-sub">Currently operational</div>
+            <div class="date-range-row">
+              <div class="date-input-item">
+                <span class="filter-label">From:</span>
+                <input type="date" id="gm-from-date" class="date-picker-input">
+              </div>
+              <div class="date-input-item">
+                <span class="filter-label">To:</span>
+                <input type="date" id="gm-to-date" class="date-picker-input">
+              </div>
             </div>
-            <div class="metric-card">
-              <div class="metric-title">Today's Test Results</div>
-              <div class="metric-value" style="color: #2563EB;" id="card-today-tests">0</div>
-              <div class="metric-sub">FTIR & Gerber tests</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-title">Quality Alerts</div>
-              <div class="metric-value" style="color: #DC2626;" id="card-quality-alerts">0</div>
-              <div class="metric-sub">Attention required</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-title">Worker Reports</div>
-              <div class="metric-value" style="color: #D97706;" id="card-total-reports">0</div>
-              <div class="metric-sub" id="card-pending-sub">0 pending review</div>
+            <div class="date-actions-row">
+              <button id="btn-date-search" class="btn-search-filter">🔍 Search</button>
+              <button id="export-pdf-btn" class="btn-export-pdf"><span>📄</span> Download as PDF</button>
             </div>
           </div>
 
-          <!-- Charts Section -->
-          <div class="row mb-4" style="display: flex; gap: 20px; flex-wrap: wrap;">
-            <div class="card" style="flex: 2; min-width: 320px; padding: 20px;">
-              <h4 style="margin: 0 0 16px 0; font-size: 1rem; font-weight: 800; color: #0F172A;">📈 Quality Trends (Fat & SNF)</h4>
-              <div style="height: 240px;"><canvas id="chart-quality-trend"></canvas></div>
+          <!-- KPI Summary Cards -->
+          <div class="kpi-grid-5">
+            <div class="kpi-card-v2 blue">
+              <div class="kpi-icon-wrap">🚛</div>
+              <div>
+                <div class="kpi-val" id="kpi-total-trips">0</div>
+                <div class="kpi-title">Total Trips</div>
+              </div>
             </div>
-            <div class="card" style="flex: 1; min-width: 260px; padding: 20px;">
-              <h4 style="margin: 0 0 16px 0; font-size: 1rem; font-weight: 800; color: #0F172A;">📊 Quality Distribution</h4>
-              <div style="height: 240px;"><canvas id="chart-quality-dist"></canvas></div>
+            <div class="kpi-card-v2 cyan">
+              <div class="kpi-icon-wrap">🔄</div>
+              <div>
+                <div class="kpi-val" id="kpi-active-trips">0</div>
+                <div class="kpi-title">Active Trips</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 green">
+              <div class="kpi-icon-wrap">✅</div>
+              <div>
+                <div class="kpi-val" id="kpi-completed-trips">0</div>
+                <div class="kpi-title">Finished Trips</div>
+              </div>
+            </div>
+            <div class="kpi-card-v2 amber">
+              <div class="kpi-icon-wrap">🥛</div>
+              <div>
+                <div class="kpi-val" id="kpi-total-milk">0 kg</div>
+                <div class="kpi-title">Milk Collected</div>
+              </div>
             </div>
           </div>
 
-          <!-- Assigned BMCs Section -->
-          <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="font-size: 1.2rem; font-weight: 800; color: #0F172A; margin: 0;">🏭 My Assigned BMCs</h3>
-            <a href="bmc.html" class="btn btn-outline btn-sm">View All BMC Details ➔</a>
-          </div>
+          <!-- ── FIELD OPERATIONS TRIPS (Clean Blue Trip Boxes) ────── -->
+          <div class="dashboard-section" id="sec-trips" style="margin-top: 24px;">
+            <div class="field-ops-header">
+              <h3 class="field-ops-title">
+                🚛 Field Trip Operations
+              </h3>
+              <select id="trip-status-filter" class="subtle-status-select">
+                <option value="">All Statuses</option>
+                <option value="in_transmit">In Transmit</option>
+                <option value="completed">Finished Trips</option>
+              </select>
+            </div>
 
-          <div id="assigned-bmcs-container" class="bmc-grid">
-            <div class="text-muted p-4">Loading assigned BMCs...</div>
+            <!-- Clean Blue Trip Boxes Container -->
+            <div id="trips-boxes-container" class="trips-boxes-container">
+              <div class="text-center text-muted py-5">Loading trip operations...</div>
+            </div>
           </div>
 
         </div>
       </main>
+    </div>
+  </div>
+
+  <!-- ── Trip Details Modal (existing) ──────────────────────────────────── -->
+  <div id="trip-detail-modal" class="modal-overlay hidden">
+    <div class="modal-content modal-lg">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 id="modal-trip-title" style="margin:0; font-weight:800; color:#0F172A;">Trip Details</h3>
+        <button id="trip-modal-close" class="btn btn-ghost">✕</button>
+      </div>
+      <div class="trip-detail-header-card">
+        <div style="font-size: 1.2rem; font-weight: 800;" id="modal-trip-name">—</div>
+        <div style="font-size: 0.85rem; opacity: 0.88; margin-top: 4px;" id="modal-trip-meta">—</div>
+      </div>
+      <div class="trip-detail-grid">
+        <div class="detail-item-box">
+          <div class="lbl">Worker</div>
+          <div class="val" id="modal-worker-name">—</div>
+        </div>
+        <div class="detail-item-box">
+          <div class="lbl">Driver &amp; Vehicle</div>
+          <div class="val" id="modal-driver-vehicle">—</div>
+        </div>
+        <div class="detail-item-box">
+          <div class="lbl">Out Time (Start)</div>
+          <div class="val" id="modal-out-time">—</div>
+        </div>
+        <div class="detail-item-box">
+          <div class="lbl">In Time (End)</div>
+          <div class="val" id="modal-in-time">—</div>
+        </div>
+      </div>
+      <div style="margin-top: 16px;">
+        <h4 style="font-weight: 700; color: #0F172A; margin-bottom: 8px;">Visited BMC Sequence</h4>
+        <div class="table-responsive">
+          <table class="gm-table-v2">
+            <thead>
+              <tr>
+                <th>Seq</th>
+                <th>BMC Name</th>
+                <th>MACS Data</th>
+                <th>Spot Analyzer</th>
+                <th>Dairy Result</th>
+              </tr>
+            </thead>
+            <tbody id="modal-visits-body">
+              <tr><td colspan="5" class="text-muted text-center">No BMC visits recorded for this trip yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Live Tracking of Spot Analyzer ── -->
+      <div id="trip-map-section" class="hidden" style="margin-top: 20px;">
+        <h4 style="font-weight: 700; color: #0F172A; margin-bottom: 8px;">📡 Spot Analyzer Live Tracking</h4>
+        
+        <!-- Status Box -->
+        <div style="background: #F8FAFC; padding: 12px 16px; border-radius: 10px; border: 1px solid #E2E8F0; margin-bottom: 12px; font-size: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-weight: 600; color: #475569;">Tracking Status:</span>
+            <span id="trip-map-status-text" style="font-weight: 700; color: #16A34A;">—</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600; color: #475569;">Last Recorded Location:</span>
+            <span id="trip-map-last-update" style="font-weight: 600; color: #0F172A;">—</span>
+          </div>
+          <div id="trip-map-interruptions-container" class="hidden" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #CBD5E1; color: #DC2626; font-size: 0.82rem;">
+            <strong>Interruptions Recorded:</strong>
+            <ul id="trip-map-interruptions-list" style="margin: 4px 0 0; padding-left: 16px;"></ul>
+          </div>
+        </div>
+
+        <!-- Leaflet Map Container -->
+        <div id="spot-analyzer-journey-map" style="height: 320px; width: 100%; border-radius: 12px; border: 1px solid #CBD5E1; background: #E2E8F0; overflow: hidden;"></div>
+      </div>
+      <div class="d-flex justify-content-between align-items-center" style="margin-top: 20px;">
+        <div class="d-flex gap-2">
+          <button id="modal-download-excel-btn" class="btn-export-excel" style="padding: 6px 14px; font-size: 0.85rem;">
+            <span>📊</span> Single Trip Excel
+          </button>
+          <button id="modal-download-pdf-btn" class="btn-export-pdf" style="padding: 6px 14px; font-size: 0.85rem;">
+            <span>📄</span> Single Trip PDF
+          </button>
+        </div>
+        <button id="trip-modal-dismiss-btn" class="btn btn-outline btn-sm">Close Window</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Assign Worker Modal ─────────────────────────────────────────────── -->
+  <div id="assign-worker-modal" class="aw-modal-overlay hidden">
+    <div class="aw-modal">
+      <div class="aw-modal-header">
+        <h3>👤 Assign Field Worker</h3>
+        <button id="aw-modal-close" class="aw-modal-close">✕</button>
+      </div>
+      <div class="aw-trip-info" id="aw-trip-info">
+        <!-- Populated by JS -->
+      </div>
+      <div class="aw-worker-list" id="aw-worker-list">
+        <div class="aw-empty">Loading field workers...</div>
+      </div>
+      <div class="aw-modal-footer">
+        <button id="aw-cancel-btn" class="btn btn-outline">Cancel</button>
+        <button id="aw-assign-btn" class="btn-assign" disabled id="aw-assign-btn">Assign Worker</button>
+      </div>
     </div>
   </div>
 

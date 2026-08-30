@@ -128,8 +128,17 @@ function renderDutiesTable(duties) {
 
   tbody.innerHTML = duties.map(duty => {
     const sDate = duty.scheduled_start_time ? new Date(duty.scheduled_start_time) : new Date(duty.created_at);
-    const isNight = duty.duty_type === 'Night Duty';
-    const dutyBadge = `<span class="badge ${isNight ? 'badge-warning' : 'badge-info'}" style="font-size:0.75rem;">${isNight ? '🌙 Night' : '🌅 Morning'}</span>`;
+    const dType = (duty.duty_type || '').toLowerCase();
+    let dutyBadgeText = '🌅 Morning';
+    let dutyBadgeClass = 'badge-info';
+    if (dType === 'evening' || dType === 'night duty') {
+      dutyBadgeText = '🌙 Evening';
+      dutyBadgeClass = 'badge-warning';
+    } else if (dType === 'both') {
+      dutyBadgeText = '🌅🌙 Both';
+      dutyBadgeClass = 'badge-primary';
+    }
+    const dutyBadge = `<span class="badge ${dutyBadgeClass}" style="font-size:0.75rem;">${dutyBadgeText}</span>`;
 
     return `
     <tr>
@@ -258,7 +267,7 @@ async function setupCreateTripModal() {
     const driverSelect = document.getElementById('ct-driver');
     const vehicleSelect = document.getElementById('ct-vehicle');
     const routeInput = document.getElementById('ct-route');
-    const dutyTypeSelect = document.getElementById('ct-duty-type');
+    const periodSelect = document.getElementById('ct-macs-period');
 
     if (!driverSelect.value) { showToast('Please select a driver.', 'error'); return; }
     if (!vehicleSelect.value) { showToast('Please select a vehicle.', 'error'); return; }
@@ -278,7 +287,7 @@ async function setupCreateTripModal() {
       vehicle_number: vehicleObj ? vehicleObj.board_number : null,
       selected_bmcs: selectedBmcs,
       route: routeInput.value.trim(),
-      duty_type: dutyTypeSelect ? dutyTypeSelect.value : 'Morning Duty',
+      duty_type: periodSelect ? periodSelect.value : 'morning',
       scheduled_start_time: nowIso,
       remarks: document.getElementById('ct-remarks').value.trim()
     };
@@ -673,8 +682,17 @@ async function viewDutyDetails(dutyId) {
 
   const dutyTypeEl = document.getElementById('duty-type');
   if (dutyTypeEl) {
-    const isNight = duty.duty_type === 'Night Duty';
-    dutyTypeEl.innerHTML = `<span class="badge ${isNight ? 'badge-warning' : 'badge-info'}">${isNight ? '🌙 Night Duty' : '🌅 Morning Duty'}</span>`;
+    const dType = (duty.duty_type || '').toLowerCase();
+    let dutyText = '🌅 Morning Duty';
+    let badgeClass = 'badge-info';
+    if (dType === 'evening' || dType === 'night duty') {
+      dutyText = '🌙 Evening Duty';
+      badgeClass = 'badge-warning';
+    } else if (dType === 'both') {
+      dutyText = '🌅🌙 Both Duty';
+      badgeClass = 'badge-primary';
+    }
+    dutyTypeEl.innerHTML = `<span class="badge ${badgeClass}">${dutyText}</span>`;
   }
 
   document.getElementById('duty-driver').textContent = duty.driver_name || '—';

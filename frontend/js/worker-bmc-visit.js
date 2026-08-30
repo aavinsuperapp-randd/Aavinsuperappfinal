@@ -5,7 +5,6 @@ let currentTripId = null;
 let currentVisitId = null;
 let currentBmcId = null;
 let currentBmcCode = null;
-let selectedStarRating = 5;
 
 function getUrlParam(name) {
   const urlParams = new URLSearchParams(window.location.search);
@@ -23,7 +22,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   currentBmcCode = urlParams.get('bmcCode');
 
   setupSidebarToggle();
-  setupStarRating();
   setupSaveButtonListeners();
   
   const logoutBtn = document.getElementById('logout-btn');
@@ -71,7 +69,6 @@ async function loadVisitDetails() {
   const gerberLactoInput = document.getElementById('bv-gerber-lacto');
   const reportTextInput = document.getElementById('bv-report-text');
   const reportPrioritySelect = document.getElementById('bv-report-priority');
-  const reviewTextInput = document.getElementById('bv-review-text');
 
   try {
     let visitData = null;
@@ -220,47 +217,10 @@ async function loadVisitDetails() {
       markSectionSaved('report');
     }
 
-    // Populate saved Review/Ratings
-    const ratingData = Array.isArray(visitData.bmc_ratings) ? visitData.bmc_ratings[0] : visitData.bmc_ratings;
-    if (ratingData) {
-      if (reviewTextInput) reviewTextInput.value = ratingData.remarks || '';
-      const score = Math.round(ratingData.overall_rating || ratingData.behaviour || 5);
-      setStarRatingUI(score);
-      markSectionSaved('review');
-    }
-
   } catch (err) {
     console.error('Error loading visit details page:', err);
     alert(err.message || 'Failed to load BMC visit data.');
   }
-}
-
-function setupStarRating() {
-  const container = document.getElementById('star-rating-container');
-  if (!container) return;
-  const stars = container.querySelectorAll('span');
-  stars.forEach(star => {
-    star.addEventListener('click', () => {
-      const val = parseInt(star.getAttribute('data-star') || '5', 10);
-      setStarRatingUI(val);
-    });
-  });
-}
-
-function setStarRatingUI(rating) {
-  selectedStarRating = rating;
-  const container = document.getElementById('star-rating-container');
-  if (!container) return;
-  const stars = container.querySelectorAll('span');
-  stars.forEach(star => {
-    const val = parseInt(star.getAttribute('data-star') || '0', 10);
-    if (val <= rating) {
-      star.style.color = '#F59E0B';
-    } else {
-      star.style.color = '#CBD5E1';
-    }
-  });
-  markSectionEdit('review');
 }
 
 function markSectionSaved(section) {
@@ -268,8 +228,7 @@ function markSectionSaved(section) {
     weight: { id: 'bv-btn-save-weight' },
     ftir: { id: 'bv-btn-save-ftir' },
     gerber: { id: 'bv-btn-save-gerber' },
-    report: { id: 'bv-btn-save-report' },
-    review: { id: 'bv-btn-save-review' }
+    report: { id: 'bv-btn-save-report' }
   };
 
   const item = btnMap[section];
@@ -289,8 +248,7 @@ function markSectionEdit(section) {
     weight: { id: 'bv-btn-save-weight', label: '💾 UPDATE WEIGHT' },
     ftir: { id: 'bv-btn-save-ftir', label: '💾 UPDATE FTIR TEST' },
     gerber: { id: 'bv-btn-save-gerber', label: '💾 UPDATE GERBER TEST' },
-    report: { id: 'bv-btn-save-report', label: '💾 UPDATE REPORT' },
-    review: { id: 'bv-btn-save-review', label: '💾 UPDATE REVIEW' }
+    report: { id: 'bv-btn-save-report', label: '💾 UPDATE REPORT' }
   };
 
   const item = btnMap[section];
@@ -320,7 +278,6 @@ function setupSaveButtonListeners() {
   setupEditListener(['bv-ftir-fat', 'bv-ftir-snf'], 'ftir');
   setupEditListener(['bv-gerber-fat', 'bv-gerber-snf', 'bv-gerber-lacto'], 'gerber');
   setupEditListener(['bv-report-text', 'bv-report-priority'], 'report');
-  setupEditListener(['bv-review-text'], 'review');
 
   // 1. Save Weight
   const btnSaveWeight = document.getElementById('bv-btn-save-weight');
@@ -478,41 +435,6 @@ function setupSaveButtonListeners() {
         markSectionSaved('report');
       } catch (err) {
         alert(err.message || 'Failed to save report.');
-      }
-    });
-  }
-
-  // 5. Save Review
-  const btnSaveReview = document.getElementById('bv-btn-save-review');
-  if (btnSaveReview) {
-    btnSaveReview.addEventListener('click', async () => {
-      if (btnSaveReview.dataset.saved === 'true') {
-        markSectionEdit('review');
-        document.getElementById('bv-review-text')?.focus();
-        return;
-      }
-
-      if (!currentVisitData || !currentVisitData.id) {
-        alert('No active visit loaded.');
-        return;
-      }
-      const text = document.getElementById('bv-review-text')?.value.trim() || '';
-      const rating = selectedStarRating || 5;
-
-      try {
-        const res = await apiSaveReviewRating(currentVisitData.id, {
-          behaviour: rating,
-          cooperation: rating,
-          cleanliness: rating,
-          infrastructure: rating,
-          remarks: text
-        });
-        if (res && res.rating) {
-          currentVisitData.bmc_ratings = [res.rating];
-        }
-        markSectionSaved('review');
-      } catch (err) {
-        alert(err.message || 'Failed to save review.');
       }
     });
   }
