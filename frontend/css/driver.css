@@ -891,3 +891,124 @@
   .active-trip-stats { grid-template-columns: repeat(2, 1fr); }
   .trip-info-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+
+/* ============================================================
+   GLOBAL RESPONSIVE FOUNDATION (Appended)
+   ============================================================ */
+
+html, body {
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+
+/* Tablet adjustments */
+@media (max-width: 1024px) {
+  .kpi-row, .kpi-grid-5, .three-col, .two-col, .rankings-grid, .items-grid, .live-workers-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* Sidebar & General Mobile adjustments */
+@media (max-width: 900px) {
+  .admin-sidebar {
+    position: fixed !important;
+    left: -320px;
+    top: 0;
+    height: 100vh;
+    width: 280px !important;
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s ease !important;
+    z-index: 9999 !important;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.15) !important;
+  }
+  .admin-sidebar.open, .admin-sidebar.active { 
+    left: 0 !important; 
+    transform: translateX(0) !important;
+  }
+  .sidebar-overlay {
+    display: none;
+    position: fixed !important;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.6) !important;
+    backdrop-filter: blur(2px);
+    z-index: 9998 !important;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .sidebar-overlay.show, .sidebar-overlay.active { 
+    display: block !important; 
+    opacity: 1 !important;
+  }
+  .sidebar-toggle { display: flex !important; }
+  .admin-main { margin-left: 0 !important; width: 100%; overflow-x: hidden; }
+  
+  .admin-header { 
+    padding: 0 16px !important; 
+    height: 60px !important; 
+    position: sticky !important;
+    top: 0;
+    z-index: 900 !important;
+  }
+  .header-greeting h2 { font-size: 1.05rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+  .header-greeting p { display: none !important; }
+  
+  .admin-content { padding: 16px !important; overflow-x: hidden; width: 100%; box-sizing: border-box; }
+  
+  /* Tables */
+  .table-responsive {
+    width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    box-shadow: inset 0 0 4px rgba(0,0,0,0.02);
+  }
+  .gm-table, .gm-table-v2, .ranking-table {
+    min-width: 700px; /* Force horizontal scroll rather than squeeze */
+  }
+
+  /* Modals */
+  .modal-content, .aw-modal, .fw-modal {
+    width: 95% !important;
+    padding: 20px !important;
+    margin: 10px auto;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+  
+  /* Cards */
+  .content-card, .table-card { padding: 16px !important; margin-bottom: 16px !important; }
+}
+
+@media (max-width: 576px) {
+  .kpi-row, .kpi-grid-5, .three-col, .two-col, .rankings-grid, .items-grid, .live-workers-grid, .timing-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .top-controls-bar { flex-direction: column !important; align-items: stretch !important; gap: 12px; }
+  .date-range-row { flex-direction: column !important; align-items: stretch !important; }
+  .date-input-item { width: 100%; justify-content: space-between; }
+  .date-actions-row { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+  .btn-export-pdf, .btn-export-excel, .btn-search-filter { flex: 1; justify-content: center; padding: 12px !important; font-size: 0.9rem !important; }
+  
+  /* Forms */
+  .form-control, .date-picker-input, input, select, textarea { font-size: 16px !important; padding: 10px 12px !important; } /* 16px prevents iOS zoom */
+  .btn { padding: 10px 16px !important; font-size: 0.9rem !important; }
+  
+  .card-header, .table-card-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px; }
+  .header-right { gap: 8px !important; }
+  .header-user-role { display: none !important; }
+  .header-avatar { width: 32px !important; height: 32px !important; font-size: 0.75rem !important; }
+  
+  /* Touch target sizes */
+  a.admin-nav-item, button.admin-nav-item { padding: 14px 18px !important; font-size: 0.95rem !important; }
+  
+  .profile-banner { padding: 20px !important; flex-direction: column !important; text-align: center; gap: 12px; }
+  .chart-wrap { height: 220px !important; }
+  
+  /* Item cards */
+  .item-card-header { flex-direction: column; align-items: flex-start; }
+  .item-actions { width: 100%; justify-content: space-between; margin-top: 10px; }
+  .btn-prioritize-action { width: 100%; text-align: center; justify-content: center; }
+}

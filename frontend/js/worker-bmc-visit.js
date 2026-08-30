@@ -67,6 +67,8 @@ async function loadVisitDetails() {
   const gerberFatInput = document.getElementById('bv-gerber-fat');
   const gerberSnfInput = document.getElementById('bv-gerber-snf');
   const gerberLactoInput = document.getElementById('bv-gerber-lacto');
+  const gerberMbrtInput = document.getElementById('bv-gerber-mbrt');
+  const gerberAcidityInput = document.getElementById('bv-gerber-acidity');
   const reportTextInput = document.getElementById('bv-report-text');
   const reportPrioritySelect = document.getElementById('bv-report-priority');
 
@@ -197,12 +199,18 @@ async function loadVisitDetails() {
       markSectionSaved('ftir');
     }
 
-    // Populate saved Gerber
+    // Populate saved Gerber & Quality tests
     const gerberData = Array.isArray(visitData.gerber_tests) ? visitData.gerber_tests[0] : visitData.gerber_tests;
-    if (gerberData) {
-      if (gerberData.fat_percentage !== undefined && gerberData.fat_percentage !== null && gerberFatInput) gerberFatInput.value = gerberData.fat_percentage;
-      if (gerberData.snf !== undefined && gerberData.snf !== null && gerberSnfInput) gerberSnfInput.value = gerberData.snf;
-      if (gerberData.clr !== undefined && gerberData.clr !== null && gerberLactoInput) gerberLactoInput.value = gerberData.clr;
+    if (gerberData || visitData.mbrt || visitData.mprt || visitData.acidity) {
+      if (gerberData) {
+        if (gerberData.fat_percentage !== undefined && gerberData.fat_percentage !== null && gerberFatInput) gerberFatInput.value = gerberData.fat_percentage;
+        if (gerberData.snf !== undefined && gerberData.snf !== null && gerberSnfInput) gerberSnfInput.value = gerberData.snf;
+        if (gerberData.clr !== undefined && gerberData.clr !== null && gerberLactoInput) gerberLactoInput.value = gerberData.clr;
+      }
+      const mbrtVal = (gerberData && (gerberData.mbrt || gerberData.mprt)) || visitData.mbrt || visitData.mprt || '';
+      if (mbrtVal && gerberMbrtInput) gerberMbrtInput.value = mbrtVal;
+      const acidityVal = (gerberData && gerberData.acidity !== undefined && gerberData.acidity !== null) ? gerberData.acidity : (visitData.acidity ?? '');
+      if (acidityVal !== '' && gerberAcidityInput) gerberAcidityInput.value = acidityVal;
       markSectionSaved('gerber');
     }
 
@@ -276,7 +284,9 @@ function setupSaveButtonListeners() {
 
   setupEditListener(['bv-compartment', 'bv-weight-kg'], 'weight');
   setupEditListener(['bv-ftir-fat', 'bv-ftir-snf'], 'ftir');
-  setupEditListener(['bv-gerber-fat', 'bv-gerber-snf', 'bv-gerber-lacto'], 'gerber');
+  setupEditListener(['bv-compartment', 'bv-weight-kg'], 'weight');
+  setupEditListener(['bv-ftir-fat', 'bv-ftir-snf'], 'ftir');
+  setupEditListener(['bv-gerber-fat', 'bv-gerber-snf', 'bv-gerber-lacto', 'bv-gerber-mbrt', 'bv-gerber-acidity'], 'gerber');
   setupEditListener(['bv-report-text', 'bv-report-priority'], 'report');
 
   // 1. Save Weight
@@ -361,7 +371,7 @@ function setupSaveButtonListeners() {
     });
   }
 
-  // 3. Save Gerber Test
+  // 3. Save Gerber & Quality Tests
   const btnSaveGerber = document.getElementById('bv-btn-save-gerber');
   if (btnSaveGerber) {
     btnSaveGerber.addEventListener('click', async () => {
@@ -378,6 +388,9 @@ function setupSaveButtonListeners() {
       const fat = parseFloat(document.getElementById('bv-gerber-fat')?.value);
       const snf = parseFloat(document.getElementById('bv-gerber-snf')?.value);
       const lacto = parseFloat(document.getElementById('bv-gerber-lacto')?.value);
+      const mbrt = document.getElementById('bv-gerber-mbrt')?.value.trim() || null;
+      const acidityRaw = document.getElementById('bv-gerber-acidity')?.value.trim();
+      const acidity = acidityRaw !== undefined && acidityRaw !== '' && !isNaN(parseFloat(acidityRaw)) ? parseFloat(acidityRaw) : null;
 
       if (isNaN(fat) || isNaN(snf) || isNaN(lacto)) {
         alert('Please enter FAT, SNF, and Lactometer values for Gerber test.');
@@ -388,14 +401,24 @@ function setupSaveButtonListeners() {
         const res = await apiSaveGerberTest(currentVisitData.id, {
           fat_percentage: fat,
           snf,
-          clr: lacto
+          clr: lacto,
+          mbrt,
+          mprt: mbrt,
+          acidity
         });
         if (res && res.gerber) {
           currentVisitData.gerber_tests = [res.gerber];
         }
+        if (mbrt) {
+          currentVisitData.mbrt = mbrt;
+          currentVisitData.mprt = mbrt;
+        }
+        if (acidity !== null) {
+          currentVisitData.acidity = acidity;
+        }
         markSectionSaved('gerber');
       } catch (err) {
-        alert(err.message || 'Failed to save Gerber test.');
+        alert(err.message || 'Failed to save quality tests.');
       }
     });
   }
@@ -503,19 +526,19 @@ function showCloseVisitInvoiceModal(visitId, tripId, serialVal, tempVal, sealVal
       <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px;">
         <div>
           <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Invoice Serial Number <span style="color:#EF4444;">*</span></label>
-          <input id="cvi-serial" type="text" value="${serialVal}" placeholder="e.g. INV-2026-001" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
+          <input id="cvi-serial" type="text" value="${serialVal}" placeholder="e.g. INV-2026-001" maxlength="30" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
         </div>
         <div>
           <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Temperature (°C) <span style="color:#EF4444;">*</span></label>
-          <input id="cvi-temperature" type="number" step="0.1" value="${tempVal}" placeholder="e.g. 4.5" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
+          <input id="cvi-temperature" type="number" step="0.1" value="${tempVal}" placeholder="e.g. 4.5" min="-10" max="100" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
         </div>
         <div>
           <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Seal Number <span style="color:#EF4444;">*</span></label>
-          <input id="cvi-seal" type="text" value="${sealVal}" placeholder="e.g. SL-0042" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
+          <input id="cvi-seal" type="text" value="${sealVal}" placeholder="e.g. SL-0042" maxlength="30" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
         </div>
         <div>
           <label style="font-size:0.82rem;font-weight:700;color:#334155;display:block;margin-bottom:4px;">Broken Seal Number <span style="color:#EF4444;">*</span></label>
-          <input id="cvi-broken-seal" type="text" value="${brokenVal}" placeholder="e.g. BSL-0019" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
+          <input id="cvi-broken-seal" type="text" value="${brokenVal}" placeholder="e.g. BSL-0019" maxlength="30" style="width:100%;padding:10px 14px;border:1.5px solid #CBD5E1;border-radius:10px;font-size:0.92rem;font-family:Outfit,sans-serif;outline:none;transition:border 0.15s;" onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'">
         </div>
       </div>
       <div style="padding:16px 24px;border-top:1px solid #E2E8F0;display:flex;gap:10px;justify-content:flex-end;">

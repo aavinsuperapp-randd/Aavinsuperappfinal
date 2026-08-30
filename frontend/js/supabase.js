@@ -2,11 +2,11 @@
 
 let supabaseClient = null;
 
-// Relative/Absolute path helper to work across different subdirectories (/gm/, /worker/, /admin/)
+// Relative/Absolute path helper to work across different subdirectories (/gm/, /worker/, /aavinadminmonitoringdashboard/)
 function getPath(target) {
   const isFileProtocol = window.location.protocol === 'file:';
   const pathname = (window.location.pathname || '').replace(/\\/g, '/');
-  const inSubfolder = pathname.includes('/gm/') || pathname.includes('/worker/') || pathname.includes('/admin/') || pathname.includes('/transport/') || pathname.includes('/driver/') || pathname.includes('/eo/') || pathname.includes('/qc-worker/') || pathname.includes('/qc-agm/');
+  const inSubfolder = pathname.includes('/gm/') || pathname.includes('/worker/') || pathname.includes('/aavinadminmonitoringdashboard/') || pathname.includes('/transport/') || pathname.includes('/driver/') || pathname.includes('/eo/') || pathname.includes('/qc-worker/') || pathname.includes('/qc-agm/');
 
   if (isFileProtocol) {
     if (inSubfolder) {
@@ -18,6 +18,17 @@ function getPath(target) {
   // Server HTTP / HTTPS mode (e.g. http://localhost:5000)
   const cleanTarget = target.replace(/^\//, '');
   return '/' + cleanTarget;
+}
+
+// Automatically ensure UIStates utility script is available globally
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    if (typeof window.UIStates === 'undefined') {
+      const script = document.createElement('script');
+      script.src = getPath('js/ui-states.js');
+      document.head.appendChild(script);
+    }
+  });
 }
 
 // Centralized Production API Configuration

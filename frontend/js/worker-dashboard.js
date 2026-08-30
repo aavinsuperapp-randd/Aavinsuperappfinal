@@ -83,8 +83,13 @@ async function loadDuties() {
   const availContainer = document.getElementById('available-duties-container');
   const finContainer = document.getElementById('finished-duties-container');
 
-  if (availContainer) availContainer.innerHTML = '<div class="text-center text-muted py-4"><div style="font-size:1.8rem; margin-bottom:8px;">🔄</div><div>Fetching available duties...</div></div>';
-  if (finContainer) finContainer.innerHTML = '<div class="text-center text-muted py-4"><div style="font-size:1.8rem; margin-bottom:8px;">🔄</div><div>Fetching finished duties...</div></div>';
+  if (typeof UIStates !== 'undefined') {
+    if (availContainer) UIStates.renderLoading(availContainer, { message: 'Fetching available duties...' });
+    if (finContainer) UIStates.renderLoading(finContainer, { message: 'Fetching finished duties...' });
+  } else {
+    if (availContainer) availContainer.innerHTML = '<div class="text-center text-muted py-4"><div style="font-size:1.8rem; margin-bottom:8px;">🔄</div><div>Fetching available duties...</div></div>';
+    if (finContainer) finContainer.innerHTML = '<div class="text-center text-muted py-4"><div style="font-size:1.8rem; margin-bottom:8px;">🔄</div><div>Fetching finished duties...</div></div>';
+  }
 
   try {
     const res = await apiGetAssignedTrips({}); // fetch all assigned trips, no date filter
@@ -107,8 +112,13 @@ async function loadDuties() {
     renderDutiesList(finishedDuties, 'finished-duties-container', 'No Finished Duties', 'You have not completed any duties yet.');
   } catch (err) {
     console.error('Failed to load duties:', err);
-    if (availContainer) availContainer.innerHTML = `<div class="text-center text-muted py-4" style="color:#DC2626;"><div style="font-size:1.8rem; margin-bottom:8px;">⚠️</div><div>${esc(err.message || 'Failed to load duties.')}</div></div>`;
-    if (finContainer) finContainer.innerHTML = `<div class="text-center text-muted py-4" style="color:#DC2626;"><div style="font-size:1.8rem; margin-bottom:8px;">⚠️</div><div>${esc(err.message || 'Failed to load duties.')}</div></div>`;
+    if (typeof UIStates !== 'undefined') {
+      if (availContainer) UIStates.handleFetchError(err, availContainer, loadDuties);
+      if (finContainer) UIStates.handleFetchError(err, finContainer, loadDuties);
+    } else {
+      if (availContainer) availContainer.innerHTML = `<div class="text-center text-muted py-4" style="color:#DC2626;"><div style="font-size:1.8rem; margin-bottom:8px;">⚠️</div><div>${esc(err.message || 'Failed to load duties.')}</div></div>`;
+      if (finContainer) finContainer.innerHTML = `<div class="text-center text-muted py-4" style="color:#DC2626;"><div style="font-size:1.8rem; margin-bottom:8px;">⚠️</div><div>${esc(err.message || 'Failed to load duties.')}</div></div>`;
+    }
   }
 }
 
@@ -165,13 +175,20 @@ function renderDutiesList(duties, containerId, emptyTitle, emptyDesc) {
   if (!container) return;
 
   if (duties.length === 0) {
-    container.innerHTML = `
-      <div class="text-center text-muted py-5">
-        <div style="font-size:2.5rem; margin-bottom:8px;">🚚</div>
-        <div style="font-weight:700; color:#334155; margin-bottom:4px; font-size: 1rem;">${esc(emptyTitle)}</div>
-        <div style="font-size: 0.85rem;">${esc(emptyDesc)}</div>
-      </div>
-    `;
+    if (typeof UIStates !== 'undefined') {
+      UIStates.renderEmpty(container, {
+        title: emptyTitle,
+        message: emptyDesc
+      });
+    } else {
+      container.innerHTML = `
+        <div class="text-center text-muted py-5">
+          <div style="font-size:2.5rem; margin-bottom:8px;">🚚</div>
+          <div style="font-weight:700; color:#334155; margin-bottom:4px; font-size: 1rem;">${esc(emptyTitle)}</div>
+          <div style="font-size: 0.85rem;">${esc(emptyDesc)}</div>
+        </div>
+      `;
+    }
     return;
   }
 
@@ -555,10 +572,14 @@ window.triggerStartTripFromView = function() {
 // ── START TRIP MODAL ─────────────────────────────────────────────────────────
 
 let currentStartTripLocation = null;
+let locationAttemptCount = 0;
+let allowStartWithoutLocation = false;
 
 window.openStartTripModal = function(tripId) {
   selectedTripId = tripId;
   currentStartTripLocation = null;
+  locationAttemptCount = 0;
+  allowStartWithoutLocation = false;
   const modal = document.getElementById('start-trip-modal');
   if (!modal) return;
 
@@ -568,6 +589,7 @@ window.openStartTripModal = function(tripId) {
   const statusEl = document.getElementById('st-location-status');
   const coordsBox = document.getElementById('st-location-coords');
   const reqBtn = document.getElementById('btn-request-st-location');
+  const skipContainer = document.getElementById('st-skip-location-container');
 
   if (outKmInput) outKmInput.value = '';
   if (outWeightInput) outWeightInput.value = '';
@@ -577,8 +599,9 @@ window.openStartTripModal = function(tripId) {
     statusEl.style.color = '#64748B';
   }
   if (coordsBox) coordsBox.style.display = 'none';
+  if (skipContainer) skipContainer.style.display = 'none';
   if (reqBtn) {
-    reqBtn.textContent = '📡 Enable Location';
+    reqBtn.textContent = '📡 Fetch Location';
     reqBtn.disabled = false;
   }
 
@@ -596,12 +619,18 @@ async function requestStartTripLocationPermission() {
   const coordsBox = document.getElementById('st-location-coords');
   const latVal = document.getElementById('st-lat-val');
   const lngVal = document.getElementById('st-lng-val');
+  const skipContainer = document.getElementById('st-skip-location-container');
+
+  locationAttemptCount++;
 
   if (reqBtn) {
     reqBtn.disabled = true;
-    reqBtn.textContent = '📡 Requesting...';
+    reqBtn.textContent = `📡 Attempt ${Math.min(locationAttemptCount, 3)}/3...`;
   }
-  if (statusEl) statusEl.textContent = 'Requesting browser location permission...';
+  if (statusEl) {
+    statusEl.textContent = `Fetching location (Attempt ${locationAttemptCount} of 3)...`;
+    statusEl.style.color = '#64748B';
+  }
 
   try {
     const pos = await getCurrentPositionPromise();
@@ -622,17 +651,35 @@ async function requestStartTripLocationPermission() {
       reqBtn.textContent = '✅ Location Ready';
       reqBtn.disabled = false;
     }
+    if (skipContainer) skipContainer.style.display = 'none';
     if (typeof showToast === 'function') showToast('Location permission granted.', 'success');
     return currentStartTripLocation;
   } catch (err) {
-    if (statusEl) {
-      statusEl.textContent = '❌ ' + (err.message || 'Location access denied');
-      statusEl.style.color = '#DC2626';
-    }
+    currentStartTripLocation = null;
+
     if (reqBtn) {
-      reqBtn.textContent = '📡 Enable Location';
       reqBtn.disabled = false;
+      if (locationAttemptCount < 3) {
+        reqBtn.textContent = `📡 Retry Location (${locationAttemptCount}/3)`;
+      } else {
+        reqBtn.textContent = `📡 Retry Location`;
+      }
     }
+
+    if (locationAttemptCount >= 3) {
+      allowStartWithoutLocation = true;
+      if (skipContainer) skipContainer.style.display = 'block';
+      if (statusEl) {
+        statusEl.textContent = `❌ Unable to retrieve location (${err.message || 'Access denied'}). You can now Start Trip Without Location.`;
+        statusEl.style.color = '#DC2626';
+      }
+    } else {
+      if (statusEl) {
+        statusEl.textContent = `❌ Attempt ${locationAttemptCount} failed: ` + (err.message || 'Location access denied');
+        statusEl.style.color = '#DC2626';
+      }
+    }
+
     if (typeof showToast === 'function') showToast(err.message || 'Location permission denied.', 'error');
     throw err;
   }
@@ -641,9 +688,23 @@ async function requestStartTripLocationPermission() {
 function setupStartTripForm() {
   const confirmBtn = document.getElementById('btn-confirm-start-trip');
   const reqBtn = document.getElementById('btn-request-st-location');
+  const skipBtn = document.getElementById('btn-skip-st-location');
 
   if (reqBtn) {
     reqBtn.addEventListener('click', requestStartTripLocationPermission);
+  }
+
+  if (skipBtn) {
+    skipBtn.addEventListener('click', () => {
+      allowStartWithoutLocation = true;
+      currentStartTripLocation = null;
+      const statusEl = document.getElementById('st-location-status');
+      if (statusEl) {
+        statusEl.textContent = '⚠️ Proceeding without GPS location.';
+        statusEl.style.color = '#D97706';
+      }
+      if (typeof showToast === 'function') showToast('Starting trip without location data.', 'info');
+    });
   }
 
   if (confirmBtn) {
@@ -665,12 +726,16 @@ function setupStartTripForm() {
 
       try {
         let loc = currentStartTripLocation;
-        if (!loc) {
+
+        if (!loc && !allowStartWithoutLocation) {
           try {
             loc = await requestStartTripLocationPermission();
           } catch (geoErr) {
             confirmBtn.disabled = false;
             confirmBtn.textContent = 'CONFIRM START TRIP';
+            if (locationAttemptCount >= 3) {
+              if (typeof showToast === 'function') showToast('Location failed. Click "Start Trip Without Location" to proceed.', 'error');
+            }
             return;
           }
         }

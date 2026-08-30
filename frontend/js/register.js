@@ -72,7 +72,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       
-      toggleLoading(true);
+      const submitBtn = registerForm.querySelector('button[type="submit"]');
+      if (typeof UIStates !== 'undefined' && submitBtn) {
+        UIStates.setSaving(submitBtn, true, 'Submitting registration...');
+      } else {
+        toggleLoading(true);
+      }
 
       try {
         // POST to backend — server uses service role key to create user
@@ -90,12 +95,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           throw new Error(result.error || 'Registration failed.');
         }
 
+        if (typeof UIStates !== 'undefined' && submitBtn) UIStates.setSaving(submitBtn, false);
         toggleLoading(false);
         showRegistrationSuccess();
 
       } catch (err) {
         console.error("❌ Registration error:", err);
         showToast(err.message || "Failed to register account.", "error");
+        if (typeof UIStates !== 'undefined' && submitBtn) UIStates.setSaving(submitBtn, false);
         toggleLoading(false);
       }
     });

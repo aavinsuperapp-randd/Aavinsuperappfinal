@@ -10,13 +10,19 @@ document.addEventListener('DOMContentLoaded', () => {
       const email = document.getElementById('login-email').value.trim();
       const password = document.getElementById('login-password').value;
       
-      toggleLoading(true);
+      const submitBtn = loginForm.querySelector('button[type="submit"]');
+      if (typeof UIStates !== 'undefined' && submitBtn) {
+        UIStates.setSaving(submitBtn, true, 'Signing in...');
+      } else {
+        toggleLoading(true);
+      }
       
       // 1. Initialize Supabase
       const client = await initSupabase();
       
       if (!client) {
         showToast("Supabase is not initialized. Check server settings.", "error");
+        if (typeof UIStates !== 'undefined' && submitBtn) UIStates.setSaving(submitBtn, false);
         toggleLoading(false);
         return;
       }
@@ -98,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (profile.role === 'admin') {
           showToast("Welcome back, Admin!", "success");
           setTimeout(() => {
-            window.location.href = getPath('admin/dashboard.html');
+            window.location.href = getPath('aavinadminmonitoringdashboard/dashboard.html');
           }, 600);
         } else if (profile.status === 'pending') {
           showStatusOverlay('pending');
@@ -130,6 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (err) {
         console.error("❌ Login failed:", err);
         showToast(err.message || "Invalid credentials or login failed.", "error");
+        if (typeof UIStates !== 'undefined' && submitBtn) UIStates.setSaving(submitBtn, false);
         toggleLoading(false);
       }
     });

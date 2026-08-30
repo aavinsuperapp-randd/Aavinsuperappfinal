@@ -277,10 +277,15 @@
                 <div style="font-weight:700; font-size:0.88rem; color:#0F172A;">📍 GPS Location Permission</div>
                 <div id="st-location-status" style="font-size:0.8rem; color:#64748B; margin-top:2px;">Location permission required to start trip</div>
               </div>
-              <button type="button" class="btn btn-outline" id="btn-request-st-location" style="padding:6px 14px; font-size:0.82rem; font-weight:700;">📡 Enable Location</button>
+              <button type="button" class="btn btn-outline" id="btn-request-st-location" style="padding:6px 14px; font-size:0.82rem; font-weight:700;">📡 Fetch Location</button>
             </div>
             <div id="st-location-coords" style="display:none; font-size:0.78rem; font-family:monospace; color:#2563EB; margin-top:8px; background:#EFF6FF; padding:6px 10px; border-radius:6px;">
               Lat: <span id="st-lat-val">—</span> | Lng: <span id="st-lng-val">—</span>
+            </div>
+            <div id="st-skip-location-container" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed #CBD5E1; text-align:right;">
+              <button type="button" class="btn btn-outline" id="btn-skip-st-location" style="padding:6px 14px; font-size:0.82rem; font-weight:700; color:#D97706; border-color:#F59E0B;">
+                ⚠️ Start Trip Without Location
+              </button>
             </div>
           </div>
         </form>

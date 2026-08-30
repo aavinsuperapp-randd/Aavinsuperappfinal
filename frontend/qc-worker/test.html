@@ -132,15 +132,15 @@
             <div class="qc-form-grid" style="margin-bottom:20px;">
               <div class="qc-form-group">
                 <label class="qc-form-label">Fat % *</label>
-                <input type="number" step="0.01" id="qc-fat" class="qc-form-input" placeholder="e.g. 4.20" required>
+                <input type="number" step="0.01" id="qc-fat" class="qc-form-input" placeholder="e.g. 4.20" min="0" max="100" required>
               </div>
               <div class="qc-form-group">
                 <label class="qc-form-label">SNF % (Solids Not Fat) *</label>
-                <input type="number" step="0.01" id="qc-snf" class="qc-form-input" placeholder="e.g. 8.50" required>
+                <input type="number" step="0.01" id="qc-snf" class="qc-form-input" placeholder="e.g. 8.50" min="0" max="100" required>
               </div>
               <div class="qc-form-group">
                 <label class="qc-form-label">Temperature of Sample (°C)</label>
-                <input type="number" step="0.1" id="qc-temp" class="qc-form-input" placeholder="e.g. 30.5">
+                <input type="number" step="0.1" id="qc-temp" class="qc-form-input" placeholder="e.g. 30.5" min="-10" max="100">
               </div>
             </div>
 
@@ -169,7 +169,7 @@
             <div class="qc-form-grid" style="margin-bottom:24px;">
               <div class="qc-form-group" style="grid-column: 1 / -1;">
                 <label class="qc-form-label">QC Analyst Remarks</label>
-                <textarea id="qc-remarks" class="qc-form-input" rows="2" placeholder="Note any specific observations or lab notes..."></textarea>
+                <textarea id="qc-remarks" class="qc-form-input" rows="2" placeholder="Note any specific observations or lab notes..." maxlength="500"></textarea>
               </div>
             </div>
 

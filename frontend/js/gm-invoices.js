@@ -86,9 +86,27 @@ async function loadInvoices(searchQuery = '') {
     if (badge) badge.textContent = invoices.length;
 
     if (invoices.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="invoice-empty">
-        ${searchQuery ? `No invoices found matching "${esc(searchQuery)}"` : 'No invoices generated yet. Invoices are created when Spot Analyzers close BMC visits.'}
-      </td></tr>`;
+      if (searchQuery) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center">
+          <div class="ui-state-card ui-state-no-results" style="border:none;box-shadow:none;margin:0;padding:24px 16px;">
+            <div class="ui-state-icon" style="width:36px;height:36px;margin-bottom:8px;">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            </div>
+            <div class="ui-state-title" style="font-size:0.9rem;">No Invoices Found</div>
+            <div class="ui-state-desc" style="font-size:0.8rem;margin-bottom:0;">No invoices matching "${esc(searchQuery)}"</div>
+          </div>
+        </td></tr>`;
+      } else {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center">
+          <div class="ui-state-card ui-state-empty" style="border:none;box-shadow:none;margin:0;padding:24px 16px;">
+            <div class="ui-state-icon" style="width:36px;height:36px;margin-bottom:8px;">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
+            </div>
+            <div class="ui-state-title" style="font-size:0.9rem;">No Invoices Available</div>
+            <div class="ui-state-desc" style="font-size:0.8rem;margin-bottom:0;">Invoices are automatically generated when Spot Analyzers close BMC visits.</div>
+          </div>
+        </td></tr>`;
+      }
       return;
     }
 
@@ -109,7 +127,18 @@ async function loadInvoices(searchQuery = '') {
 
   } catch (err) {
     console.error('Failed to load invoices:', err);
-    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="invoice-empty" style="color:#DC2626;">Failed to load invoices: ${esc(err.message || String(err))}</td></tr>`;
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center">
+        <div class="ui-state-card ui-state-error" style="border:none;box-shadow:none;margin:0;padding:24px 16px;">
+          <div class="ui-state-icon" style="width:36px;height:36px;margin-bottom:8px;">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          </div>
+          <div class="ui-state-title" style="font-size:0.9rem;">Unable to Load Invoices</div>
+          <div class="ui-state-desc" style="font-size:0.8rem;margin-bottom:8px;">An unexpected error occurred while retrieving invoice records.</div>
+          <button class="btn btn-outline btn-sm" onclick="loadInvoices('${esc(searchQuery)}')">Retry</button>
+        </div>
+      </td></tr>`;
+    }
   }
 }
 

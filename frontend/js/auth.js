@@ -15,12 +15,21 @@ async function checkAuth(requiredRole) {
       errorDiv.className = 'container mt-4';
       document.body.appendChild(errorDiv);
     }
-    errorDiv.innerHTML = `
-      <div class="status-box status-rejected mt-4">
-        <h3>Database Offline</h3>
-        <p class="mt-1">Please configure real Supabase environment variables in backend/.env and restart the server.</p>
-      </div>
-    `;
+    if (typeof UIStates !== 'undefined') {
+      UIStates.renderNetworkError(errorDiv, {
+        title: 'Database Offline',
+        message: 'Unable to connect to database service. Please check configuration and try again.',
+        actionText: 'Retry Connection',
+        onAction: () => window.location.reload()
+      });
+    } else {
+      errorDiv.innerHTML = `
+        <div class="status-box status-rejected mt-4">
+          <h3>Database Offline</h3>
+          <p class="mt-1">Please configure real Supabase environment variables in backend/.env and restart the server.</p>
+        </div>
+      `;
+    }
     return null;
   }
   
@@ -191,7 +200,7 @@ async function checkAuth(requiredRole) {
 // Redirect helper
 function redirectToLogin(role) {
   if (role === 'admin') {
-    window.location.href = getPath('admin/login.html');
+    window.location.href = getPath('aavinadminmonitoringdashboard/login.html');
   } else {
     window.location.href = getPath('login.html');
   }
@@ -215,25 +224,43 @@ function showStatusScreen(status) {
   }
   
   if (status === 'pending') {
-    statusDiv.innerHTML = `
-      <div class="status-box status-pending mt-4">
-        <h3>Approval Pending</h3>
-        <p class="mt-1">Your account is waiting for administrator approval.</p>
-        <div class="mt-2">
-          <button class="btn btn-outline btn-sm" onclick="handleLogout()">Logout</button>
+    if (typeof UIStates !== 'undefined') {
+      UIStates.renderUnauthorized(statusDiv, {
+        title: 'Approval Pending',
+        message: 'Your account is waiting for administrator approval before accessing this portal.',
+        actionText: 'Logout',
+        loginUrl: 'javascript:handleLogout()'
+      });
+    } else {
+      statusDiv.innerHTML = `
+        <div class="status-box status-pending mt-4">
+          <h3>Approval Pending</h3>
+          <p class="mt-1">Your account is waiting for administrator approval.</p>
+          <div class="mt-2">
+            <button class="btn btn-outline btn-sm" onclick="handleLogout()">Logout</button>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }
   } else if (status === 'rejected') {
-    statusDiv.innerHTML = `
-      <div class="status-box status-rejected mt-4">
-        <h3>Account Rejected</h3>
-        <p class="mt-1">Your account has been rejected. Please contact the administrator.</p>
-        <div class="mt-2">
-          <button class="btn btn-outline btn-sm" onclick="handleLogout()">Logout</button>
+    if (typeof UIStates !== 'undefined') {
+      UIStates.renderUnauthorized(statusDiv, {
+        title: 'Account Rejected',
+        message: 'Your account has been rejected by administration. Please contact support.',
+        actionText: 'Logout',
+        loginUrl: 'javascript:handleLogout()'
+      });
+    } else {
+      statusDiv.innerHTML = `
+        <div class="status-box status-rejected mt-4">
+          <h3>Account Rejected</h3>
+          <p class="mt-1">Your account has been rejected. Please contact the administrator.</p>
+          <div class="mt-2">
+            <button class="btn btn-outline btn-sm" onclick="handleLogout()">Logout</button>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }
   }
 }
 

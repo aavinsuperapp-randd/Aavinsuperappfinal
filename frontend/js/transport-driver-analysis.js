@@ -15,7 +15,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!profile) return;
 
   document.getElementById('main-to-content').classList.remove('hidden');
-  document.getElementById('header-to-name').textContent = profile.name;
+  if (document.getElementById('header-to-name')) {
+    document.getElementById('header-to-name').textContent = profile.name;
+  }
 
   setupSidebarToggle();
   document.getElementById('logout-btn')?.addEventListener('click', handleLogout);

@@ -4,13 +4,57 @@ const cors = require('cors');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const { createClient } = require('@supabase/supabase-js');
+const {
+  LIMITS,
+  validateText,
+  validateNumber,
+  validateEnum,
+  validateDateTime,
+  sendErrorResponse
+} = require('./validator');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim())
+  : [];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (
+      origin.startsWith('http://localhost') ||
+      origin.startsWith('http://127.0.0.1') ||
+      origin.startsWith('https://localhost') ||
+      origin.startsWith('https://127.0.0.1') ||
+      origin.startsWith('file://') ||
+      allowedOrigins.includes(origin) ||
+      (process.env.PRODUCTION_DOMAIN && origin === process.env.PRODUCTION_DOMAIN)
+    ) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+
+// ─── API Request Logger Middleware ────────────────────────────────────────────
+// Logs incoming API requests with timestamp, HTTP method, URL, status code, and duration
+app.use((req, res, next) => {
+  if (req.originalUrl && req.originalUrl.startsWith('/api')) {
+    const start = Date.now();
+    const timestamp = new Date().toLocaleTimeString('en-GB', { hour12: false });
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      const method = req.method.padEnd(6, ' ');
+      console.log(`[${timestamp}] ${method} ${req.originalUrl} → ${res.statusCode}  (${duration}ms)`);
+    });
+  }
+  next();
+});
 
 // Serve static frontend files
 const frontendPath = path.join(__dirname, '../frontend');
@@ -64,11 +108,23 @@ async function processBmcImage(adminClient, bmcCode, base64Url) {
   }
   try {
     const extMatch = base64Url.match(/^data:image\/(\w+);base64,/);
-    let ext = extMatch ? extMatch[1] : 'jpg';
+    let ext = extMatch ? extMatch[1].toLowerCase() : 'jpg';
     if (ext === 'jpeg') ext = 'jpg';
+
+    const allowedTypes = ['jpg', 'jpeg', 'png', 'webp'];
+    if (!allowedTypes.includes(ext)) {
+      console.warn(`⚠️ Rejected image with unsupported type: ${ext}`);
+      return null;
+    }
 
     const base64Data = base64Url.replace(/^data:image\/\w+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
+
+    if (buffer.length > 10 * 1024 * 1024) {
+      console.warn('⚠️ Rejected image exceeding 10MB size limit.');
+      return null;
+    }
+
     const fileName = `bmc_${bmcCode}.${ext}`;
 
     const { error: uploadError } = await adminClient.storage
@@ -303,10 +359,20 @@ app.get('/api/config', (req, res) => {
 app.post('/api/register', async (req, res) => {
   const { name, dob, email, password, role } = req.body;
 
-  // Basic validation
+  // Production input limits & validation
   if (!name || !dob || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
+
+  const errName = validateText(name, 'Person Name', LIMITS.PERSON_NAME, true);
+  if (errName) return res.status(400).json({ error: errName });
+
+  const errEmail = validateText(email, 'Email', LIMITS.EMAIL, true);
+  if (errEmail) return res.status(400).json({ error: errEmail });
+
+  const errDob = validateDateTime(dob, 'Date of Birth', true);
+  if (errDob) return res.status(400).json({ error: errDob });
+
   if (!['user', 'gm', 'pi_agm', 'driver', 'transport_officer', 'executive_officer', 'qc_worker', 'qc_agm'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role. Must be user, gm, pi_agm, driver, transport_officer, executive_officer, qc_worker, or qc_agm.' });
   }
@@ -440,13 +506,28 @@ async function requireAdminRole(req, res, next) {
 
 // ─── ADMIN USERS ENDPOINTS ───────────────────────────────────────────────────
 app.get('/api/admin/users', requireAdminRole, async (req, res) => {
-  const { data: profiles, error } = await req.adminClient
+  const page = req.query.page ? Math.max(1, parseInt(req.query.page) || 1) : null;
+  const limit = req.query.limit ? Math.max(1, parseInt(req.query.limit) || 50) : 50;
+
+  let query = req.adminClient
     .from('profiles')
-    .select('*')
+    .select('*', { count: 'exact' })
     .order('created_at', { ascending: false });
 
+  if (page) {
+    const offset = (page - 1) * limit;
+    query = query.range(offset, offset + limit - 1);
+  }
+
+  const { data: profiles, error, count } = await query;
+
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ users: profiles || [] });
+  res.json({
+    users: profiles || [],
+    total: count || (profiles ? profiles.length : 0),
+    page: page || 1,
+    limit: page ? limit : (profiles ? profiles.length : 0)
+  });
 });
 
 app.delete('/api/admin/users/all', requireAdminRole, async (req, res) => {
@@ -1686,6 +1767,27 @@ app.post('/api/gm/create-bmc', requirePiAgm, async (req, res) => {
     return res.status(400).json({ error: 'GPS coordinates (latitude and longitude) are required.' });
   }
 
+  const errCode = validateText(bmc_code, 'BMC Code', LIMITS.BMC_CODE, true);
+  if (errCode) return res.status(400).json({ error: errCode });
+
+  const errName = validateText(name, 'BMC Name', LIMITS.BMC_NAME, true);
+  if (errName) return res.status(400).json({ error: errName });
+
+  const errDistrict = validateText(district, 'District', LIMITS.ADDRESS_LOCATION, true);
+  if (errDistrict) return res.status(400).json({ error: errDistrict });
+
+  const errLocation = validateText(location, 'Location', LIMITS.ADDRESS_LOCATION, true);
+  if (errLocation) return res.status(400).json({ error: errLocation });
+
+  const errCap = validateNumber(total_capacity, 'Total Capacity', LIMITS.WEIGHT_MIN, LIMITS.WEIGHT_MAX, false);
+  if (errCap) return res.status(400).json({ error: errCap });
+
+  const errLat = validateNumber(latitude, 'Latitude', LIMITS.LAT_MIN, LIMITS.LAT_MAX, true);
+  if (errLat) return res.status(400).json({ error: errLat });
+
+  const errLng = validateNumber(longitude, 'Longitude', LIMITS.LNG_MIN, LIMITS.LNG_MAX, true);
+  if (errLng) return res.status(400).json({ error: errLng });
+
   try {
     const { data: existing } = await adminClient
       .from('bmcs')
@@ -2760,78 +2862,6 @@ app.get('/api/tankers', requireWorker, async (req, res) => {
   res.json({ tankers: data || [] });
 });
 
-// ─── ADMIN: DRIVERS & TANKERS API ─────────────────────────────────────────────
-app.get('/api/admin/drivers', async (req, res) => {
-  const adminClient = getAdminClient();
-  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
-  const { data, error } = await adminClient.from('drivers').select('*').order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ drivers: data || [] });
-});
-
-app.post('/api/admin/drivers', async (req, res) => {
-  const adminClient = getAdminClient();
-  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
-  const { name, phone, license_number } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Driver name is required.' });
-
-  const { data, error } = await adminClient.from('drivers').insert({
-    name: name.trim(),
-    phone: phone ? phone.trim() : null,
-    license_number: license_number ? license_number.trim() : null,
-    is_active: true
-  }).select().single();
-
-  if (error) return res.status(500).json({ error: error.message });
-  res.status(201).json({ driver: data });
-});
-
-app.put('/api/admin/drivers/:id/toggle', async (req, res) => {
-  const adminClient = getAdminClient();
-  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
-  const { is_active } = req.body;
-  const { data, error } = await adminClient.from('drivers')
-    .update({ is_active: Boolean(is_active) })
-    .eq('id', req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ driver: data });
-});
-
-app.get('/api/admin/tankers', async (req, res) => {
-  const adminClient = getAdminClient();
-  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
-  const { data, error } = await adminClient.from('tankers').select('*').order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ tankers: data || [] });
-});
-
-app.post('/api/admin/tankers', async (req, res) => {
-  const adminClient = getAdminClient();
-  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
-  const { board_number, capacity_liters } = req.body;
-  if (!board_number || !board_number.trim()) return res.status(400).json({ error: 'Vehicle board number is required.' });
-
-  const { data, error } = await adminClient.from('tankers').insert({
-    board_number: board_number.trim().toUpperCase(),
-    capacity_liters: capacity_liters ? Number(capacity_liters) : 5000,
-    is_active: true
-  }).select().single();
-
-  if (error) return res.status(500).json({ error: error.message });
-  res.status(201).json({ tanker: data });
-});
-
-app.put('/api/admin/tankers/:id/toggle', async (req, res) => {
-  const adminClient = getAdminClient();
-  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
-  const { is_active } = req.body;
-  const { data, error } = await adminClient.from('tankers')
-    .update({ is_active: Boolean(is_active) })
-    .eq('id', req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ tanker: data });
-});
-
 
 // ─── GET /api/bmcs/search ─────────────────────────────────────────────────────
 // ─── POST /api/worker/create-bmc — DISABLED (backend enforcement) ─────────────
@@ -3014,7 +3044,7 @@ app.patch('/api/trips/:id/complete', requireWorker, async (req, res) => {
 });
 
 // Helper function to verify visit existence and parent trip validity
-async function verifyVisitOwnership(adminClient, visitId) {
+async function verifyVisitOwnership(adminClient, visitId, profile = null) {
   if (!visitId || typeof visitId !== 'string' || visitId.startsWith('virtual-')) {
     return { error: 'Invalid visit ID.', code: 400 };
   }
@@ -3027,6 +3057,19 @@ async function verifyVisitOwnership(adminClient, visitId) {
 
   if (!visit) {
     return { error: 'Visit not found in database.', code: 404 };
+  }
+
+  if (profile && profile.role === 'user') {
+    if (visit.trip_id) {
+      const { data: parentTrip } = await adminClient
+        .from('trips')
+        .select('worker_id')
+        .eq('id', visit.trip_id)
+        .maybeSingle();
+      if (parentTrip && parentTrip.worker_id && parentTrip.worker_id !== profile.id && visit.created_by && visit.created_by !== profile.id) {
+        return { error: 'Forbidden. You do not have permission to access or modify this trip visit.', code: 403 };
+      }
+    }
   }
 
   return { visit };
@@ -3225,7 +3268,7 @@ app.post('/api/trips/:tripId/visits', requireWorker, async (req, res) => {
 // ─── GET /api/visits/:visitId ────────────────────────────────────────────────
 app.get('/api/visits/:visitId', requireWorker, async (req, res) => {
   const { adminClient } = req;
-  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId);
+  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId, req.profile);
   if (error) return res.status(code || 400).json({ error });
 
   const { data: completeVisit } = await adminClient
@@ -3242,7 +3285,7 @@ app.get('/api/visits/:visitId', requireWorker, async (req, res) => {
 // ─── PATCH /api/visits/:visitId ───────────────────────────────────────────────
 app.patch('/api/visits/:visitId', requireWorker, async (req, res) => {
   const { adminClient } = req;
-  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId);
+  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId, req.profile);
   if (error) return res.status(code || 400).json({ error });
 
   // Dynamically inspect existing columns of trip_bmc_visits to prevent schema cache missing column errors
@@ -3316,7 +3359,7 @@ app.patch('/api/visits/:visitId', requireWorker, async (req, res) => {
 // ─── DELETE /api/visits/:visitId ──────────────────────────────────────────────
 app.delete('/api/visits/:visitId', requireWorker, async (req, res) => {
   const { adminClient } = req;
-  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId);
+  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId, req.profile);
   if (error) return res.status(code || 400).json({ error });
 
   const { error: delErr } = await adminClient.from('trip_bmc_visits').delete().eq('id', req.params.visitId);
@@ -3330,7 +3373,19 @@ app.post('/api/visits/:visitId/ftir', requireWorker, async (req, res) => {
   const { adminClient } = req;
   const { fat, snf, protein, lactose, water_percentage, temperature, remarks } = req.body;
 
-  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId);
+  const errFat = validateNumber(fat, 'FAT %', LIMITS.PERCENT_MIN, LIMITS.PERCENT_MAX, false);
+  if (errFat) return res.status(400).json({ error: errFat });
+
+  const errSnf = validateNumber(snf, 'SNF %', LIMITS.PERCENT_MIN, LIMITS.PERCENT_MAX, false);
+  if (errSnf) return res.status(400).json({ error: errSnf });
+
+  const errTemp = validateNumber(temperature, 'Temperature', LIMITS.TEMP_MIN, LIMITS.TEMP_MAX, false);
+  if (errTemp) return res.status(400).json({ error: errTemp });
+
+  const errRem = validateText(remarks, 'Remarks', LIMITS.REMARKS, false);
+  if (errRem) return res.status(400).json({ error: errRem });
+
+  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId, req.profile);
   if (error) return res.status(code || 400).json({ error });
 
   let overall_result = 'pass';
@@ -3364,9 +3419,24 @@ app.post('/api/visits/:visitId/ftir', requireWorker, async (req, res) => {
 // ─── POST /api/visits/:visitId/gerber ────────────────────────────────────────
 app.post('/api/visits/:visitId/gerber', requireWorker, async (req, res) => {
   const { adminClient } = req;
-  const { fat_percentage, clr, snf, sample_temp, remarks } = req.body;
+  const { fat_percentage, clr, snf, sample_temp, remarks, mbrt, mprt, acidity } = req.body;
 
-  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId);
+  const errFat = validateNumber(fat_percentage, 'FAT %', LIMITS.PERCENT_MIN, LIMITS.PERCENT_MAX, false);
+  if (errFat) return res.status(400).json({ error: errFat });
+
+  const errSnf = validateNumber(snf, 'SNF %', LIMITS.PERCENT_MIN, LIMITS.PERCENT_MAX, false);
+  if (errSnf) return res.status(400).json({ error: errSnf });
+
+  const errClr = validateNumber(clr, 'Lactometer / CLR', LIMITS.PERCENT_MIN, LIMITS.PERCENT_MAX, false);
+  if (errClr) return res.status(400).json({ error: errClr });
+
+  const errTemp = validateNumber(sample_temp, 'Sample Temperature', LIMITS.TEMP_MIN, LIMITS.TEMP_MAX, false);
+  if (errTemp) return res.status(400).json({ error: errTemp });
+
+  const errRem = validateText(remarks, 'Remarks', LIMITS.REMARKS, false);
+  if (errRem) return res.status(400).json({ error: errRem });
+
+  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId, req.profile);
   if (error) return res.status(code || 400).json({ error });
 
   let overall_result = 'pass';
@@ -3386,10 +3456,37 @@ app.post('/api/visits/:visitId/gerber', requireWorker, async (req, res) => {
     tested_at: new Date()
   };
 
+  if (mbrt !== undefined || mprt !== undefined) {
+    const mVal = mbrt || mprt || null;
+    payload.mbrt = mVal;
+    payload.mprt = mVal;
+  }
+  if (acidity !== undefined) {
+    payload.acidity = acidity !== null && acidity !== '' ? parseFloat(acidity) : null;
+  }
+
   if (existing) {
     result = await adminClient.from('gerber_tests').update(payload).eq('id', existing.id).select().single();
   } else {
     result = await adminClient.from('gerber_tests').insert(payload).select().single();
+  }
+
+  // Also update trip_bmc_visits for direct visit-level access
+  const visitPayload = {};
+  if (mbrt !== undefined || mprt !== undefined) {
+    const mVal = mbrt || mprt || null;
+    visitPayload.mbrt = mVal;
+    visitPayload.mprt = mVal;
+  }
+  if (acidity !== undefined) {
+    visitPayload.acidity = acidity !== null && acidity !== '' ? parseFloat(acidity) : null;
+  }
+  if (Object.keys(visitPayload).length > 0) {
+    try {
+      await adminClient.from('trip_bmc_visits').update(visitPayload).eq('id', req.params.visitId);
+    } catch (e) {
+      console.warn('Note: visitPayload update warning:', e.message);
+    }
   }
 
   if (result.error) return res.status(500).json({ error: result.error.message });
@@ -3405,7 +3502,7 @@ app.post('/api/visits/:visitId/requirements', requireWorker, async (req, res) =>
   const payload = { visit_id: req.params.visitId };
   for (const f of fields) { if (req.body[f] !== undefined) payload[f] = req.body[f]; }
 
-  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId);
+  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId, req.profile);
   if (error) return res.status(code || 400).json({ error });
 
   const { data: existing } = await adminClient.from('requirement_checks').select('id').eq('visit_id', req.params.visitId).maybeSingle();
@@ -3426,7 +3523,13 @@ app.post('/api/visits/:visitId/issues', requireWorker, async (req, res) => {
   const { category, description, severity, remarks, image_url } = req.body;
   if (!category || !description) return res.status(400).json({ error: 'category and description are required.' });
 
-  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId);
+  const errDesc = validateText(description, 'Issue Description', LIMITS.REPORT, true);
+  if (errDesc) return res.status(400).json({ error: errDesc });
+
+  const errRem = validateText(remarks, 'Remarks', LIMITS.REMARKS, false);
+  if (errRem) return res.status(400).json({ error: errRem });
+
+  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId, req.profile);
   if (error) return res.status(code || 400).json({ error });
 
   const validCategories = ['cleanliness', 'temperature', 'maintenance', 'equipment', 'operational', 'other'];
@@ -3461,7 +3564,7 @@ app.delete('/api/issues/:issueId', requireWorker, async (req, res) => {
   const { data: issue } = await adminClient.from('bmc_issues').select('visit_id').eq('id', req.params.issueId).single();
   if (!issue) return res.status(404).json({ error: 'Issue not found.' });
 
-  const { visit, error, code } = await verifyVisitOwnership(adminClient, issue.visit_id);
+  const { visit, error, code } = await verifyVisitOwnership(adminClient, issue.visit_id, req.profile);
   if (error) return res.status(code || 400).json({ error });
 
   await adminClient.from('bmc_issues').delete().eq('id', req.params.issueId);
@@ -3473,7 +3576,7 @@ app.post('/api/visits/:visitId/rating', requireWorker, async (req, res) => {
   const { adminClient } = req;
   const { behaviour, cooperation, cleanliness, infrastructure, remarks } = req.body;
 
-  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId);
+  const { visit, error, code } = await verifyVisitOwnership(adminClient, req.params.visitId, req.profile);
   if (error) return res.status(code || 400).json({ error });
 
   const { data: existing } = await adminClient.from('bmc_ratings').select('id').eq('visit_id', req.params.visitId).maybeSingle();
@@ -4519,6 +4622,12 @@ app.post('/api/driver/trips/:id/start', requireDriver, async (req, res) => {
   if (out_tanker_weight === undefined || out_tanker_weight === null || out_tanker_weight === '') return res.status(400).json({ error: 'out_tanker_weight is required.' });
   if (latitude === undefined || longitude === undefined || latitude === null || longitude === null) return res.status(400).json({ error: 'Current GPS location (latitude, longitude) is required.' });
 
+  const errOutKm = validateNumber(out_km, 'Out KM', LIMITS.KM_MIN, LIMITS.KM_MAX, true);
+  if (errOutKm) return res.status(400).json({ error: errOutKm });
+
+  const errOutWeight = validateNumber(out_tanker_weight, 'Out Tanker Weight', LIMITS.WEIGHT_MIN, LIMITS.WEIGHT_MAX, true);
+  if (errOutWeight) return res.status(400).json({ error: errOutWeight });
+
   try {
     const { data: trip } = await adminClient
       .from('driver_trips').select('*').eq('id', req.params.id).single();
@@ -4568,6 +4677,17 @@ app.post('/api/driver/trips/:id/complete', requireDriver, async (req, res) => {
   if (!in_km && in_km !== 0) return res.status(400).json({ error: 'in_km is required.' });
   if (!in_weight && in_weight !== 0) return res.status(400).json({ error: 'in_weight is required.' });
   if (!end_lat || !end_lng) return res.status(400).json({ error: 'GPS location (end_lat, end_lng) is required.' });
+
+  const errInKm = validateNumber(in_km, 'In KM', LIMITS.KM_MIN, LIMITS.KM_MAX, true);
+  if (errInKm) return res.status(400).json({ error: errInKm });
+
+  const errInWeight = validateNumber(in_weight, 'In Weight', LIMITS.WEIGHT_MIN, LIMITS.WEIGHT_MAX, true);
+  if (errInWeight) return res.status(400).json({ error: errInWeight });
+
+  if (remarks) {
+    const errRemarks = validateText(remarks, 'Remarks', LIMITS.REMARKS, false);
+    if (errRemarks) return res.status(400).json({ error: errRemarks });
+  }
 
   try {
     const { data: trip } = await adminClient
@@ -5277,6 +5397,10 @@ const safeDeleteDutyHandler = async (req, res) => {
 
     if (tCheckErr) {
       console.warn(`Warning checking trips for ID ${id}:`, tCheckErr.message);
+    }
+
+    if (req.profile && req.profile.role === 'driver' && dtExists && dtExists.assigned_driver_id && dtExists.assigned_driver_id !== req.profile.id) {
+      return res.status(403).json({ success: false, message: 'Forbidden. You do not have permission to delete another driver\'s trip.' });
     }
 
     // Resolve linkage for legacy records where IDs may differ
@@ -7791,6 +7915,21 @@ app.post('/api/qc-worker/tests', requireQcWorker, async (req, res) => {
 
   if (!visit_id) return res.status(400).json({ error: 'visit_id is required.' });
 
+  const errFat = validateNumber(fat, 'FAT %', LIMITS.PERCENT_MIN, LIMITS.PERCENT_MAX, false);
+  if (errFat) return res.status(400).json({ error: errFat });
+
+  const errSnf = validateNumber(snf, 'SNF %', LIMITS.PERCENT_MIN, LIMITS.PERCENT_MAX, false);
+  if (errSnf) return res.status(400).json({ error: errSnf });
+
+  const errClr = validateNumber(clr, 'Lactometer / CLR', LIMITS.PERCENT_MIN, LIMITS.PERCENT_MAX, false);
+  if (errClr) return res.status(400).json({ error: errClr });
+
+  const errTemp = validateNumber(temperature, 'Temperature', LIMITS.TEMP_MIN, LIMITS.TEMP_MAX, false);
+  if (errTemp) return res.status(400).json({ error: errTemp });
+
+  const errRem = validateText(remarks, 'Remarks', LIMITS.REMARKS, false);
+  if (errRem) return res.status(400).json({ error: errRem });
+
   try {
     const { data: existing } = await adminClient
       .from('qc_lab_tests')
@@ -8592,6 +8731,16 @@ app.post('/api/qc-agm/import/excel', requireQcAgm, async (req, res) => {
 
   if (!file_name || !Array.isArray(rows)) {
     return res.status(400).json({ error: 'file_name and rows array are required.' });
+  }
+
+  const validExts = ['.xlsx', '.xls', '.csv'];
+  const fileExt = file_name.substring(file_name.lastIndexOf('.')).toLowerCase();
+  if (!validExts.includes(fileExt)) {
+    return res.status(400).json({ error: 'Invalid file format. Only Excel files (.xlsx, .xls, .csv) are supported.' });
+  }
+
+  if (rows.length > 5000) {
+    return res.status(400).json({ error: 'Batch limit exceeded. Maximum 5,000 rows per import allowed.' });
   }
 
   try {
@@ -10441,19 +10590,33 @@ scheduleNextDaily2355Sync();
 
 // ─── MACS API Admin Endpoints ─────────────────────────────────────────────────
 
+let lastManualSyncTimestamp = 0;
+const MANUAL_SYNC_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes cooldown
+
 // POST /api/admin/macs-api/sync — Manual "Sync Now"
 app.post('/api/admin/macs-api/sync', requireAuthAny, async (req, res) => {
+  const now = Date.now();
+  if (lastManualSyncTimestamp && (now - lastManualSyncTimestamp < MANUAL_SYNC_COOLDOWN_MS)) {
+    const cooldownRemainingSeconds = Math.ceil((MANUAL_SYNC_COOLDOWN_MS - (now - lastManualSyncTimestamp)) / 1000);
+    return res.status(429).json({
+      success: false,
+      error: `Sync is available again in ${cooldownRemainingSeconds} seconds.`,
+      cooldownRemainingSeconds
+    });
+  }
+
   if (macsSchedulerState.isRunning) {
-    return res.status(409).json({ error: 'A sync is already in progress. Please wait.' });
+    return res.status(409).json({ success: false, error: 'A sync is already in progress. Please wait.' });
   }
 
   macsSchedulerState.isRunning = true;
   try {
     const result = await macsBmcSyncService();
+    lastManualSyncTimestamp = Date.now();
     macsSchedulerState.nextSyncTime = new Date(Date.now() + MACS_API_CONFIG.syncIntervalMs);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    sendErrorResponse(res, 500, 'Sync Now operation failed. Please try again later.', err);
   } finally {
     macsSchedulerState.isRunning = false;
   }

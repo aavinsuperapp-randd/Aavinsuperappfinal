@@ -81,7 +81,7 @@
               </div>
               <div class="col-md-6">
                 <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Milk Weight (KG)</label>
-                <input type="number" step="0.1" id="bv-weight-kg" class="form-control" placeholder="e.g. 2500.5">
+                <input type="number" step="0.1" id="bv-weight-kg" class="form-control" placeholder="e.g. 2500.5" min="0" max="100000">
               </div>
             </div>
             <div style="text-align: right; margin-top: 16px;">
@@ -99,11 +99,11 @@
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">FAT (%)</label>
-                <input type="number" step="0.01" id="bv-ftir-fat" class="form-control" placeholder="e.g. 4.2">
+                <input type="number" step="0.01" id="bv-ftir-fat" class="form-control" placeholder="e.g. 4.2" min="0" max="100">
               </div>
               <div class="col-md-6">
                 <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">SNF (%)</label>
-                <input type="number" step="0.01" id="bv-ftir-snf" class="form-control" placeholder="e.g. 8.5">
+                <input type="number" step="0.01" id="bv-ftir-snf" class="form-control" placeholder="e.g. 8.5" min="0" max="100">
               </div>
             </div>
             <div style="text-align: right; margin-top: 16px;">
@@ -113,28 +113,38 @@
             </div>
           </div>
 
-          <!-- 3. GERBER TEST SECTION -->
+          <!-- 3. GERBER & ADDITIONAL QUALITY TESTS SECTION -->
           <div class="content-card mb-4" style="border: 1px solid #E2E8F0; border-radius: 14px; padding: 20px;">
             <h3 style="margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 10px;">
-              <span>🔬</span> 3. GERBER TEST
+              <span>🔬</span> 3. GERBER &amp; QUALITY TESTS
             </h3>
             <div class="row g-3">
               <div class="col-md-4">
                 <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">FAT (%)</label>
-                <input type="number" step="0.01" id="bv-gerber-fat" class="form-control" placeholder="e.g. 4.2">
+                <input type="number" step="0.01" id="bv-gerber-fat" class="form-control" placeholder="e.g. 4.2" min="0" max="100">
               </div>
               <div class="col-md-4">
                 <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">SNF (%)</label>
-                <input type="number" step="0.01" id="bv-gerber-snf" class="form-control" placeholder="e.g. 8.5">
+                <input type="number" step="0.01" id="bv-gerber-snf" class="form-control" placeholder="e.g. 8.5" min="0" max="100">
               </div>
               <div class="col-md-4">
                 <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Lactometer (LACTO)</label>
-                <input type="number" step="0.1" id="bv-gerber-lacto" class="form-control" placeholder="e.g. 28.5">
+                <input type="number" step="0.1" id="bv-gerber-lacto" class="form-control" placeholder="e.g. 28.5" min="0" max="100">
+              </div>
+            </div>
+            <div class="row g-3 mt-1">
+              <div class="col-md-6">
+                <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">MBRT / MPRT Test (hrs / result)</label>
+                <input type="text" id="bv-gerber-mbrt" class="form-control" placeholder="e.g. 4.5 hrs or Pass" maxlength="50">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Acidity Test (%)</label>
+                <input type="number" step="0.01" id="bv-gerber-acidity" class="form-control" placeholder="e.g. 0.14" min="0" max="10">
               </div>
             </div>
             <div style="text-align: right; margin-top: 16px;">
               <button type="button" class="btn btn-primary" id="bv-btn-save-gerber" style="padding: 8px 22px; font-weight: 700; font-size: 0.88rem;">
-                💾 SAVE GERBER TEST
+                💾 SAVE QUALITY TESTS
               </button>
             </div>
           </div>
@@ -146,7 +156,7 @@
             </h3>
             <div class="mb-3">
               <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Report / Remarks</label>
-              <textarea id="bv-report-text" class="form-control" rows="3" placeholder="Enter report or observations..."></textarea>
+              <textarea id="bv-report-text" class="form-control" rows="3" placeholder="Enter report or observations..." maxlength="1000"></textarea>
             </div>
             <div class="mb-3">
               <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Priority (Optional)</label>
