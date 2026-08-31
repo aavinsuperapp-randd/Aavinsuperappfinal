@@ -289,6 +289,32 @@ function setupSaveButtonListeners() {
   setupEditListener(['bv-gerber-fat', 'bv-gerber-snf', 'bv-gerber-lacto', 'bv-gerber-mbrt', 'bv-gerber-acidity'], 'gerber');
   setupEditListener(['bv-report-text', 'bv-report-priority'], 'report');
 
+  // Auto-calculate SNF for Gerber test
+  const autoCalculateSnf = () => {
+    const fatInput = document.getElementById('bv-gerber-fat');
+    const lactoInput = document.getElementById('bv-gerber-lacto');
+    const snfInput = document.getElementById('bv-gerber-snf');
+    
+    if (!fatInput || !lactoInput || !snfInput) return;
+    
+    const fat = parseFloat(fatInput.value);
+    const lacto = parseFloat(lactoInput.value);
+    
+    // Check if user manually focused the SNF field to override
+    if (document.activeElement === snfInput) return;
+    
+    if (!isNaN(fat) && !isNaN(lacto)) {
+      const snf = (lacto / 4) + (0.2 * fat) + 0.36;
+      snfInput.value = snf.toFixed(2); // Set to 2 decimal places, e.g. 7.31
+      markSectionEdit('gerber');
+    }
+  };
+
+  const gerberFatInputListener = document.getElementById('bv-gerber-fat');
+  const gerberLactoInputListener = document.getElementById('bv-gerber-lacto');
+  if (gerberFatInputListener) gerberFatInputListener.addEventListener('input', autoCalculateSnf);
+  if (gerberLactoInputListener) gerberLactoInputListener.addEventListener('input', autoCalculateSnf);
+
   // 1. Save Weight
   const btnSaveWeight = document.getElementById('bv-btn-save-weight');
   if (btnSaveWeight) {
