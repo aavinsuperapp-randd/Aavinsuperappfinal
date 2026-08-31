@@ -222,7 +222,14 @@ function normalizeLiveMacsRecord(row) {
  * @returns {Map<string, object>} Map keyed by bmc_code (string) → normalized record
  */
 async function getLatestLiveMacsByBmcCode(adminClient, dateStr) {
-  if (!adminClient) return new Map();
+  const results = {
+    morning: new Map(),
+    evening: new Map(),
+    both: new Map(),
+    all: new Map()
+  };
+
+  if (!adminClient) return results;
 
   // Convert YYYY-MM-DD to DD/MM/YYYY for macs_api_bmc_data.report_date filter
   let macsDate;
@@ -237,33 +244,45 @@ async function getLatestLiveMacsByBmcCode(adminClient, dateStr) {
     macsDate = `${dd}/${mm}/${yyyy}`;
   }
 
-  if (!macsDate) return new Map();
+  if (!macsDate) return results;
 
   try {
     const { data: rows, error } = await adminClient
       .from('macs_api_bmc_data')
-      .select('*')
+      .select('*, sync_run:macs_api_sync_runs(error_message)')
       .eq('report_date', macsDate)
       .order('fetched_at', { ascending: false });
 
     if (error) {
       console.error('❌ getLatestLiveMacsByBmcCode error:', error.message);
-      return new Map();
+      return results;
     }
 
-    // Deduplicate: keep only the latest record (first occurrence) per bmc_code
-    const resultMap = new Map();
     (rows || []).forEach(row => {
       const code = String(row.macs_bmc_code).trim();
-      if (code && !resultMap.has(code)) {
-        resultMap.set(code, normalizeLiveMacsRecord(row));
+      if (!code) return;
+      
+      let rowStream = 'both';
+      if (row.sync_run && row.sync_run.error_message) {
+        const msg = row.sync_run.error_message.toUpperCase();
+        if (msg.includes('MORNING')) rowStream = 'morning';
+        else if (msg.includes('EVENING')) rowStream = 'evening';
+      }
+
+      const normRow = normalizeLiveMacsRecord(row);
+
+      if (!results[rowStream].has(code)) {
+        results[rowStream].set(code, normRow);
+      }
+      if (!results.all.has(code)) {
+        results.all.set(code, normRow);
       }
     });
 
-    return resultMap;
+    return results;
   } catch (err) {
     console.error('❌ getLatestLiveMacsByBmcCode exception:', err.message);
-    return new Map();
+    return results;
   }
 }
 
@@ -308,13 +327,13 @@ async function getLatestLiveMacsDatesList(adminClient) {
  * @param {string} [toDate] - Optional end date (YYYY-MM-DD)
  * @returns {object[]} Array of normalized records, one per date
  */
-async function getLiveMacsHistoryForBmc(adminClient, bmcCode, fromDate, toDate) {
+async function getLiveMacsHistoryForBmc(adminClient, bmcCode, fromDate, toDate, streamKey = 'all') {
   if (!adminClient || !bmcCode) return [];
 
   try {
     let query = adminClient
       .from('macs_api_bmc_data')
-      .select('*')
+      .select('*, sync_run:macs_api_sync_runs(error_message)')
       .eq('macs_bmc_code', parseInt(bmcCode) || bmcCode)
       .order('fetched_at', { ascending: false });
 
@@ -328,13 +347,25 @@ async function getLiveMacsHistoryForBmc(adminClient, bmcCode, fromDate, toDate) 
     // Deduplicate by report_date (keep latest fetched_at per date)
     const dateMap = new Map();
     (rows || []).forEach(row => {
+      let rowStream = 'both';
+      if (row.sync_run && row.sync_run.error_message) {
+        const msg = row.sync_run.error_message.toUpperCase();
+        if (msg.includes('MORNING')) rowStream = 'morning';
+        else if (msg.includes('EVENING')) rowStream = 'evening';
+      }
+
+      if (streamKey !== 'all' && rowStream !== streamKey) return;
+
       const isoDate = convertMacsDateToISO(row.report_date);
       if (!isoDate) return;
       // Apply date range filter
       if (fromDate && isoDate < fromDate) return;
       if (toDate && isoDate > toDate) return;
-      if (!dateMap.has(isoDate)) {
-        dateMap.set(isoDate, normalizeLiveMacsRecord(row));
+      const mapKey = streamKey === 'all' ? `${isoDate}_${rowStream}` : isoDate;
+      if (!dateMap.has(mapKey)) {
+        const norm = normalizeLiveMacsRecord(row);
+        norm.stream = rowStream;
+        dateMap.set(mapKey, norm);
       }
     });
 
@@ -1411,6 +1442,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
         if (!existing.tanker_number && (dt.vehicle_number || dt.tanker_number)) existing.tanker_number = dt.vehicle_number || dt.tanker_number;
         if (!existing.route && (dt.route || dt.destination || dt.bmc_name)) existing.route = dt.route || dt.destination || dt.bmc_name;
         if (dt.assigned_worker_id && !existing.worker_id) existing.worker_id = dt.assigned_worker_id;
+        if (dt.duty_type && !existing.duty_type) existing.duty_type = dt.duty_type;
       } else {
         tripMapById[dt.id] = {
           id: dt.id,
@@ -1424,6 +1456,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
           in_time: dt.in_time || null,
           status: dt.status || 'pending',
           created_at: dt.created_at,
+          duty_type: dt.duty_type || 'both',
           visits: []
         };
       }
@@ -1594,21 +1627,42 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
 
           // MACS: match by BMC CODE using live MACS API data
           const bmcCode = String(bmcMap[v.bmc_id]?.bmc_code || '').trim();
-          const macsRecord = liveMacsByCode.get(bmcCode);
+          const tripPeriod = (t.duty_type || 'both').toLowerCase();
+          const macsRecord = liveMacsByCode[tripPeriod] ? liveMacsByCode[tripPeriod].get(bmcCode) : null;
+          
           let macs_result = '—';
           if (macsRecord) {
             const parts = [];
-            // T1 values
-            if (macsRecord.t1.liters !== null) parts.push(`T1: ${macsRecord.t1.liters} L`);
-            if (macsRecord.t1.fat !== null) parts.push(`FAT: ${macsRecord.t1.fat}%`);
-            if (macsRecord.t1.snf !== null) parts.push(`SNF: ${macsRecord.t1.snf}%`);
-            // T2 values (if different from zero/null)
-            if (macsRecord.t2.liters !== null && macsRecord.t2.liters > 0) {
-              parts.push(`T2: ${macsRecord.t2.liters} L`);
-              if (macsRecord.t2.fat !== null) parts.push(`FAT: ${macsRecord.t2.fat}%`);
-              if (macsRecord.t2.snf !== null) parts.push(`SNF: ${macsRecord.t2.snf}%`);
+            
+            // For Morning Duty, prioritize t1. For Evening Duty, prioritize t2 (or fallback to t1 if MACS puts it there). 
+            // For Both, we combine them or just use whatever is available.
+            let dataToUse = null;
+            if (tripPeriod === 'morning') {
+              dataToUse = (macsRecord.t1.liters !== null || macsRecord.t1.fat !== null) ? macsRecord.t1 : macsRecord.t2;
+            } else if (tripPeriod === 'evening') {
+              // Evening usually populates t2, but if t2 is empty and t1 has data, use t1
+              dataToUse = (macsRecord.t2.liters !== null || macsRecord.t2.fat !== null) ? macsRecord.t2 : macsRecord.t1;
+            } else {
+              // For 'both', just sum them or use the first available. Usually the API returns total in lit, or we just display t1 + t2.
+              // To keep it clean, we'll pick the one with data, or combine them.
+              dataToUse = (macsRecord.t1.liters !== null || macsRecord.t1.fat !== null) ? macsRecord.t1 : macsRecord.t2;
+              
+              if (macsRecord.t1.liters !== null && macsRecord.t2.liters !== null) {
+                // If both exist, sum liters and average fat/snf
+                dataToUse = {
+                  liters: (macsRecord.t1.liters || 0) + (macsRecord.t2.liters || 0),
+                  fat: macsRecord.t1.fat || macsRecord.t2.fat, // simplified
+                  snf: macsRecord.t1.snf || macsRecord.t2.snf  // simplified
+                };
+              }
             }
-            if (parts.length > 0) macs_result = parts.join(' | ');
+            
+            if (dataToUse && dataToUse.liters !== null) {
+              parts.push(`${dataToUse.liters} L`);
+              if (dataToUse.fat !== null) parts.push(`FAT: ${dataToUse.fat}%`);
+              if (dataToUse.snf !== null) parts.push(`SNF: ${dataToUse.snf}%`);
+              macs_result = parts.join(' | ');
+            }
           }
 
           // Diary / QC Lab Test: combine QC AGM test result & visit milk weight
@@ -5245,7 +5299,7 @@ app.post('/api/transport/driver-trips', requireTransportOfficer, async (req, res
       bmc_name: computedBmcName || null,
       destination: computedBmcName || null,
       route: route || null,
-      duty_type: duty_type || 'Morning Duty',
+      duty_type: duty_type || 'both',
       selected_bmcs: Array.isArray(selected_bmcs) ? selected_bmcs : [],
       scheduled_start_time: scheduled_start_time || new Date().toISOString(),
       remarks: finalRemarks || null,
@@ -5622,7 +5676,7 @@ app.get('/api/transport/bmcs-list', requireTransportOfficer, async (req, res) =>
 
     const enrichedBmcs = (bmcs || []).map(b => {
       const bmcCodeStr = String(b.bmc_code || '').trim();
-      const macsRecord = liveMacsByCode.get(bmcCodeStr);
+      const macsRecord = liveMacsByCode[period] ? liveMacsByCode[period].get(bmcCodeStr) : liveMacsByCode.all.get(bmcCodeStr);
 
       let totalKg = null;
       if (macsRecord) {
@@ -5672,7 +5726,7 @@ app.get('/api/transport/macs-summary', requireTransportOfficer, async (req, res)
 
     const list = (bmcs || []).map(b => {
       const codeKey = String(b.bmc_code || '').trim();
-      const macsRecord = liveMacsByCode.get(codeKey);
+      const macsRecord = liveMacsByCode[period] ? liveMacsByCode[period].get(codeKey) : liveMacsByCode.all.get(codeKey);
 
       let kg = null;
       let liters = null;
@@ -7373,7 +7427,8 @@ app.get('/api/qc-worker/dashboard-bmcs', requireQcWorker, async (req, res) => {
       const routeName = b.bmc_routes?.name || b.route_name || 'Unassigned Route';
 
       const visit = visitsByCode[bCode] || visitsByBmcId[b.id] || null;
-      const macsRecord = liveMacsByCode.get(bCode);
+      const tripPeriod = (visit && visit.trip && visit.trip.duty_type) ? visit.trip.duty_type.toLowerCase() : 'all';
+      const macsRecord = liveMacsByCode[tripPeriod === 'all' ? 'all' : tripPeriod]?.get(bCode) || liveMacsByCode.all.get(bCode);
 
       let macsData = null;
       if (macsRecord) {
@@ -7492,7 +7547,8 @@ app.get('/api/qc-worker/dashboard-trips', requireQcWorker, async (req, res) => {
           tanker_number: dt.vehicle_number || '—',
           route_description: dt.route || dt.destination || '—',
           status: dt.status,
-          created_at: dt.created_at
+          created_at: dt.created_at,
+          duty_type: dt.duty_type || 'both'
         });
       }
     });
@@ -7519,7 +7575,9 @@ app.get('/api/qc-worker/dashboard-trips', requireQcWorker, async (req, res) => {
       const bmcCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
 
       // MACS lookup by BMC code from live MACS API
-      const macsRecord = liveMacsByCode.get(bmcCode);
+      const trip = tripsMap.get(v.trip_id);
+      const tripPeriod = (trip && trip.duty_type) ? trip.duty_type.toLowerCase() : 'all';
+      const macsRecord = liveMacsByCode[tripPeriod === 'all' ? 'all' : tripPeriod]?.get(bmcCode) || liveMacsByCode.all.get(bmcCode);
 
       let macsLit = macsRecord ? macsRecord.t1.liters : null;
       let macsKg = macsRecord ? (macsLit ? parseFloat((macsLit * 1.03).toFixed(2)) : null) : null;
@@ -7792,7 +7850,7 @@ app.get('/api/qc-worker/dashboard', requireQcWorker, async (req, res) => {
 
     let visitsQuery = adminClient
       .from('trip_bmc_visits')
-      .select('milk_quantity_liters, milk_quantity_kg, in_weight, visit_end_time, remarks, created_at')
+      .select('milk_quantity_liters, milk_quantity_kg, in_weight, visit_end_time, remarks, created_at, trip_id')
       .eq('status', 'completed');
 
     if (date) {
@@ -7804,12 +7862,15 @@ app.get('/api/qc-worker/dashboard', requireQcWorker, async (req, res) => {
     const { data: spotVisits } = await visitsQuery;
     let spotVisitsFiltered = spotVisits || [];
 
-    if (period !== 'both') {
+    if (spotVisitsFiltered.length > 0 && period !== 'both' && period !== 'all') {
+      const tripIds = [...new Set(spotVisitsFiltered.map(v => v.trip_id).filter(Boolean))];
+      const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
+      const dutyMap = {};
+      (dtRecords || []).forEach(dt => dutyMap[dt.id] = (dt.duty_type || 'both').toLowerCase());
+
       spotVisitsFiltered = spotVisitsFiltered.filter(v => {
-        const r = (v.remarks || '').toLowerCase();
-        if (period === 'morning') return r.includes('morning') || !r.includes('evening');
-        if (period === 'evening') return r.includes('evening');
-        return true;
+        const dType = dutyMap[v.trip_id] || 'both';
+        return dType === period;
       });
     }
 
@@ -7871,7 +7932,7 @@ app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
 
     const bmcMap = {};
 
-    liveMacsByCode.forEach((r, bmcCode) => {
+    liveMacsByCode.all.forEach((r, bmcCode) => {
       const readingDate = r.reading_date || date || new Date().toISOString().split('T')[0];
       const key = `${bmcCode}_${readingDate}`;
       const mb = masterBmcByCode[bmcCode];
@@ -8431,7 +8492,7 @@ app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
     // 2. Total Quantity Collected (KG) — calculated using completed Spot Analyzer values, NOT MACS values
     let visitsQuery = adminClient
       .from('trip_bmc_visits')
-      .select('milk_quantity_liters, milk_quantity_kg, in_weight, visit_end_time, remarks, created_at')
+      .select('milk_quantity_liters, milk_quantity_kg, in_weight, visit_end_time, remarks, created_at, trip_id')
       .eq('status', 'completed');
 
     if (date) {
@@ -8443,12 +8504,15 @@ app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
     const { data: spotVisits } = await visitsQuery;
     let spotVisitsFiltered = spotVisits || [];
 
-    if (period !== 'both') {
+    if (spotVisitsFiltered.length > 0 && period !== 'both' && period !== 'all') {
+      const tripIds = [...new Set(spotVisitsFiltered.map(v => v.trip_id).filter(Boolean))];
+      const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
+      const dutyMap = {};
+      (dtRecords || []).forEach(dt => dutyMap[dt.id] = (dt.duty_type || 'both').toLowerCase());
+
       spotVisitsFiltered = spotVisitsFiltered.filter(v => {
-        const r = (v.remarks || '').toLowerCase();
-        if (period === 'morning') return r.includes('morning') || !r.includes('evening');
-        if (period === 'evening') return r.includes('evening');
-        return true;
+        const dType = dutyMap[v.trip_id] || 'both';
+        return dType === period;
       });
     }
 
@@ -8471,7 +8535,8 @@ app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
     const masterCodesSet = new Set((masterBmcsList || []).map(b => String(b.bmc_code || '').trim().toLowerCase()).filter(Boolean));
 
     const validMatchedBmcs = new Set();
-    liveMacsByCode.forEach((r, code) => {
+    const macsMap = liveMacsByCode[period === 'all' ? 'all' : period] || liveMacsByCode.all;
+    macsMap.forEach((r, code) => {
       const codeLower = String(code).toLowerCase().trim();
       const lit = parseFloat(r.t1.liters || 0);
       const fat = parseFloat(r.t1.fat || 0);
@@ -8537,16 +8602,30 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
     // 2. Fetch live MACS history for this BMC code from macs_api_bmc_data
     const liveMacsHistory = await getLiveMacsHistoryForBmc(adminClient, bmc.bmc_code || bmcCode);
 
-    // 3. Fetch Spot Analyzer visits for this BMC
+    // Fetch Spot Analyzer visits for this BMC and Diary (qc_lab_tests)
     let visitsQuery = adminClient
       .from('trip_bmc_visits')
-      .select('*, ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*)')
+      .select('*, trip:trips(id), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*)')
       .in('status', ['completed', 'visited']);
       
     if (bmc.id) {
       visitsQuery = visitsQuery.eq('bmc_id', bmc.id);
     }
     const { data: visits } = await visitsQuery;
+
+    let finalVisits = visits || [];
+    if (finalVisits.length > 0) {
+      const tripIds = [...new Set(finalVisits.map(v => v.trip_id).filter(Boolean))];
+      if (tripIds.length > 0) {
+        const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
+        const dutyMap = {};
+        (dtRecords || []).forEach(dt => dutyMap[dt.id] = (dt.duty_type || 'both').toLowerCase());
+        
+        finalVisits.forEach(v => {
+          v.duty_type = dutyMap[v.trip_id] || 'both';
+        });
+      }
+    }
 
     // 4. Fetch rejected issues for this BMC
     const { data: rejectedIssues } = await adminClient
@@ -8560,45 +8639,55 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
       try {
         const meta = typeof iss.description === 'string' ? JSON.parse(iss.description) : (iss.description || {});
         if (String(meta.bmc_code || '').trim().toLowerCase() === String(bmcCode).trim().toLowerCase()) {
-          bmcIssuesMap[meta.date || iss.created_at?.slice(0,10)] = iss;
+          bmcIssuesMap[meta.date || iss.created_at?.slice(0,10)] = iss; // In future this should map by Date+Period too
         }
       } catch (e) {}
     });
 
-    // Group records date-wise
+    // Group records by Date + Period
     const recordsMap = {};
 
     (liveMacsHistory || []).forEach(r => {
       const d = r.reading_date;
       if (!d) return;
-      if (!recordsMap[d]) {
-        recordsMap[d] = { date: d, macs: null, spot: null, diary: null };
+
+      const p = (r.stream || 'both').toLowerCase();
+      const key = `${d}_${p}`;
+      
+      if (!recordsMap[key]) {
+        recordsMap[key] = { date: d, period: p.charAt(0).toUpperCase() + p.slice(1), macs: null, spot: null, diary: null };
       }
-      const lit = r.t1.liters;
+      
+      const data = (r.t1.liters !== null || r.t1.fat !== null) ? r.t1 : r.t2;
+      const lit = data.liters;
       const kg = lit ? parseFloat((lit * 1.03).toFixed(2)) : null;
-      recordsMap[d].macs = {
+      recordsMap[key].macs = {
         liters: lit,
         kg: kg,
-        fat: r.t1.fat,
-        snf: r.t1.snf
+        fat: data.fat,
+        snf: data.snf
       };
     });
 
-    (visits || []).forEach(v => {
+    finalVisits.forEach(v => {
       const d = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : new Date(v.created_at).toISOString().split('T')[0];
-      if (!recordsMap[d]) {
-        recordsMap[d] = { date: d, macs: null, spot: null, diary: null };
+      const p = v.duty_type || 'both';
+      const key = `${d}_${p}`;
+      
+      if (!recordsMap[key]) {
+        recordsMap[key] = { date: d, period: p.charAt(0).toUpperCase() + p.slice(1), macs: null, spot: null, diary: null };
       }
       const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
       const ftir = unpack(v.ftir_tests);
       const gerber = unpack(v.gerber_tests);
       const issue = unpack(v.bmc_issues);
       const rating = unpack(v.bmc_ratings);
+      const qc = unpack(v.qc_test);
 
       const lit = v.sample_liters || v.milk_quantity_liters || null;
       const kg = v.milk_quantity_kg || v.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
 
-      recordsMap[d].spot = {
+      recordsMap[key].spot = {
         compartment: v.compartment || null,
         liters: lit,
         kg: kg,
@@ -8616,12 +8705,23 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
         visited: v.status === 'completed' || v.status === 'visited' || Boolean(v.visit_end_time),
         status: v.status || 'visited'
       };
+      
+      if (qc && qc.id) {
+        recordsMap[key].diary = {
+          liters: null,
+          kg: null,
+          fat: qc.fat ?? null,
+          snf: qc.snf ?? null,
+          status: qc.status === 'completed' || qc.status === 'approved' ? 'completed' : 'pending'
+        };
+      }
     });
 
     // Attach issues and differences
-    const recordsList = Object.keys(recordsMap).sort((a, b) => b.localeCompare(a)).map((d, index) => {
-      const item = recordsMap[d];
-      const issue = bmcIssuesMap[d];
+    const recordsList = Object.keys(recordsMap).sort((a, b) => b.localeCompare(a)).map((key, index) => {
+      const item = recordsMap[key];
+      // fallback issue map check by date
+      const issue = bmcIssuesMap[item.date];
 
       let diffStr = '-';
       if (item.macs && item.spot && item.macs.fat !== null && item.spot.fat !== null) {
@@ -8636,7 +8736,8 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
 
       return {
         s_no: index + 1,
-        date: d,
+        date: item.date,
+        period_display: item.period,
         macs: item.macs,
         spot: item.spot,
         diary: item.diary,
@@ -8789,12 +8890,28 @@ app.get('/api/qc-agm/tests', requireQcAgm, async (req, res) => {
     const { data: visits, error } = await query;
     if (error) throw error;
 
+    let finalVisits = visits || [];
+    
+    // Inject duty_type from driver_trips to ensure period mapping works
+    if (finalVisits.length > 0) {
+      const tripIds = [...new Set(finalVisits.map(v => v.trip_id).filter(Boolean))];
+      if (tripIds.length > 0) {
+        const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
+        const dutyMap = {};
+        (dtRecords || []).forEach(dt => dutyMap[dt.id] = dt.duty_type || 'both');
+        finalVisits.forEach(v => {
+          if (v.trip) v.trip.duty_type = dutyMap[v.trip_id] || 'both';
+        });
+      }
+    }
+
     // Fetch live MACS data for visits by date
     const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, date);
 
-    (visits || []).forEach(v => {
+    finalVisits.forEach(v => {
       const bCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
-      const macsRec = liveMacsByCode.get(bCode);
+      const tripPeriod = (v.trip && v.trip.duty_type) ? v.trip.duty_type.toLowerCase() : 'all';
+      const macsRec = liveMacsByCode[tripPeriod === 'all' ? 'all' : tripPeriod]?.get(bCode) || liveMacsByCode.all.get(bCode);
       v.macs_qc = macsRec ? { fat: macsRec.t2.fat, snf: macsRec.t2.snf, liters: macsRec.t2.liters, source: 'live_macs_api' } : null;
       v.macs_worker = macsRec ? { fat: macsRec.t1.fat, snf: macsRec.t1.snf, liters: macsRec.t1.liters, source: 'live_macs_api' } : null;
     });
@@ -9180,7 +9297,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
 
     const bmcMap = {};
 
-    liveMacsByCode.forEach((r, bmcCode) => {
+    liveMacsByCode.all.forEach((r, bmcCode) => {
       const readingDate = r.reading_date || date || new Date(Date.now() + 5.5 * 3600000).toISOString().split('T')[0];
       const key = `${bmcCode}_${readingDate}`;
       const mb = masterBmcByCode[bmcCode];
@@ -9669,48 +9786,39 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
       const d = r.reading_date;
       if (!d) return;
 
-      // MACS has T1 (Morning) and T2 (Evening)
-      const periods = [];
-      if (r.t1.liters !== null || r.t1.fat !== null || r.t1.snf !== null) {
-        periods.push({ p: 'morning', label: 'Morning', data: r.t1 });
-      }
-      if (r.t2.liters !== null || r.t2.fat !== null || r.t2.snf !== null) {
-        periods.push({ p: 'evening', label: 'Evening', data: r.t2 });
-      }
-      // If neither has data but record exists, add morning as default
-      if (periods.length === 0) {
-        periods.push({ p: 'morning', label: 'Morning', data: r.t1 });
+      const p = (r.stream || 'both').toLowerCase();
+      if (period !== 'all' && p !== period.toLowerCase()) return;
+      
+      const key = `${d}_${p}`;
+      if (!dailyMap[key]) {
+        dailyMap[key] = {
+          date: d,
+          period: p.charAt(0).toUpperCase() + p.slice(1),
+          macs: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
+          spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
+          diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' }
+        };
       }
 
-      periods.forEach(({ p, label, data }) => {
-        if (period !== 'all' && p !== period.toLowerCase()) return;
-        const key = `${d}_${p}`;
-        if (!dailyMap[key]) {
-          dailyMap[key] = {
-            date: d,
-            period: label,
-            macs: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
-            spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
-            diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' }
-          };
-        }
+      const entry = dailyMap[key];
+      
+      // MACS data is typically in t1 if fetched for that specific stream, but let's check t1/t2 for fallback
+      const data = (r.t1.liters !== null || r.t1.fat !== null) ? r.t1 : r.t2;
+      
+      const liters = data.liters;
+      const kg = liters !== null ? parseFloat((liters * 1.03).toFixed(2)) : null;
 
-        const entry = dailyMap[key];
-        const liters = data.liters;
-        const kg = liters !== null ? parseFloat((liters * 1.03).toFixed(2)) : null;
-
-        entry.macs.quantity_liters = liters;
-        entry.macs.quantity_kg = kg;
-        entry.macs.fat = data.fat;
-        entry.macs.snf = data.snf;
-        entry.macs.status = 'completed';
-      });
+      entry.macs.quantity_liters = liters;
+      entry.macs.quantity_kg = kg;
+      entry.macs.fat = data.fat;
+      entry.macs.snf = data.snf;
+      entry.macs.status = 'completed';
     });
 
-    // Fetch Spot Analyzer (trip_bmc_visits) and Diary (trips)
+    // Fetch Spot Analyzer (trip_bmc_visits) and Diary (qc_lab_tests)
     let visitsQuery = adminClient
       .from('trip_bmc_visits')
-      .select('*, trips(id, out_time, in_time, out_weight, in_weight, status), ftir_tests(*)')
+      .select('*, trip:trips(id), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
       .eq('status', 'completed');
       
     if (bmc.id) {
@@ -9718,21 +9826,34 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
     }
     const { data: visits } = await visitsQuery;
 
-    (visits || []).forEach(v => {
+    let finalVisits = visits || [];
+    if (finalVisits.length > 0) {
+      const tripIds = [...new Set(finalVisits.map(v => v.trip_id).filter(Boolean))];
+      if (tripIds.length > 0) {
+        const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
+        const dutyMap = {};
+        (dtRecords || []).forEach(dt => dutyMap[dt.id] = (dt.duty_type || 'both').toLowerCase());
+        
+        finalVisits.forEach(v => {
+          v.duty_type = dutyMap[v.trip_id] || 'both';
+        });
+      }
+    }
+
+    finalVisits.forEach(v => {
       const d = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : new Date(v.created_at).toISOString().split('T')[0];
       
       if (from_date && d < from_date) return;
       if (to_date && d > to_date) return;
       
-      // Default period to Morning for Spot/Diary visits for now, or detect based on time
-      const p = 'morning'; 
+      const p = v.duty_type || 'both';
       if (period !== 'all' && p !== period.toLowerCase()) return;
       
       const key = `${d}_${p}`;
       if (!dailyMap[key]) {
         dailyMap[key] = {
           date: d,
-          period: 'Morning',
+          period: p.charAt(0).toUpperCase() + p.slice(1),
           macs: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
           spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' },
           diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' }
@@ -9741,37 +9862,27 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
       
       const entry = dailyMap[key];
       const ftir = (v.ftir_tests && v.ftir_tests[0]) || {};
+      const gerber = (v.gerber_tests && v.gerber_tests[0]) || {};
+      
       const lit = v.sample_liters || v.milk_quantity_liters || null;
-      const kg = lit ? parseFloat((lit * 1.03).toFixed(2)) : null;
+      const kg = v.milk_quantity_kg || v.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
       
       entry.spot = {
         liters: lit,
         kg: kg,
-        fat: ftir.fat ?? null,
-        snf: ftir.snf ?? null,
+        fat: ftir.fat ?? gerber.fat_percentage ?? null,
+        snf: ftir.snf ?? gerber.snf ?? null,
         status: 'completed'
       };
       
-      // Diary data from trip
-      const t = v.trips || {};
-      const diaryKg = t.in_weight || null;
-      const diaryLit = diaryKg ? parseFloat((diaryKg / 1.03).toFixed(2)) : null;
-      
-      if (t.status === 'completed' && diaryKg) {
+      const qc = (v.qc_test && v.qc_test[0]) || null;
+      if (qc) {
         entry.diary = {
-          liters: diaryLit,
-          kg: diaryKg,
-          fat: null, // Diary fat is typically not recorded here, but if available it can be added
-          snf: null,
-          status: 'completed'
-        };
-      } else {
-        entry.diary = {
-          liters: null,
+          liters: null, // Diary usually doesn't have liters
           kg: null,
-          fat: null,
-          snf: null,
-          status: 'pending'
+          fat: qc.fat ?? null,
+          snf: qc.snf ?? null,
+          status: qc.status === 'completed' || qc.status === 'approved' ? 'completed' : 'pending'
         };
       }
     });
@@ -10425,32 +10536,50 @@ app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
   }
 });
 
-// ─── MACS API AUTOMATIC BMC FETCH ─────────────────────────────────────────────
-// Fetches BMC data from MACS API every 15 minutes and stores timestamped snapshots.
+// ─── MACS API AUTOMATIC BMC FETCH — 3-STREAM ARCHITECTURE ────────────────────
+// Fetches BMC data from MACS API every 45 minutes across 3 independent streams:
+//   Morning (session=1, shift=1), Evening (session=2, shift=2), Both (session=0, shift=0)
 // This is SEPARATE from Excel import — they coexist independently.
 
 const MACS_API_CONFIG = {
   url: 'https://aavinapi.macsit.net/api/Bmc/GetBmcDataByUnionCode',
   cCode: 0,
-  session: '0',
   reportType: '',
-  shift: '0',
   uCode: 2,
   unionCode: 2,
-  syncIntervalMs: 15 * 60 * 1000, // 15 minutes
+  syncIntervalMs: 45 * 60 * 1000, // 45 minutes
   timeoutMs: 60000 // 60 seconds
 };
 
-// Track scheduler state for status endpoint
-let macsSchedulerState = {
-  lastSyncTime: null,
-  nextSyncTime: null,
-  isRunning: false,
-  intervalId: null
+// Per-stream session/shift configurations
+const MACS_STREAM_CONFIG = {
+  morning: { session: '1', shift: '1', label: 'Morning' },
+  evening: { session: '2', shift: '2', label: 'Evening/Night' },
+  both:    { session: '0', shift: '0', label: 'Both' }
 };
 
+// Track scheduler state per stream for independent monitoring
+const macsSchedulerState = {
+  nextSyncTime: null,
+  isRunning: false,
+  intervalId: null,
+  streams: {
+    morning: { lastSyncTime: null, lastSyncSuccess: null, isRunning: false },
+    evening: { lastSyncTime: null, lastSyncSuccess: null, isRunning: false },
+    both:    { lastSyncTime: null, lastSyncSuccess: null, isRunning: false }
+  }
+};
+
+// Per-stream manual sync cooldown tracking
+const manualSyncCooldowns = {
+  morning: 0,
+  evening: 0,
+  both: 0
+};
+const MANUAL_SYNC_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes per stream
+
 /**
- * enforceMacsRetention — Keeps ONLY the latest 4 live intraday polling MACS records per BMC code in macs_api_bmc_data.
+ * enforceMacsRetention — Keeps ONLY the latest 4 live intraday polling MACS records per BMC code PER STREAM.
  * PERMANENT 23:55 daily snapshot records are EXCLUDED from deletion and preserved forever.
  * @param {object} adminClient - Supabase admin client
  * @returns {Promise<{ deleted: number, remaining: number }>}
@@ -10459,15 +10588,25 @@ async function enforceMacsRetention(adminClient) {
   if (!adminClient) return { deleted: 0, remaining: 0 };
 
   try {
-    // 1. Fetch daily 23:55 sync run IDs
-    const { data: dailySyncRuns } = await adminClient
+    // 1. Fetch all sync runs to map sync_run_id -> stream and identify daily snapshots
+    const { data: allSyncRuns } = await adminClient
       .from('macs_api_sync_runs')
-      .select('id, started_at, u_code, error_message');
+      .select('id, started_at, u_code, error_message, status')
+      .order('started_at', { ascending: false });
 
     const dailySyncRunIds = new Set();
+    const syncRunStreamMap = new Map();
 
-    (dailySyncRuns || []).forEach(r => {
-      const isExplicitTag = r.error_message === 'DAILY_2355_SNAPSHOT' || String(r.u_code) === 'DAILY_2355';
+    (allSyncRuns || []).forEach(r => {
+      // Determine stream from error_message tag
+      let stream = 'both';
+      if (r.error_message) {
+        if (r.error_message.includes('MORNING')) stream = 'morning';
+        else if (r.error_message.includes('EVENING')) stream = 'evening';
+      }
+      syncRunStreamMap.set(r.id, stream);
+
+      const isExplicitTag = r.error_message && (r.error_message.includes('DAILY_2355_') || r.error_message === 'DAILY_2355_SNAPSHOT');
       let is2355Time = false;
       if (r.started_at) {
         const d = new Date(r.started_at);
@@ -10478,7 +10617,7 @@ async function enforceMacsRetention(adminClient) {
       }
     });
 
-    // 2. Query all macs_api_bmc_data rows (id, macs_bmc_code, fetched_at, sync_run_id)
+    // 2. Query all macs_api_bmc_data rows
     const { data: allRows, error: fetchErr } = await adminClient
       .from('macs_api_bmc_data')
       .select('id, macs_bmc_code, fetched_at, sync_run_id')
@@ -10490,11 +10629,10 @@ async function enforceMacsRetention(adminClient) {
     }
 
     if (!allRows || allRows.length === 0) {
-      console.log('🧹 MACS retention cleanup completed: deleted = 0, all BMCs within retention limit');
       return { deleted: 0, remaining: 0 };
     }
 
-    // 3. Separate permanent daily 23:55 snapshots from 15-minute intraday polling rows
+    // 3. Separate permanent daily 23:55 snapshots from intraday polling rows
     const pollingRows = [];
     let permanentCount = 0;
 
@@ -10510,22 +10648,25 @@ async function enforceMacsRetention(adminClient) {
       }
     }
 
-    // 4. Group temporary intraday polling records by macs_bmc_code
+    // 4. Group temporary intraday polling records by macs_bmc_code AND stream
     const bmcGroups = new Map();
     for (const row of pollingRows) {
       const code = String(row.macs_bmc_code).trim();
+      const stream = syncRunStreamMap.get(row.sync_run_id) || 'both';
       if (!code) continue;
-      if (!bmcGroups.has(code)) {
-        bmcGroups.set(code, []);
+      
+      const groupKey = `${code}_${stream}`;
+      if (!bmcGroups.has(groupKey)) {
+        bmcGroups.set(groupKey, []);
       }
-      bmcGroups.get(code).push(row);
+      bmcGroups.get(groupKey).push(row);
     }
 
-    // 5. For each BMC, keep latest 4 intraday polling rows, collect remainder for deletion
+    // 5. For each BMC+stream, keep latest 4 intraday polling rows, collect remainder for deletion
     const idsToDelete = [];
     let pollingKept = 0;
 
-    for (const [code, rows] of bmcGroups.entries()) {
+    for (const [groupKey, rows] of bmcGroups.entries()) {
       rows.sort((a, b) => {
         const diff = new Date(b.fetched_at).getTime() - new Date(a.fetched_at).getTime();
         if (diff !== 0) return diff;
@@ -10558,21 +10699,26 @@ async function enforceMacsRetention(adminClient) {
           deletedCount += batch.length;
         }
       }
-
-      console.log(`🧹 MACS retention cleanup completed: deleted ${deletedCount} temporary polling records. Permanent 23:55 records preserved: ${permanentCount}. Total remaining: ${pollingKept + permanentCount}`);
-    } else {
-      console.log(`🧹 MACS retention cleanup completed: deleted 0 records. Permanent 23:55 records preserved: ${permanentCount}. Total remaining: ${pollingKept + permanentCount}`);
+      console.log(`🧹 MACS retention cleanup completed: deleted ${deletedCount} temporary polling records.`);
     }
 
-    // 7. Clean up old failed sync runs from macs_api_sync_runs (keep latest 4 sync runs overall, delete older if failed)
-    const { data: allSyncRuns } = await adminClient
-      .from('macs_api_sync_runs')
-      .select('id, status, started_at')
-      .order('started_at', { ascending: false });
+    // 7. Clean up old failed sync runs from macs_api_sync_runs (keep latest 4 sync runs PER STREAM)
+    if (allSyncRuns) {
+      const runsByStream = { morning: [], evening: [], both: [] };
+      allSyncRuns.forEach(r => {
+        const s = syncRunStreamMap.get(r.id) || 'both';
+        runsByStream[s].push(r);
+      });
 
-    if (allSyncRuns && allSyncRuns.length > 4) {
-      const runsToCheck = allSyncRuns.slice(4);
-      const oldFailedRunIds = runsToCheck.filter(r => r.status === 'failed').map(r => r.id);
+      let oldFailedRunIds = [];
+      for (const s of ['morning', 'evening', 'both']) {
+        const runs = runsByStream[s];
+        if (runs.length > 4) {
+          const failed = runs.slice(4).filter(r => r.status === 'failed').map(r => r.id);
+          oldFailedRunIds.push(...failed);
+        }
+      }
+
       if (oldFailedRunIds.length > 0) {
         await adminClient.from('macs_api_sync_runs').delete().in('id', oldFailedRunIds);
         console.log(`🧹 MACS retention: deleted ${oldFailedRunIds.length} old failed sync runs.`);
@@ -10588,8 +10734,7 @@ async function enforceMacsRetention(adminClient) {
 
 /**
  * macsBmcSyncService — Reusable sync function.
- * Called by the 15-minute scheduler, the 23:55 daily scheduler, and manual "Sync Now" trigger.
- * @param {object} [options] - Sync options (e.g. { isDaily2355: true })
+ * @param {object} [options] - Sync options: { stream: 'morning'|'evening'|'both', isDaily2355: boolean }
  */
 async function macsBmcSyncService(options = {}) {
   const adminClient = getAdminClient();
@@ -10598,6 +10743,14 @@ async function macsBmcSyncService(options = {}) {
   }
 
   const isDaily2355 = Boolean(options.isDaily2355);
+  const streamKey = options.stream || 'both';
+  const streamConfig = MACS_STREAM_CONFIG[streamKey];
+
+  if (!streamConfig) {
+    return { success: false, error: `Invalid stream: ${streamKey}`, recordsFetched: 0, recordsStored: 0, recordsSkipped: 0 };
+  }
+
+  macsSchedulerState.streams[streamKey].isRunning = true;
 
   // Generate current date in DD/MM/YYYY format in IST timezone (+5:30)
   const now = new Date();
@@ -10606,6 +10759,8 @@ async function macsBmcSyncService(options = {}) {
   const mm = String(istNow.getUTCMonth() + 1).padStart(2, '0');
   const yyyy = istNow.getUTCFullYear();
   const formattedDate = `${dd}/${mm}/${yyyy}`;
+
+  const streamTag = isDaily2355 ? `DAILY_2355_${streamKey.toUpperCase()}` : `STREAM_${streamKey.toUpperCase()}`;
 
   // 1. Create sync run record
   let syncRunId = null;
@@ -10618,7 +10773,7 @@ async function macsBmcSyncService(options = {}) {
         requested_date: formattedDate,
         u_code: parseInt(MACS_API_CONFIG.uCode, 10) || 2,
         union_code: parseInt(MACS_API_CONFIG.unionCode, 10) || 2,
-        error_message: isDaily2355 ? 'DAILY_2355_SNAPSHOT' : null
+        error_message: streamTag
       })
       .select('id')
       .single();
@@ -10626,7 +10781,8 @@ async function macsBmcSyncService(options = {}) {
     if (syncErr) throw new Error(`Failed to create sync run: ${syncErr.message}`);
     syncRunId = syncRun.id;
   } catch (dbErr) {
-    console.error('❌ MACS API Sync: Failed to create sync run record:', dbErr.message);
+    console.error(`❌ MACS API Sync [${streamConfig.label}]: Failed to create sync run record:`, dbErr.message);
+    macsSchedulerState.streams[streamKey].isRunning = false;
     return { success: false, error: dbErr.message, recordsFetched: 0, recordsStored: 0, recordsSkipped: 0 };
   }
 
@@ -10637,16 +10793,16 @@ async function macsBmcSyncService(options = {}) {
 
     const payload = {
       cCode: MACS_API_CONFIG.cCode,
-      session: MACS_API_CONFIG.session,
+      session: streamConfig.session,
       firstDate: formattedDate,
       reportType: MACS_API_CONFIG.reportType,
       secondDate: formattedDate,
-      shift: MACS_API_CONFIG.shift,
+      shift: streamConfig.shift,
       uCode: MACS_API_CONFIG.uCode,
       unionCode: MACS_API_CONFIG.unionCode
     };
 
-    console.log(`🔄 MACS API Sync${isDaily2355 ? ' [DAILY 23:55 SNAPSHOT]' : ''}: Fetching data for ${formattedDate}...`);
+    console.log(`🔄 MACS API Sync [${streamConfig.label}]${isDaily2355 ? ' [DAILY 23:55]' : ''}: Fetching data for ${formattedDate}...`);
 
     const response = await fetch(MACS_API_CONFIG.url, {
       method: 'POST',
@@ -10719,7 +10875,7 @@ async function macsBmcSyncService(options = {}) {
           .insert(batch);
 
         if (insertErr) {
-          console.error(`❌ MACS API Sync: Insert batch error:`, insertErr.message);
+          console.error(`❌ MACS API Sync [${streamConfig.label}]: Insert batch error:`, insertErr.message);
           throw new Error(`Database insert failed: ${insertErr.message}`);
         }
         recordsStored += batch.length;
@@ -10735,14 +10891,17 @@ async function macsBmcSyncService(options = {}) {
         records_fetched: recordsFetched,
         records_stored: recordsStored,
         records_skipped: recordsSkipped,
-        error_message: isDaily2355 ? 'DAILY_2355_SNAPSHOT' : null
+        error_message: streamTag // We use error_message to tag the stream
       })
       .eq('id', syncRunId);
 
-    macsSchedulerState.lastSyncTime = new Date();
-    console.log(`✅ MACS API Sync${isDaily2355 ? ' [DAILY 23:55 SNAPSHOT]' : ''}: Success — ${recordsFetched} fetched, ${recordsStored} stored, ${recordsSkipped} skipped`);
+    macsSchedulerState.streams[streamKey].lastSyncTime = new Date();
+    macsSchedulerState.streams[streamKey].lastSyncSuccess = new Date();
+    macsSchedulerState.streams[streamKey].isRunning = false;
+    
+    console.log(`✅ MACS API Sync [${streamConfig.label}]${isDaily2355 ? ' [DAILY 23:55]' : ''}: Success — ${recordsFetched} fetched, ${recordsStored} stored, ${recordsSkipped} skipped`);
 
-    // 8. Enforce rolling retention (preserves 23:55 daily records permanently)
+    // 8. Enforce rolling retention
     await enforceMacsRetention(adminClient);
 
     return { success: true, recordsFetched, recordsStored, recordsSkipped, syncRunId };
@@ -10754,7 +10913,7 @@ async function macsBmcSyncService(options = {}) {
       ? `Request timed out after ${MACS_API_CONFIG.timeoutMs / 1000}s` 
       : (err.message || String(err));
 
-    console.error(`❌ MACS API Sync: Failed — ${errorMsg}`);
+    console.error(`❌ MACS API Sync [${streamConfig.label}]: Failed — ${errorMsg}`);
 
     if (syncRunId) {
       try {
@@ -10763,19 +10922,22 @@ async function macsBmcSyncService(options = {}) {
           .update({
             completed_at: new Date().toISOString(),
             status: 'failed',
-            error_message: errorMsg
+            error_message: `FAILED_${streamTag}: ${errorMsg}`.substring(0, 500)
           })
           .eq('id', syncRunId);
       } catch (updateErr) {
-        console.error('❌ MACS API Sync: Failed to update sync run error status:', updateErr.message);
+        console.error(`❌ MACS API Sync [${streamConfig.label}]: Failed to update sync run error status:`, updateErr.message);
       }
     }
+
+    macsSchedulerState.streams[streamKey].isRunning = false;
+    macsSchedulerState.streams[streamKey].lastSyncTime = new Date();
 
     return { success: false, error: errorMsg, recordsFetched: 0, recordsStored: 0, recordsSkipped: 0 };
   }
 }
 
-// ─── MACS API 15-Minute Scheduler ─────────────────────────────────────────────
+// ─── MACS API 45-Minute Scheduler (3 Streams) ──────────────────────────────────
 function startMacsApiScheduler() {
   if (macsSchedulerState.intervalId) {
     clearInterval(macsSchedulerState.intervalId);
@@ -10787,13 +10949,16 @@ function startMacsApiScheduler() {
 
   macsSchedulerState.intervalId = setInterval(async () => {
     if (macsSchedulerState.isRunning) {
-      console.log('⏭️ MACS API Scheduler: Previous sync still running, skipping this cycle');
+      console.log('⏭️ MACS API Scheduler: Previous cycle still running, skipping');
       return;
     }
 
     macsSchedulerState.isRunning = true;
     try {
-      await macsBmcSyncService();
+      // Execute streams sequentially to avoid API overload
+      await macsBmcSyncService({ stream: 'morning' });
+      await macsBmcSyncService({ stream: 'evening' });
+      await macsBmcSyncService({ stream: 'both' });
     } catch (err) {
       console.error('❌ MACS API Scheduler: Unexpected error:', err.message);
     } finally {
@@ -10802,13 +10967,15 @@ function startMacsApiScheduler() {
     }
   }, MACS_API_CONFIG.syncIntervalMs);
 
-  // Run initial sync after a short delay (10 seconds after server start)
+  // Run initial sync after a short delay
   setTimeout(async () => {
     if (macsSchedulerState.isRunning) return;
     macsSchedulerState.isRunning = true;
-    console.log('🚀 MACS API Scheduler: Running initial sync...');
+    console.log('🚀 MACS API Scheduler: Running initial 3-stream sync...');
     try {
-      await macsBmcSyncService();
+      await macsBmcSyncService({ stream: 'morning' });
+      await macsBmcSyncService({ stream: 'evening' });
+      await macsBmcSyncService({ stream: 'both' });
     } catch (err) {
       console.error('❌ MACS API Scheduler: Initial sync error:', err.message);
     } finally {
@@ -10835,13 +11002,14 @@ function scheduleNextDaily2355Sync() {
   console.log(`🌙 MACS API 23:55 Daily Scheduler: Next snapshot scheduled for ${dateFormatted} at ${nextFormatted} (in ${(msUntilNext2355 / 60000).toFixed(1)} mins)`);
 
   setTimeout(async () => {
-    console.log('🌙 MACS API 23:55 Daily Scheduler: Executing dedicated 23:55 daily MACS fetch...');
+    console.log('🌙 MACS API 23:55 Daily Scheduler: Executing dedicated 23:55 daily MACS fetch for all 3 streams...');
     try {
-      await macsBmcSyncService({ isDaily2355: true });
+      await macsBmcSyncService({ stream: 'morning', isDaily2355: true });
+      await macsBmcSyncService({ stream: 'evening', isDaily2355: true });
+      await macsBmcSyncService({ stream: 'both', isDaily2355: true });
     } catch (err) {
       console.error('❌ MACS API 23:55 Daily Scheduler error:', err.message);
     } finally {
-      // Schedule next run for tomorrow at 23:55
       scheduleNextDaily2355Sync();
     }
   }, msUntilNext2355);
@@ -10853,41 +11021,41 @@ scheduleNextDaily2355Sync();
 
 // ─── MACS API Admin Endpoints ─────────────────────────────────────────────────
 
-let lastManualSyncTimestamp = 0;
-const MANUAL_SYNC_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes cooldown
-
 // POST /api/admin/macs-api/sync — Manual "Sync Now"
 app.post('/api/admin/macs-api/sync', requireAuthAny, async (req, res) => {
+  const streamKey = req.body.stream || 'both';
+  if (!MACS_STREAM_CONFIG[streamKey]) return res.status(400).json({ error: 'Invalid stream' });
+
   const now = Date.now();
-  if (lastManualSyncTimestamp && (now - lastManualSyncTimestamp < MANUAL_SYNC_COOLDOWN_MS)) {
-    const cooldownRemainingSeconds = Math.ceil((MANUAL_SYNC_COOLDOWN_MS - (now - lastManualSyncTimestamp)) / 1000);
+  const lastManualSync = manualSyncCooldowns[streamKey] || 0;
+
+  if (lastManualSync && (now - lastManualSync < MANUAL_SYNC_COOLDOWN_MS)) {
+    const cooldownRemainingSeconds = Math.ceil((MANUAL_SYNC_COOLDOWN_MS - (now - lastManualSync)) / 1000);
     return res.status(429).json({
       success: false,
-      error: `Sync is available again in ${cooldownRemainingSeconds} seconds.`,
+      error: `Sync for ${streamKey} is available again in ${cooldownRemainingSeconds} seconds.`,
       cooldownRemainingSeconds
     });
   }
 
-  if (macsSchedulerState.isRunning) {
-    return res.status(409).json({ success: false, error: 'A sync is already in progress. Please wait.' });
+  if (macsSchedulerState.streams[streamKey].isRunning) {
+    return res.status(409).json({ success: false, error: `A sync for ${streamKey} is already in progress. Please wait.` });
   }
 
-  macsSchedulerState.isRunning = true;
   try {
-    const result = await macsBmcSyncService();
-    lastManualSyncTimestamp = Date.now();
-    macsSchedulerState.nextSyncTime = new Date(Date.now() + MACS_API_CONFIG.syncIntervalMs);
+    const result = await macsBmcSyncService({ stream: streamKey });
+    manualSyncCooldowns[streamKey] = Date.now();
     res.json(result);
   } catch (err) {
     sendErrorResponse(res, 500, 'Sync Now operation failed. Please try again later.', err);
-  } finally {
-    macsSchedulerState.isRunning = false;
   }
 });
 
 // GET /api/admin/macs-api/status — Sync status and scheduler info
 app.get('/api/admin/macs-api/status', requireAdminRole, async (req, res) => {
   const { adminClient } = req;
+  const streamKey = req.query.stream || 'both';
+  const streamTag = `STREAM_${streamKey.toUpperCase()}`;
 
   try {
     // Get latest successful sync
@@ -10895,6 +11063,7 @@ app.get('/api/admin/macs-api/status', requireAdminRole, async (req, res) => {
       .from('macs_api_sync_runs')
       .select('*')
       .eq('status', 'success')
+      .ilike('error_message', `%${streamTag}%`)
       .order('completed_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -10903,24 +11072,26 @@ app.get('/api/admin/macs-api/status', requireAdminRole, async (req, res) => {
     const { data: lastSync } = await adminClient
       .from('macs_api_sync_runs')
       .select('*')
+      .ilike('error_message', `%${streamTag}%`)
       .order('started_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    // Get total records count
+    // Get total records count (all streams, to keep dashboard high-level metric)
     const { count: totalRecords } = await adminClient
       .from('macs_api_bmc_data')
       .select('*', { count: 'exact', head: true });
 
-    // Get total sync runs count
+    // Get total sync runs count for this stream
     const { count: totalSyncs } = await adminClient
       .from('macs_api_sync_runs')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .ilike('error_message', `%${streamTag}%`);
 
     res.json({
       schedulerRunning: !!macsSchedulerState.intervalId,
-      isCurrentlySyncing: macsSchedulerState.isRunning,
-      lastSyncTime: macsSchedulerState.lastSyncTime,
+      isCurrentlySyncing: macsSchedulerState.streams[streamKey]?.isRunning || false,
+      lastSyncTime: macsSchedulerState.streams[streamKey]?.lastSyncTime || null,
       nextSyncTime: macsSchedulerState.nextSyncTime,
       syncIntervalMinutes: MACS_API_CONFIG.syncIntervalMs / 60000,
       lastSuccessfulSync: lastSuccess,
@@ -10940,10 +11111,14 @@ app.get('/api/admin/macs-api/daily-snapshots', requireAuthAny, async (req, res) 
   const adminClient = getAdminClient();
   if (!adminClient) return res.status(503).json({ error: 'Database not configured.' });
 
+  const streamKey = req.query.stream || 'both';
+  const dailyTag = `DAILY_2355_${streamKey.toUpperCase()}`;
+
   try {
     const { data: runs, error } = await adminClient
       .from('macs_api_sync_runs')
       .select('*')
+      .ilike('error_message', `%${dailyTag}%`)
       .order('started_at', { ascending: false });
 
     if (error) throw error;
@@ -10955,7 +11130,7 @@ app.get('/api/admin/macs-api/daily-snapshots', requireAuthAny, async (req, res) 
       const dateKey = run.requested_date;
       if (!dateKey) return;
 
-      const isExplicitDaily = run.error_message === 'DAILY_2355_SNAPSHOT' || String(run.u_code) === 'DAILY_2355';
+      const isExplicitDaily = run.error_message && (run.error_message.includes('DAILY_2355_') || run.error_message === 'DAILY_2355_SNAPSHOT');
       const startDate = run.started_at ? new Date(run.started_at) : null;
       const is2355Time = startDate && startDate.getHours() === 23 && startDate.getMinutes() >= 50;
 
@@ -10996,17 +11171,21 @@ app.get('/api/admin/macs-api/daily-snapshots/:date', requireAuthAny, async (req,
     macsDate = convertISOToMacsDate(rawDate);
   }
 
+  const streamKey = req.query.stream || 'both';
+  const dailyTag = `DAILY_2355_${streamKey.toUpperCase()}`;
+
   try {
     const { data: runs, error: runErr } = await adminClient
       .from('macs_api_sync_runs')
       .select('*')
       .eq('requested_date', macsDate)
       .eq('status', 'success')
+      .ilike('error_message', `%${dailyTag}%`)
       .order('started_at', { ascending: false });
 
     if (runErr) throw runErr;
 
-    let targetRun = (runs || []).find(r => r.error_message === 'DAILY_2355_SNAPSHOT' || String(r.u_code) === 'DAILY_2355');
+    let targetRun = (runs || []).find(r => r.error_message && (r.error_message.includes(dailyTag) || r.error_message === 'DAILY_2355_SNAPSHOT'));
     if (!targetRun) {
       targetRun = (runs || []).find(r => {
         if (!r.started_at) return false;
@@ -11076,6 +11255,7 @@ app.get('/api/admin/macs-api/data', requireAdminRole, async (req, res) => {
   const limit = parseInt(req.query.limit) || 50;
   const offset = (page - 1) * limit;
   const syncRunId = req.query.sync_run_id || null;
+  const streamKey = req.query.stream || null;
 
   try {
     let query = adminClient
@@ -11084,6 +11264,19 @@ app.get('/api/admin/macs-api/data', requireAdminRole, async (req, res) => {
 
     if (syncRunId) {
       query = query.eq('sync_run_id', syncRunId);
+    } else if (streamKey) {
+      const streamTag = `STREAM_${streamKey.toUpperCase()}`;
+      const { data: runs } = await adminClient
+        .from('macs_api_sync_runs')
+        .select('id')
+        .ilike('error_message', `%${streamTag}%`);
+      
+      const runIds = (runs || []).map(r => r.id);
+      if (runIds.length > 0) {
+        query = query.in('sync_run_id', runIds);
+      } else {
+        return res.json({ data: [], total: 0, page, totalPages: 0 });
+      }
     }
 
     const { data, count, error } = await query
@@ -11109,11 +11302,14 @@ app.get('/api/admin/macs-api/data', requireAdminRole, async (req, res) => {
 app.get('/api/admin/macs-api/sync-history', requireAdminRole, async (req, res) => {
   const { adminClient } = req;
   const limit = parseInt(req.query.limit) || 20;
+  const streamKey = req.query.stream || 'both';
+  const streamTag = `STREAM_${streamKey.toUpperCase()}`;
 
   try {
     const { data: runs, error } = await adminClient
       .from('macs_api_sync_runs')
       .select('*')
+      .ilike('error_message', `%${streamTag}%`)
       .order('started_at', { ascending: false })
       .limit(limit);
 

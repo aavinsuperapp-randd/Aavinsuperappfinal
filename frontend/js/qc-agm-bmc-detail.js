@@ -242,7 +242,10 @@ function renderBmcRecordsTable(records) {
     return `
       <tr>
         <td style="font-weight:700; color:#64748B;">${rec.s_no}</td>
-        <td><strong>${rec.date}</strong></td>
+        <td>
+          <strong>${rec.date}</strong>
+          ${rec.period_display ? `<div style="font-size:0.75rem; color:#64748B; margin-top:2px;">${rec.period_display}</div>` : ''}
+        </td>
         <td>${macsStr}</td>
         <td>${spotStr}</td>
         <td>${diaryStr}</td>

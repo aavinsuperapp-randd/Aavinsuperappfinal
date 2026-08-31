@@ -1,8 +1,43 @@
 // admin-macs-api.js — MACS API Tab Frontend Logic
 // Handles: status display, manual sync, data table with pagination, sync history inspection & live delete controls
 
+let currentStream = 'both';
 let currentPage = 1;
 const PAGE_SIZE = 50;
+
+window.switchMacsStream = async function(streamKey) {
+  currentStream = streamKey;
+  
+  // Update buttons
+  document.querySelectorAll('[id^="stream-btn-"]').forEach(btn => {
+    btn.classList.remove('active', 'btn-primary');
+    btn.classList.add('btn-outline');
+  });
+  
+  const activeBtn = document.getElementById(`stream-btn-${streamKey}`);
+  if (activeBtn) {
+    activeBtn.classList.add('active', 'btn-primary');
+    activeBtn.classList.remove('btn-outline');
+  }
+
+  // Update label
+  const labelEl = document.getElementById('current-stream-label');
+  if (labelEl) {
+    labelEl.textContent = streamKey === 'morning' ? 'Morning' : (streamKey === 'evening' ? 'Evening/Night' : 'Both');
+  }
+
+  // Reload data
+  await Promise.all([
+    loadMacsApiStatus(),
+    loadMacsApiData(1),
+    loadSyncHistory()
+  ]);
+  
+  const dailyActive = document.getElementById('tab-btn-daily-macs')?.classList.contains('active');
+  if (dailyActive && typeof loadDailySnapshots === 'function') {
+     loadDailySnapshots();
+  }
+};
 
 // State tracking for deletion modal
 let pendingDeleteAction = null;
@@ -32,7 +67,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadMacsApiStatus() {
   try {
-    const status = await adminFetch('/api/admin/macs-api/status');
+    const status = await adminFetch(`/api/admin/macs-api/status?stream=${currentStream}`);
 
     // Connection status
     const connEl = document.getElementById('status-connection');
@@ -107,7 +142,11 @@ window.handleManualSync = async function() {
   btn.innerHTML = '⏳ Syncing...';
 
   try {
-    const result = await adminFetch('/api/admin/macs-api/sync', { method: 'POST' });
+    const result = await adminFetch('/api/admin/macs-api/sync', { 
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stream: currentStream })
+    });
 
     if (result.success) {
       showToast(`✅ Sync complete — ${result.recordsFetched} fetched, ${result.recordsStored} stored`, 'success');
@@ -138,7 +177,7 @@ window.loadSyncHistory = async function() {
   if (!tbody) return;
 
   try {
-    const result = await adminFetch('/api/admin/macs-api/sync-history?limit=4');
+    const result = await adminFetch(`/api/admin/macs-api/sync-history?limit=4&stream=${currentStream}`);
     
     // Filter out successful syncs that have 0 stored/expired records (deleted data)
     const runs = (result.runs || []).filter(r => {
@@ -465,7 +504,7 @@ window.loadMacsApiData = async function(page) {
   tbody.innerHTML = '<tr><td colspan="19" style="text-align:center; color:#94A3B8; padding:32px; font-weight:600;">Loading...</td></tr>';
 
   try {
-    const result = await adminFetch(`/api/admin/macs-api/data?page=${page}&limit=${PAGE_SIZE}`);
+    const result = await adminFetch(`/api/admin/macs-api/data?page=${page}&limit=${PAGE_SIZE}&stream=${currentStream}`);
     const records = result.data || [];
     const total = result.total || 0;
     const totalPages = result.totalPages || 1;
@@ -644,7 +683,7 @@ window.loadDailySnapshots = async function() {
   tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#94A3B8; padding:24px;">Loading daily MACS snapshots...</td></tr>';
 
   try {
-    const res = await adminFetch('/api/admin/macs-api/daily-snapshots');
+    const res = await adminFetch(`/api/admin/macs-api/daily-snapshots?stream=${currentStream}`);
     if (!res.success || !res.snapshots || res.snapshots.length === 0) {
       tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#94A3B8; padding:24px;">No 23:55 daily MACS snapshots saved yet. Daily snapshots are fetched every night at 23:55:00.</td></tr>';
       return;
@@ -695,7 +734,7 @@ window.openDailySnapshotModal = async function(dateStr) {
   modal.classList.remove('hidden');
 
   try {
-    const res = await adminFetch(`/api/admin/macs-api/daily-snapshots/${encodeURIComponent(dateStr)}`);
+    const res = await adminFetch(`/api/admin/macs-api/daily-snapshots/${encodeURIComponent(dateStr)}?stream=${currentStream}`);
     if (!res.success || !res.records) {
       tbody.innerHTML = `<tr><td colspan="17" style="text-align:center; color:#DC2626; padding:32px;">${esc(res.error || 'Failed to load records')}</td></tr>`;
       return;

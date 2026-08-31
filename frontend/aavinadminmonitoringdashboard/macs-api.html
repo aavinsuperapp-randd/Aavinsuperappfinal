@@ -456,6 +456,13 @@
       <main class="admin-content">
         <div id="main-admin-content" class="hidden">
 
+          <!-- Stream Tabs Navigation -->
+          <div style="display:flex; gap:8px; margin-bottom:20px;">
+            <button id="stream-btn-morning" class="btn btn-outline" onclick="switchMacsStream('morning')" style="border-radius:20px; padding:6px 16px; font-weight:700;">🌅 Morning</button>
+            <button id="stream-btn-evening" class="btn btn-outline" onclick="switchMacsStream('evening')" style="border-radius:20px; padding:6px 16px; font-weight:700;">🌙 Evening/Night</button>
+            <button id="stream-btn-both" class="btn btn-primary active" onclick="switchMacsStream('both')" style="border-radius:20px; padding:6px 16px; font-weight:700;">☀️ Both</button>
+          </div>
+
           <!-- Top Sub-Tabs Navigation -->
           <div style="display:flex; gap:12px; border-bottom:2px solid #E2E8F0; margin-bottom:24px;">
             <button id="tab-btn-live-macs" class="macs-tab-nav-btn active" onclick="switchMacsSubTab('live')" style="padding:10px 18px; font-weight:700; font-size:0.9rem; border:none; background:transparent; border-bottom:3px solid #2563EB; color:#2563EB; cursor:pointer;">
@@ -471,8 +478,8 @@
             <!-- MACS API Status Panel -->
             <div class="macs-section-header">
               <div>
-                <h2 class="macs-section-title">🔗 MACS API Status</h2>
-                <p class="text-muted text-xs" style="margin-top:2px;">Automatic BMC data collection from MACS software API every 15 minutes.</p>
+                <h2 class="macs-section-title">🔗 MACS API Status (<span id="current-stream-label">Both</span>)</h2>
+                <p class="text-muted text-xs" style="margin-top:2px;">Automatic BMC data collection from MACS software API every 45 minutes.</p>
               </div>
               <button id="macs-sync-btn" class="macs-sync-btn" onclick="handleManualSync()">
                 🔄 Sync Now
