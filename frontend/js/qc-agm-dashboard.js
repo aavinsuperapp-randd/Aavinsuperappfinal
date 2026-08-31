@@ -176,16 +176,9 @@ async function loadReadingsForDate(dateStr) {
   const period = document.getElementById('macs-period-select')?.value || 'both';
 
   try {
-    const res = await apiQcAgmGetMacsReadings(dateStr);
-    let readings = res.readings || [];
-    let noMacsReadings = res.no_macs_readings || [];
-
-    if (period !== 'both') {
-      readings = readings.filter(r => {
-        const p = (r.raw?.period || r.raw_data?.period || 'morning').toLowerCase();
-        return p === period.toLowerCase();
-      });
-    }
+    const res = await apiQcAgmGetMacsReadings(dateStr, period);
+    const readings = res.readings || [];
+    const noMacsReadings = res.no_macs_readings || [];
 
     currentMacsReadings = readings;
     currentNoMacsReadings = noMacsReadings;

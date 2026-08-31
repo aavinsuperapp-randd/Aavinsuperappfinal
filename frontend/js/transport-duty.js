@@ -312,6 +312,7 @@ async function setupCreateTripModal() {
           tanker_number: tankerNum,
           route_description: routeInput.value.trim(),
           bmc_id: firstBmc ? firstBmc.bmc_id : null,
+          duty_type: periodSelect ? periodSelect.value : 'morning',
           out_time: nowIso
         });
       } catch (toErr) {

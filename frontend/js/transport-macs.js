@@ -1,7 +1,7 @@
 // transport-macs.js — Transport Officer MACS Data Overview (QC Manager Table View)
 let allMacsBmcs = [];
 let currentSelectedDate = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-let currentSelectedPeriod = 'all';
+let currentSelectedPeriod = 'both';
 
 document.addEventListener('DOMContentLoaded', async () => {
   const profile = await checkAuth('transport_officer');

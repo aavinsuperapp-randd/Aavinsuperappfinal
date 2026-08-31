@@ -61,9 +61,9 @@ async function apiQcAgmDenyReading(payload) {
     body: JSON.stringify(payload)
   });
 }
-async function apiQcAgmGetAllTests(date = '') {
-  let url = '/api/qc-agm/tests';
-  if (date) url += `?date=${encodeURIComponent(date)}`;
+async function apiQcAgmGetAllTests(date = '', period = 'both') {
+  let url = `/api/qc-agm/tests?period=${encodeURIComponent(period)}`;
+  if (date) url += `&date=${encodeURIComponent(date)}`;
   return qcAgmFetch(url);
 }
 async function apiQcAgmGetTestDetail(id) {
@@ -84,9 +84,9 @@ async function apiQcAgmGetBmcTests(bmcId) {
 async function apiQcAgmGetMacsDates() {
   return qcAgmFetch('/api/qc-agm/macs/dates');
 }
-async function apiQcAgmGetMacsReadings(date = '') {
-  let url = '/api/qc-agm/macs/readings';
-  if (date) url += `?date=${encodeURIComponent(date)}`;
+async function apiQcAgmGetMacsReadings(date = '', period = 'both') {
+  let url = `/api/qc-agm/macs/readings?period=${encodeURIComponent(period)}`;
+  if (date) url += `&date=${encodeURIComponent(date)}`;
   return qcAgmFetch(url);
 }
 async function apiQcAgmImportMacsReadings(file_name, readings, notes) {

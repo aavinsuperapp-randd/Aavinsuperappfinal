@@ -49,8 +49,9 @@ async function apiQcWorkerGetDashboardBmcs(startDate = '', endDate = '') {
 async function apiQcWorkerGetMacsDates() {
   return qcWorkerFetch('/api/qc-worker/macs/dates');
 }
-async function apiQcWorkerGetMacsReadings(date = '') {
-  const url = date ? `/api/qc-worker/macs/readings?date=${encodeURIComponent(date)}` : '/api/qc-worker/macs/readings';
+async function apiQcWorkerGetMacsReadings(date = '', period = 'both') {
+  let url = `/api/qc-worker/macs/readings?period=${encodeURIComponent(period)}`;
+  if (date) url += `&date=${encodeURIComponent(date)}`;
   return qcWorkerFetch(url);
 }
 async function apiQcWorkerGetBmcs() {

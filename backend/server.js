@@ -189,28 +189,52 @@ function convertISOToMacsDate(isoDate) {
 /**
  * Normalize a raw macs_api_bmc_data row into a clean structure.
  */
-function normalizeLiveMacsRecord(row) {
+function normalizeLiveMacsRecord(row, stream = 'both') {
+  const t1 = {
+    liters: row.li_t1 !== null && row.li_t1 !== undefined ? Number(row.li_t1) : null,
+    kg_fat: row.kgfat_t1 !== null && row.kgfat_t1 !== undefined ? Number(row.kgfat_t1) : null,
+    kg_snf: row.kgsnf_t1 !== null && row.kgsnf_t1 !== undefined ? Number(row.kgsnf_t1) : null,
+    fat: row.fat_t1 !== null && row.fat_t1 !== undefined ? Number(row.fat_t1) : null,
+    snf: row.snf_t1 !== null && row.snf_t1 !== undefined ? Number(row.snf_t1) : null
+  };
+  const t2 = {
+    liters: row.li_t2 !== null && row.li_t2 !== undefined ? Number(row.li_t2) : null,
+    kg_fat: row.kgfat_t2 !== null && row.kgfat_t2 !== undefined ? Number(row.kgfat_t2) : null,
+    kg_snf: row.kgsnf_t2 !== null && row.kgsnf_t2 !== undefined ? Number(row.kgsnf_t2) : null,
+    fat: row.fat_t2 !== null && row.fat_t2 !== undefined ? Number(row.fat_t2) : null,
+    snf: row.snf_t2 !== null && row.snf_t2 !== undefined ? Number(row.snf_t2) : null
+  };
+
+  // Extract stream's own primary values without cross-period combining
+  let primaryLit = null;
+  if (t1.liters !== null && t1.liters > 0) primaryLit = t1.liters;
+  else if (t2.liters !== null && t2.liters > 0) primaryLit = t2.liters;
+  else if (row.lit !== null && row.lit !== undefined && Number(row.lit) > 0) primaryLit = Number(row.lit);
+
+  let primaryFat = null;
+  if (t1.fat !== null && t1.fat > 0) primaryFat = t1.fat;
+  else if (t2.fat !== null && t2.fat > 0) primaryFat = t2.fat;
+
+  let primarySnf = null;
+  if (t1.snf !== null && t1.snf > 0) primarySnf = t1.snf;
+  else if (t2.snf !== null && t2.snf > 0) primarySnf = t2.snf;
+
   return {
+    id: row.id,
     bmc_code: String(row.macs_bmc_code).trim(),
     bmc_name: row.macs_bmc_name || null,
     reading_date: convertMacsDateToISO(row.report_date),
-    t1: {
-      liters: row.li_t1 !== null && row.li_t1 !== undefined ? Number(row.li_t1) : null,
-      kg_fat: row.kgfat_t1 !== null && row.kgfat_t1 !== undefined ? Number(row.kgfat_t1) : null,
-      kg_snf: row.kgsnf_t1 !== null && row.kgsnf_t1 !== undefined ? Number(row.kgsnf_t1) : null,
-      fat: row.fat_t1 !== null && row.fat_t1 !== undefined ? Number(row.fat_t1) : null,
-      snf: row.snf_t1 !== null && row.snf_t1 !== undefined ? Number(row.snf_t1) : null
-    },
-    t2: {
-      liters: row.li_t2 !== null && row.li_t2 !== undefined ? Number(row.li_t2) : null,
-      kg_fat: row.kgfat_t2 !== null && row.kgfat_t2 !== undefined ? Number(row.kgfat_t2) : null,
-      kg_snf: row.kgsnf_t2 !== null && row.kgsnf_t2 !== undefined ? Number(row.kgsnf_t2) : null,
-      fat: row.fat_t2 !== null && row.fat_t2 !== undefined ? Number(row.fat_t2) : null,
-      snf: row.snf_t2 !== null && row.snf_t2 !== undefined ? Number(row.snf_t2) : null
-    },
+    stream: stream,
+    t1,
+    t2,
+    liters: primaryLit,
+    kg: primaryLit ? parseFloat((primaryLit * 1.03).toFixed(2)) : null,
+    fat: primaryFat,
+    snf: primarySnf,
     lit: row.lit !== null && row.lit !== undefined ? Number(row.lit) : null,
     diff: row.diff !== null && row.diff !== undefined ? Number(row.diff) : null,
     fetched_at: row.fetched_at,
+    sync_run_id: row.sync_run_id,
     source: 'live_macs_api'
   };
 }
@@ -269,7 +293,7 @@ async function getLatestLiveMacsByBmcCode(adminClient, dateStr) {
         else if (msg.includes('EVENING')) rowStream = 'evening';
       }
 
-      const normRow = normalizeLiveMacsRecord(row);
+      const normRow = normalizeLiveMacsRecord(row, rowStream);
 
       if (!results[rowStream].has(code)) {
         results[rowStream].set(code, normRow);
@@ -363,8 +387,7 @@ async function getLiveMacsHistoryForBmc(adminClient, bmcCode, fromDate, toDate, 
       if (toDate && isoDate > toDate) return;
       const mapKey = streamKey === 'all' ? `${isoDate}_${rowStream}` : isoDate;
       if (!dateMap.has(mapKey)) {
-        const norm = normalizeLiveMacsRecord(row);
-        norm.stream = rowStream;
+        const norm = normalizeLiveMacsRecord(row, rowStream);
         dateMap.set(mapKey, norm);
       }
     });
@@ -1631,38 +1654,11 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
           const macsRecord = liveMacsByCode[tripPeriod] ? liveMacsByCode[tripPeriod].get(bmcCode) : null;
           
           let macs_result = '—';
-          if (macsRecord) {
-            const parts = [];
-            
-            // For Morning Duty, prioritize t1. For Evening Duty, prioritize t2 (or fallback to t1 if MACS puts it there). 
-            // For Both, we combine them or just use whatever is available.
-            let dataToUse = null;
-            if (tripPeriod === 'morning') {
-              dataToUse = (macsRecord.t1.liters !== null || macsRecord.t1.fat !== null) ? macsRecord.t1 : macsRecord.t2;
-            } else if (tripPeriod === 'evening') {
-              // Evening usually populates t2, but if t2 is empty and t1 has data, use t1
-              dataToUse = (macsRecord.t2.liters !== null || macsRecord.t2.fat !== null) ? macsRecord.t2 : macsRecord.t1;
-            } else {
-              // For 'both', just sum them or use the first available. Usually the API returns total in lit, or we just display t1 + t2.
-              // To keep it clean, we'll pick the one with data, or combine them.
-              dataToUse = (macsRecord.t1.liters !== null || macsRecord.t1.fat !== null) ? macsRecord.t1 : macsRecord.t2;
-              
-              if (macsRecord.t1.liters !== null && macsRecord.t2.liters !== null) {
-                // If both exist, sum liters and average fat/snf
-                dataToUse = {
-                  liters: (macsRecord.t1.liters || 0) + (macsRecord.t2.liters || 0),
-                  fat: macsRecord.t1.fat || macsRecord.t2.fat, // simplified
-                  snf: macsRecord.t1.snf || macsRecord.t2.snf  // simplified
-                };
-              }
-            }
-            
-            if (dataToUse && dataToUse.liters !== null) {
-              parts.push(`${dataToUse.liters} L`);
-              if (dataToUse.fat !== null) parts.push(`FAT: ${dataToUse.fat}%`);
-              if (dataToUse.snf !== null) parts.push(`SNF: ${dataToUse.snf}%`);
-              macs_result = parts.join(' | ');
-            }
+          if (macsRecord && macsRecord.liters !== null && macsRecord.liters > 0) {
+            const parts = [`${macsRecord.liters} L`];
+            if (macsRecord.fat !== null && macsRecord.fat !== undefined) parts.push(`FAT: ${macsRecord.fat}%`);
+            if (macsRecord.snf !== null && macsRecord.snf !== undefined) parts.push(`SNF: ${macsRecord.snf}%`);
+            macs_result = parts.join(' | ');
           }
 
           // Diary / QC Lab Test: combine QC AGM test result & visit milk weight
@@ -5676,22 +5672,20 @@ app.get('/api/transport/bmcs-list', requireTransportOfficer, async (req, res) =>
 
     const enrichedBmcs = (bmcs || []).map(b => {
       const bmcCodeStr = String(b.bmc_code || '').trim();
-      const macsRecord = liveMacsByCode[period] ? liveMacsByCode[period].get(bmcCodeStr) : liveMacsByCode.all.get(bmcCodeStr);
+      const macsRecord = (period === 'morning' || period === 'evening' || period === 'both')
+        ? liveMacsByCode[period]?.get(bmcCodeStr)
+        : liveMacsByCode.all.get(bmcCodeStr);
 
       let totalKg = null;
-      if (macsRecord) {
-        // Use T1 liters as primary, with kgfat values for kg calculation
-        const t1Lit = macsRecord.t1.liters;
-        const t2Lit = macsRecord.t2.liters;
-        const totalLiters = (t1Lit || 0) + (t2Lit || 0);
-        if (totalLiters > 0) {
-          totalKg = parseFloat((totalLiters * 1.03).toFixed(2));
-        }
+      let totalLiters = null;
+      if (macsRecord && macsRecord.liters !== null && macsRecord.liters > 0) {
+        totalLiters = macsRecord.liters;
+        totalKg = macsRecord.kg;
       }
 
       return {
         ...b,
-        macs_quantity_today: totalKg !== null ? parseFloat((totalKg / 1.03).toFixed(2)) : null,
+        macs_quantity_today: totalLiters,
         macs_quantity_kg: totalKg
       };
     });
@@ -5726,30 +5720,26 @@ app.get('/api/transport/macs-summary', requireTransportOfficer, async (req, res)
 
     const list = (bmcs || []).map(b => {
       const codeKey = String(b.bmc_code || '').trim();
-      const macsRecord = liveMacsByCode[period] ? liveMacsByCode[period].get(codeKey) : liveMacsByCode.all.get(codeKey);
+      const macsRecord = (period === 'morning' || period === 'evening' || period === 'both')
+        ? liveMacsByCode[period]?.get(codeKey)
+        : liveMacsByCode.all.get(codeKey);
 
       let kg = null;
       let liters = null;
       let displayBatch = '-';
 
-      if (macsRecord) {
-        // Combine T1 and T2 liters
-        const t1Lit = macsRecord.t1.liters || 0;
-        const t2Lit = macsRecord.t2.liters || 0;
-        liters = t1Lit + t2Lit;
-        if (liters > 0) {
-          kg = parseFloat((liters * 1.03).toFixed(2));
-          liters = parseFloat(liters.toFixed(2));
-        } else {
-          liters = null;
-        }
-        // Determine batch from T1/T2 availability
-        if (t1Lit > 0 && t2Lit > 0) displayBatch = 'Both';
-        else if (t1Lit > 0) displayBatch = 'Morning';
-        else if (t2Lit > 0) displayBatch = 'Evening';
+      if (macsRecord && macsRecord.liters !== null && macsRecord.liters > 0) {
+        liters = macsRecord.liters;
+        kg = macsRecord.kg;
+        if (period === 'morning') displayBatch = 'Morning';
+        else if (period === 'evening') displayBatch = 'Evening';
+        else if (period === 'both') displayBatch = 'Both';
+        else displayBatch = macsRecord.stream ? (macsRecord.stream.charAt(0).toUpperCase() + macsRecord.stream.slice(1)) : 'Both';
       }
 
-      if (macsRecord && (kg || liters)) {
+      const hasMacsData = Boolean(macsRecord && macsRecord.liters !== null && macsRecord.liters > 0);
+
+      if (hasMacsData && (kg || liters)) {
         matchedCount++;
         if (kg) totalKgSum += kg;
         if (liters) totalLitersSum += liters;
@@ -5764,7 +5754,7 @@ app.get('/api/transport/macs-summary', requireTransportOfficer, async (req, res)
         batch: displayBatch,
         capacity_kg: kg,
         capacity_litre: liters,
-        has_macs_data: !!macsRecord
+        has_macs_data: hasMacsData
       };
     });
 
@@ -6579,7 +6569,7 @@ app.post('/api/transport/create-trip', requireTransportOfficer, async (req, res)
   const { adminClient, profile } = req;
   const {
     id, trip_name, driver_name, tanker_number,
-    route_description, bmc_id, out_time
+    route_description, bmc_id, out_time, duty_type
   } = req.body;
 
   if (!trip_name || !driver_name || !tanker_number) {
@@ -6599,6 +6589,7 @@ app.post('/api/transport/create-trip', requireTransportOfficer, async (req, res)
       ...(id ? { id } : {}),
       trip_name: trip_name.trim(),
       trip_number: tripNum,
+      duty_type: (duty_type || 'both').toLowerCase(),
       worker_id: null,                          // Set to null until P&I AGM assigns
       created_by_to: true,
       transport_officer_id: profile.id,
@@ -7427,19 +7418,18 @@ app.get('/api/qc-worker/dashboard-bmcs', requireQcWorker, async (req, res) => {
       const routeName = b.bmc_routes?.name || b.route_name || 'Unassigned Route';
 
       const visit = visitsByCode[bCode] || visitsByBmcId[b.id] || null;
-      const tripPeriod = (visit && visit.trip && visit.trip.duty_type) ? visit.trip.duty_type.toLowerCase() : 'all';
-      const macsRecord = liveMacsByCode[tripPeriod === 'all' ? 'all' : tripPeriod]?.get(bCode) || liveMacsByCode.all.get(bCode);
+      const tripPeriod = (visit && visit.trip && visit.trip.duty_type) ? visit.trip.duty_type.toLowerCase() : 'both';
+      const macsRecord = (tripPeriod === 'morning' || tripPeriod === 'evening' || tripPeriod === 'both')
+        ? liveMacsByCode[tripPeriod]?.get(bCode)
+        : null;
 
       let macsData = null;
-      if (macsRecord) {
-        // Use T1 values as primary MACS data
-        const macsLit = macsRecord.t1.liters;
-        const macsKg = macsLit ? parseFloat((macsLit * 1.03).toFixed(2)) : null;
+      if (macsRecord && macsRecord.liters !== null && macsRecord.liters > 0) {
         macsData = {
-          liters: macsLit,
-          kg: macsKg,
-          fat: macsRecord.t1.fat,
-          snf: macsRecord.t1.snf
+          liters: macsRecord.liters,
+          kg: macsRecord.kg,
+          fat: macsRecord.fat,
+          snf: macsRecord.snf
         };
       }
 
@@ -7576,13 +7566,15 @@ app.get('/api/qc-worker/dashboard-trips', requireQcWorker, async (req, res) => {
 
       // MACS lookup by BMC code from live MACS API
       const trip = tripsMap.get(v.trip_id);
-      const tripPeriod = (trip && trip.duty_type) ? trip.duty_type.toLowerCase() : 'all';
-      const macsRecord = liveMacsByCode[tripPeriod === 'all' ? 'all' : tripPeriod]?.get(bmcCode) || liveMacsByCode.all.get(bmcCode);
+      const tripPeriod = (trip && trip.duty_type) ? trip.duty_type.toLowerCase() : 'both';
+      const macsRecord = (tripPeriod === 'morning' || tripPeriod === 'evening' || tripPeriod === 'both')
+        ? liveMacsByCode[tripPeriod]?.get(bmcCode)
+        : null;
 
-      let macsLit = macsRecord ? macsRecord.t1.liters : null;
-      let macsKg = macsRecord ? (macsLit ? parseFloat((macsLit * 1.03).toFixed(2)) : null) : null;
-      let macsFat = macsRecord ? macsRecord.t1.fat : null;
-      let macsSnf = macsRecord ? macsRecord.t1.snf : null;
+      let macsLit = (macsRecord && macsRecord.liters > 0) ? macsRecord.liters : null;
+      let macsKg = (macsRecord && macsRecord.kg > 0) ? macsRecord.kg : null;
+      let macsFat = macsRecord ? macsRecord.fat : null;
+      let macsSnf = macsRecord ? macsRecord.snf : null;
 
       // Spot Analyzer (FTIR / Gerber)
       const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
@@ -7859,10 +7851,9 @@ app.get('/api/qc-worker/dashboard', requireQcWorker, async (req, res) => {
       visitsQuery = visitsQuery.gte('visit_end_time', fromIso).lte('visit_end_time', toIso);
     }
 
-    const { data: spotVisits } = await visitsQuery;
     let spotVisitsFiltered = spotVisits || [];
 
-    if (spotVisitsFiltered.length > 0 && period !== 'both' && period !== 'all') {
+    if (spotVisitsFiltered.length > 0 && period !== 'all') {
       const tripIds = [...new Set(spotVisitsFiltered.map(v => v.trip_id).filter(Boolean))];
       const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
       const dutyMap = {};
@@ -7885,9 +7876,28 @@ app.get('/api/qc-worker/dashboard', requireQcWorker, async (req, res) => {
       }
     });
 
+    const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, date);
+    const { data: masterBmcsList } = await adminClient.from('bmcs').select('bmc_code');
+    const masterCodesSet = new Set((masterBmcsList || []).map(b => String(b.bmc_code || '').trim().toLowerCase()).filter(Boolean));
+    const validMatchedBmcs = new Set();
+    const macsMap = (period === 'morning' || period === 'evening' || period === 'both') ? liveMacsByCode[period] : liveMacsByCode.all;
+    if (macsMap) {
+      macsMap.forEach((r, code) => {
+        const codeLower = String(code).toLowerCase().trim();
+        const lit = parseFloat(r.liters || 0);
+        const fat = parseFloat(r.fat || 0);
+        const snf = parseFloat(r.snf || 0);
+        const hasValue = (lit > 0 || fat > 0 || snf > 0);
+        if (code && masterCodesSet.has(codeLower) && hasValue) {
+          validMatchedBmcs.add(codeLower);
+        }
+      });
+    }
+
     res.json({
       total_bmcs: totalBmcs || 0,
-      total_quantity_kg: parseFloat(totalQuantityKg.toFixed(2))
+      total_quantity_kg: parseFloat(totalQuantityKg.toFixed(2)),
+      macs_total_bmcs: validMatchedBmcs.size
     });
   } catch (err) {
     console.error('❌ QC Worker Dashboard error:', err);
@@ -7899,6 +7909,7 @@ app.get('/api/qc-worker/dashboard', requireQcWorker, async (req, res) => {
 app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
   const { adminClient } = req;
   const date = req.query.date;
+  const period = (req.query.period || 'both').toLowerCase();
 
   try {
     // 1. Fetch live MACS data from macs_api_bmc_data
@@ -7922,38 +7933,53 @@ app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
     }
 
     const { data: visits } = await visitsQuery;
-    const visitsMap = {};
+
+    // Inject duty_type from driver_trips for exact period mapping
+    const tripIds = [...new Set((visits || []).map(v => v.trip_id).filter(Boolean))];
+    const dutyMap = {};
+    if (tripIds.length > 0) {
+      const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
+      (dtRecords || []).forEach(dt => dutyMap[dt.id] = (dt.duty_type || 'both').toLowerCase());
+    }
+
+    const visitsByCodeAndPeriod = {};
     (visits || []).forEach(v => {
       const bCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
+      const vPeriod = dutyMap[v.trip_id] || 'both';
+      v.duty_type = vPeriod;
       if (bCode) {
-        visitsMap[bCode] = v;
+        visitsByCodeAndPeriod[`${bCode}_${vPeriod}`] = v;
+        if (!visitsByCodeAndPeriod[bCode]) visitsByCodeAndPeriod[bCode] = v;
       }
     });
 
     const bmcMap = {};
+    const targetMap = (period === 'morning' || period === 'evening' || period === 'both')
+      ? (liveMacsByCode[period] || new Map())
+      : liveMacsByCode.all;
 
-    liveMacsByCode.all.forEach((r, bmcCode) => {
+    targetMap.forEach((r, bmcCode) => {
       const readingDate = r.reading_date || date || new Date().toISOString().split('T')[0];
       const key = `${bmcCode}_${readingDate}`;
       const mb = masterBmcByCode[bmcCode];
       const bmcId = mb ? mb.id : null;
       const bmcName = mb ? mb.name : (r.bmc_name || 'N/A');
 
-      const liters = r.t1.liters;
-      const kg = liters !== null ? parseFloat((liters * 1.03).toFixed(2)) : null;
+      const liters = r.liters;
+      const kg = r.kg;
 
       bmcMap[key] = {
         bmc_code: bmcCode,
         bmc_name: bmcName,
         bmc_id: bmcId,
         reading_date: readingDate,
-        worker: { fat: r.t1.fat, snf: r.t1.snf, raw: r },
-        qc: { fat: r.t2.fat, snf: r.t2.snf, raw: r },
+        worker: { fat: r.fat, snf: r.snf, raw: r },
+        qc: { fat: r.fat, snf: r.snf, raw: r },
         macs: {
           quantity_liters: liters,
           quantity_kg: kg,
-          fat: r.t1.fat,
-          snf: r.t1.snf
+          fat: r.fat,
+          snf: r.snf
         },
         spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, visited: false },
         diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
@@ -7965,23 +7991,22 @@ app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
       };
 
       const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
-      const spotVisit = visitsMap[bmcCode];
-      if (spotVisit) {
+      const spotVisit = visitsByCodeAndPeriod[`${bmcCode}_${r.stream}`] || (period !== 'all' ? visitsByCodeAndPeriod[`${bmcCode}_${period}`] : visitsByCodeAndPeriod[bmcCode]);
+
+      if (spotVisit && (period === 'all' || spotVisit.duty_type === period || spotVisit.duty_type === r.stream)) {
         const ftir = unpack(spotVisit.ftir_tests);
         const gerber = unpack(spotVisit.gerber_tests);
-        const issue = unpack(spotVisit.bmc_issues);
-        const rating = unpack(spotVisit.bmc_ratings);
         const qcTest = unpack(spotVisit.qc_test);
 
         const lit = spotVisit.sample_liters || spotVisit.milk_quantity_liters || null;
-        const kg = spotVisit.milk_quantity_kg || spotVisit.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
+        const spotKg = spotVisit.milk_quantity_kg || spotVisit.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
 
         bmcMap[key].visit_id = spotVisit.id;
 
         bmcMap[key].spot = {
           compartment: spotVisit.compartment || null,
           quantity_liters: lit,
-          quantity_kg: kg,
+          quantity_kg: spotKg,
           fat: ftir.fat ?? gerber.fat_percentage ?? null,
           snf: ftir.snf ?? gerber.snf ?? null,
           visited: spotVisit.status === 'completed' || spotVisit.status === 'visited' || Boolean(spotVisit.visit_end_time),
@@ -7995,7 +8020,7 @@ app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
         if (qcTest && qcTest.id && (hasRealFat || hasRealSnf || isSubmittedStatus)) {
           bmcMap[key].diary = {
             quantity_liters: qcTest.sample_liters || lit,
-            quantity_kg: qcTest.sample_kg || kg,
+            quantity_kg: qcTest.sample_kg || spotKg,
             fat: hasRealFat ? parseFloat(qcTest.fat) : null,
             snf: hasRealSnf ? parseFloat(qcTest.snf) : null,
             recorded: true
@@ -8044,6 +8069,10 @@ app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
     (visits || []).forEach(v => {
       const bCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
       const bName = v.bmc?.name || v.bmc_name || 'N/A';
+      const vPeriod = v.duty_type || 'both';
+
+      if (period !== 'all' && vPeriod !== period) return;
+
       if (bCode && !matchedMacsCodes.has(bCode)) {
         const ftir = unpack(v.ftir_tests);
         const gerber = unpack(v.gerber_tests);
@@ -8504,7 +8533,7 @@ app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
     const { data: spotVisits } = await visitsQuery;
     let spotVisitsFiltered = spotVisits || [];
 
-    if (spotVisitsFiltered.length > 0 && period !== 'both' && period !== 'all') {
+    if (spotVisitsFiltered.length > 0 && period !== 'all') {
       const tripIds = [...new Set(spotVisitsFiltered.map(v => v.trip_id).filter(Boolean))];
       const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
       const dutyMap = {};
@@ -8535,19 +8564,21 @@ app.get('/api/qc-agm/dashboard', requireQcAgm, async (req, res) => {
     const masterCodesSet = new Set((masterBmcsList || []).map(b => String(b.bmc_code || '').trim().toLowerCase()).filter(Boolean));
 
     const validMatchedBmcs = new Set();
-    const macsMap = liveMacsByCode[period === 'all' ? 'all' : period] || liveMacsByCode.all;
-    macsMap.forEach((r, code) => {
-      const codeLower = String(code).toLowerCase().trim();
-      const lit = parseFloat(r.t1.liters || 0);
-      const fat = parseFloat(r.t1.fat || 0);
-      const snf = parseFloat(r.t1.snf || 0);
-      const hasValue = (lit > 0 || fat > 0 || snf > 0);
-      const matchesMaster = masterCodesSet.has(codeLower);
+    const macsMap = (period === 'morning' || period === 'evening' || period === 'both') ? liveMacsByCode[period] : liveMacsByCode.all;
+    if (macsMap) {
+      macsMap.forEach((r, code) => {
+        const codeLower = String(code).toLowerCase().trim();
+        const lit = parseFloat(r.liters || 0);
+        const fat = parseFloat(r.fat || 0);
+        const snf = parseFloat(r.snf || 0);
+        const hasValue = (lit > 0 || fat > 0 || snf > 0);
+        const matchesMaster = masterCodesSet.has(codeLower);
 
-      if (code && matchesMaster && hasValue) {
-        validMatchedBmcs.add(codeLower);
-      }
-    });
+        if (code && matchesMaster && hasValue) {
+          validMatchedBmcs.add(codeLower);
+        }
+      });
+    }
 
     res.json({
       total_bmcs: totalBmcs || 0,
@@ -8658,14 +8689,11 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
         recordsMap[key] = { date: d, period: p.charAt(0).toUpperCase() + p.slice(1), macs: null, spot: null, diary: null };
       }
       
-      const data = (r.t1.liters !== null || r.t1.fat !== null) ? r.t1 : r.t2;
-      const lit = data.liters;
-      const kg = lit ? parseFloat((lit * 1.03).toFixed(2)) : null;
       recordsMap[key].macs = {
-        liters: lit,
-        kg: kg,
-        fat: data.fat,
-        snf: data.snf
+        liters: r.liters,
+        kg: r.kg,
+        fat: r.fat,
+        snf: r.snf
       };
     });
 
@@ -8865,6 +8893,7 @@ app.get('/api/qc-agm/lab-issues', requireQcAgm, async (req, res) => {
 app.get('/api/qc-agm/tests', requireQcAgm, async (req, res) => {
   const { adminClient } = req;
   const date = req.query.date;
+  const period = (req.query.period || 'all').toLowerCase();
   try {
     let query = adminClient
       .from('trip_bmc_visits')
@@ -8898,11 +8927,15 @@ app.get('/api/qc-agm/tests', requireQcAgm, async (req, res) => {
       if (tripIds.length > 0) {
         const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
         const dutyMap = {};
-        (dtRecords || []).forEach(dt => dutyMap[dt.id] = dt.duty_type || 'both');
+        (dtRecords || []).forEach(dt => dutyMap[dt.id] = (dt.duty_type || 'both').toLowerCase());
         finalVisits.forEach(v => {
-          if (v.trip) v.trip.duty_type = dutyMap[v.trip_id] || 'both';
+          if (v.trip) v.trip.duty_type = dutyMap[v.trip_id] || (v.trip.duty_type ? v.trip.duty_type.toLowerCase() : 'both');
         });
       }
+    }
+
+    if (period !== 'all') {
+      finalVisits = finalVisits.filter(v => (v.trip?.duty_type || 'both').toLowerCase() === period);
     }
 
     // Fetch live MACS data for visits by date
@@ -8910,13 +8943,15 @@ app.get('/api/qc-agm/tests', requireQcAgm, async (req, res) => {
 
     finalVisits.forEach(v => {
       const bCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
-      const tripPeriod = (v.trip && v.trip.duty_type) ? v.trip.duty_type.toLowerCase() : 'all';
-      const macsRec = liveMacsByCode[tripPeriod === 'all' ? 'all' : tripPeriod]?.get(bCode) || liveMacsByCode.all.get(bCode);
-      v.macs_qc = macsRec ? { fat: macsRec.t2.fat, snf: macsRec.t2.snf, liters: macsRec.t2.liters, source: 'live_macs_api' } : null;
-      v.macs_worker = macsRec ? { fat: macsRec.t1.fat, snf: macsRec.t1.snf, liters: macsRec.t1.liters, source: 'live_macs_api' } : null;
+      const tripPeriod = (v.trip && v.trip.duty_type) ? v.trip.duty_type.toLowerCase() : 'both';
+      const macsRec = (tripPeriod === 'morning' || tripPeriod === 'evening' || tripPeriod === 'both')
+        ? liveMacsByCode[tripPeriod]?.get(bCode)
+        : null;
+      v.macs_qc = macsRec ? { fat: macsRec.fat, snf: macsRec.snf, liters: macsRec.liters, source: 'live_macs_api' } : null;
+      v.macs_worker = macsRec ? { fat: macsRec.fat, snf: macsRec.snf, liters: macsRec.liters, source: 'live_macs_api' } : null;
     });
 
-    res.json({ tests: visits || [] });
+    res.json({ tests: finalVisits });
   } catch (err) {
     console.error('❌ QC AGM All Tests error:', err);
     res.status(500).json({ error: err.message });
@@ -9261,6 +9296,7 @@ app.get('/api/qc-agm/macs/dates', requireQcAgm, async (req, res) => {
 app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
   const { adminClient } = req;
   const date = req.query.date;
+  const period = (req.query.period || 'both').toLowerCase();
 
   try {
     // 1. Fetch live MACS data from macs_api_bmc_data
@@ -9287,17 +9323,32 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
     }
 
     const { data: visits } = await visitsQuery;
-    const visitsMap = {};
+
+    // Inject duty_type from driver_trips for exact period mapping
+    const tripIds = [...new Set((visits || []).map(v => v.trip_id).filter(Boolean))];
+    const dutyMap = {};
+    if (tripIds.length > 0) {
+      const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
+      (dtRecords || []).forEach(dt => dutyMap[dt.id] = (dt.duty_type || 'both').toLowerCase());
+    }
+
+    const visitsByCodeAndPeriod = {};
     (visits || []).forEach(v => {
       const bCode = String(v.bmc?.bmc_code || v.bmc_code || '').trim();
+      const vPeriod = dutyMap[v.trip_id] || 'both';
+      v.duty_type = vPeriod;
       if (bCode) {
-        visitsMap[bCode] = v;
+        visitsByCodeAndPeriod[`${bCode}_${vPeriod}`] = v;
+        if (!visitsByCodeAndPeriod[bCode]) visitsByCodeAndPeriod[bCode] = v;
       }
     });
 
     const bmcMap = {};
+    const targetMap = (period === 'morning' || period === 'evening' || period === 'both')
+      ? (liveMacsByCode[period] || new Map())
+      : liveMacsByCode.all;
 
-    liveMacsByCode.all.forEach((r, bmcCode) => {
+    targetMap.forEach((r, bmcCode) => {
       const readingDate = r.reading_date || date || new Date(Date.now() + 5.5 * 3600000).toISOString().split('T')[0];
       const key = `${bmcCode}_${readingDate}`;
       const mb = masterBmcByCode[bmcCode];
@@ -9305,8 +9356,8 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
       const bmcName = mb ? mb.name : (r.bmc_name || 'N/A');
       const routeName = mb?.bmc_routes?.name || mb?.route_name || null;
 
-      const liters = r.t1.liters;
-      const kg = liters !== null ? parseFloat((liters * 1.03).toFixed(2)) : null;
+      const liters = r.liters;
+      const kg = r.kg;
 
       bmcMap[key] = {
         bmc_code: bmcCode,
@@ -9315,13 +9366,13 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
         route_name: routeName,
         bmc_routes: routeName ? { name: routeName } : null,
         reading_date: readingDate,
-        worker: { fat: r.t1.fat, snf: r.t1.snf, raw: r },
-        qc: { fat: r.t2.fat, snf: r.t2.snf, raw: r },
+        worker: { fat: r.fat, snf: r.snf, raw: r },
+        qc: { fat: r.fat, snf: r.snf, raw: r },
         macs: {
           quantity_liters: liters,
           quantity_kg: kg,
-          fat: r.t1.fat !== null && r.t1.fat !== undefined ? parseFloat(r.t1.fat) : null,
-          snf: r.t1.snf !== null && r.t1.snf !== undefined ? parseFloat(r.t1.snf) : null
+          fat: r.fat,
+          snf: r.snf
         },
         spot: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, visited: false },
         diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false },
@@ -9331,15 +9382,16 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
       };
 
       const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
-      const spotVisit = visitsMap[bmcCode];
-      if (spotVisit) {
+      const spotVisit = visitsByCodeAndPeriod[`${bmcCode}_${r.stream}`] || (period !== 'all' ? visitsByCodeAndPeriod[`${bmcCode}_${period}`] : visitsByCodeAndPeriod[bmcCode]);
+
+      if (spotVisit && (period === 'all' || spotVisit.duty_type === period || spotVisit.duty_type === r.stream)) {
         const ftir = unpack(spotVisit.ftir_tests);
         const gerber = unpack(spotVisit.gerber_tests);
         const issue = unpack(spotVisit.bmc_issues);
         const rating = unpack(spotVisit.bmc_ratings);
 
         const lit = spotVisit.sample_liters || spotVisit.milk_quantity_liters || null;
-        const kg = spotVisit.milk_quantity_kg || spotVisit.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
+        const spotKg = spotVisit.milk_quantity_kg || spotVisit.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
 
         const sFat = ftir.fat ?? gerber.fat_percentage ?? null;
         const sSnf = ftir.snf ?? gerber.snf ?? null;
@@ -9347,7 +9399,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
         bmcMap[key].spot = {
           compartment: spotVisit.compartment || null,
           quantity_liters: lit,
-          quantity_kg: kg,
+          quantity_kg: spotKg,
           fat: sFat !== null && sFat !== undefined && !isNaN(parseFloat(sFat)) ? parseFloat(sFat) : null,
           snf: sSnf !== null && sSnf !== undefined && !isNaN(parseFloat(sSnf)) ? parseFloat(sSnf) : null,
           ftir_fat: ftir.fat ?? null,
@@ -9363,7 +9415,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
           status: spotVisit.status || 'visited'
         };
 
-        // Populate diary from QC worker's saved lab test (qc_lab_tests)
+        // Populate diary from QC worker's saved lab test (qc_lab_tests) for this specific duty visit
         const qcTest = unpack(spotVisit.qc_test);
         if (qcTest && qcTest.id) {
           const dFat = qcTest.fat !== null && qcTest.fat !== undefined && !isNaN(parseFloat(qcTest.fat)) ? parseFloat(qcTest.fat) : null;
@@ -9371,7 +9423,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
           const hasDiaryData = dFat !== null || dSnf !== null;
           bmcMap[key].diary = {
             quantity_liters: lit,
-            quantity_kg: kg,
+            quantity_kg: spotKg,
             fat: dFat,
             snf: dSnf,
             clr: qcTest.clr ?? null,
@@ -9416,14 +9468,19 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
       return item;
     });
 
-    // Build Table 2: No MACS Data — Spot Analyzer Visits ONLY
+    // Build Table 2: No MACS Data — Spot Analyzer Visits ONLY for the selected period
     const matchedMacsCodes = new Set(Object.values(bmcMap).map(m => m.bmc_code));
     const noMacsReadings = [];
+    const unpack = (rel) => !rel ? {} : (Array.isArray(rel) ? rel[rel.length - 1] || {} : rel);
 
     (visits || []).forEach(v => {
       const bCode = String(v.bmc?.bmc_code || '').trim();
       const bName = v.bmc?.name || 'N/A';
       const routeNameNoMacs = v.bmc?.bmc_routes?.name || null;
+      const vPeriod = v.duty_type || 'both';
+
+      if (period !== 'all' && vPeriod !== period) return;
+
       if (bCode && !matchedMacsCodes.has(bCode)) {
         const ftir = unpack(v.ftir_tests);
         const gerber = unpack(v.gerber_tests);
@@ -9802,16 +9859,10 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
 
       const entry = dailyMap[key];
       
-      // MACS data is typically in t1 if fetched for that specific stream, but let's check t1/t2 for fallback
-      const data = (r.t1.liters !== null || r.t1.fat !== null) ? r.t1 : r.t2;
-      
-      const liters = data.liters;
-      const kg = liters !== null ? parseFloat((liters * 1.03).toFixed(2)) : null;
-
-      entry.macs.quantity_liters = liters;
-      entry.macs.quantity_kg = kg;
-      entry.macs.fat = data.fat;
-      entry.macs.snf = data.snf;
+      entry.macs.quantity_liters = r.liters;
+      entry.macs.quantity_kg = r.kg;
+      entry.macs.fat = r.fat;
+      entry.macs.snf = r.snf;
       entry.macs.status = 'completed';
     });
 
