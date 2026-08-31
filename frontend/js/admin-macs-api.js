@@ -138,7 +138,7 @@ window.loadSyncHistory = async function() {
   if (!tbody) return;
 
   try {
-    const result = await adminFetch('/api/admin/macs-api/sync-history?limit=25');
+    const result = await adminFetch('/api/admin/macs-api/sync-history?limit=4');
     
     // Filter out successful syncs that have 0 stored/expired records (deleted data)
     const runs = (result.runs || []).filter(r => {

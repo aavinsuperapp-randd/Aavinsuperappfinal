@@ -899,21 +899,20 @@ function renderTripBoxes(trips = []) {
       statusBadge = `<span class="badge badge-warning" style="font-size:0.75rem; font-weight:800; padding:5px 12px; border-radius:12px;">⏳ PLANNED</span>`;
     }
 
-    const routeName = t.route && t.route !== '—' ? t.route : (t.route_description || t.trip_name || 'Planned Route');
+    const tripTitle = t.trip_name || 'Unnamed Trip';
 
     return `
       <div class="trip-blue-box" id="trip-box-${t.id}">
         <div class="trip-box-left">
           <span class="trip-sno-badge">S.No: ${sNo}</span>
           <div class="trip-route-content">
-            <span class="trip-route-label">Route Name</span>
-            <h4 class="trip-route-title">${esc(routeName)}</h4>
+            <span class="trip-route-label">Trip Name</span>
+            <h4 class="trip-route-title">${esc(tripTitle)}</h4>
           </div>
         </div>
         <div class="trip-box-right">
           ${statusBadge}
           <button class="btn-trip-details" onclick="openTripDetailModal('${t.id}')" title="View Details">🔍 Details</button>
-          <button class="btn-trip-delete" onclick="deleteTripByGm('${t.id}')" title="Delete Trip">🗑️ Delete</button>
         </div>
       </div>
     `;
@@ -1008,11 +1007,21 @@ window.openTripDetailModal = function(tripId) {
         const displayFtir = v.ftir_result ? v.ftir_result.replace(/\s*\[FAIL\]/gi, '').replace(/\s*\[PASS\]/gi, '') : '';
         const displayGerber = v.gerber_result ? v.gerber_result.replace(/\s*\[FAIL\]/gi, '').replace(/\s*\[PASS\]/gi, '') : '';
 
+        let macsDisp = esc(v.macs_result || '—');
+        if (v.macs_result && v.macs_result.includes('T1:')) {
+          const lMatch = v.macs_result.match(/T1:\s*([\d.]+\s*L)/);
+          const fatMatch = v.macs_result.match(/FAT:\s*([\d.]+%)/);
+          const snfMatch = v.macs_result.match(/SNF:\s*([\d.]+%)/);
+          if (lMatch) {
+            macsDisp = `${lMatch[1]} , FAT: ${fatMatch ? fatMatch[1] : '-'} , SNF: ${snfMatch ? snfMatch[1] : '-'}`;
+          }
+        }
+
         return `
           <tr>
             <td><strong>${v.visit_sequence || '—'}</strong></td>
             <td><strong>${esc(v.bmc_name)}</strong></td>
-            <td>${esc(v.macs_result || '—')}</td>
+            <td>${macsDisp}</td>
             <td>
               <div class="text-xs">Qty: ${esc(v.milk_quantity_formatted || (v.milk_quantity_liters ? `${v.milk_quantity_liters} kg` : '—'))}</div>
               <div class="text-xs text-muted">FTIR: ${esc(displayFtir)}</div>

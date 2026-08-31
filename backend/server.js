@@ -1041,7 +1041,7 @@ async function requireTransportOfficer(req, res, next) {
     .from('profiles').select('*').eq('id', user.id).single();
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
-  if (profile.role !== 'transport_officer' && profile.role !== 'admin' && profile.role !== 'gm' && profile.role !== 'pi_agm') {
+  if (profile.role !== 'transport_officer' && profile.role !== 'admin' && profile.role !== 'gm' && profile.role !== 'pi_agm' && profile.role !== 'executive_officer') {
     return res.status(403).json({ error: 'Transport Officer access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
@@ -3762,7 +3762,7 @@ async function requireTransportOfficer(req, res, next) {
     .from('profiles').select('*').eq('id', user.id).single();
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
-  if (profile.role !== 'transport_officer' && profile.role !== 'driver' && profile.role !== 'admin' && profile.role !== 'gm' && profile.role !== 'pi_agm') {
+  if (profile.role !== 'transport_officer' && profile.role !== 'driver' && profile.role !== 'admin' && profile.role !== 'gm' && profile.role !== 'pi_agm' && profile.role !== 'executive_officer') {
     return res.status(403).json({ error: 'Transport Officer or Driver access required.' });
   }
   if (profile.status !== 'approved') return res.status(403).json({ error: 'Account not yet approved.' });
@@ -5410,7 +5410,7 @@ async function requireTripManager(req, res, next) {
 
   if (!profile) return res.status(404).json({ error: 'Profile not found.' });
 
-  const allowedRoles = ['transport_officer', 'pi_agm', 'gm', 'admin', 'qc_agm', 'worker', 'driver'];
+  const allowedRoles = ['transport_officer', 'pi_agm', 'gm', 'admin', 'qc_agm', 'worker', 'driver', 'executive_officer'];
   if (!allowedRoles.includes(profile.role)) {
     return res.status(403).json({ error: 'Management authorization required.' });
   }
@@ -10562,6 +10562,21 @@ async function enforceMacsRetention(adminClient) {
       console.log(`🧹 MACS retention cleanup completed: deleted ${deletedCount} temporary polling records. Permanent 23:55 records preserved: ${permanentCount}. Total remaining: ${pollingKept + permanentCount}`);
     } else {
       console.log(`🧹 MACS retention cleanup completed: deleted 0 records. Permanent 23:55 records preserved: ${permanentCount}. Total remaining: ${pollingKept + permanentCount}`);
+    }
+
+    // 7. Clean up old failed sync runs from macs_api_sync_runs (keep latest 4 sync runs overall, delete older if failed)
+    const { data: allSyncRuns } = await adminClient
+      .from('macs_api_sync_runs')
+      .select('id, status, started_at')
+      .order('started_at', { ascending: false });
+
+    if (allSyncRuns && allSyncRuns.length > 4) {
+      const runsToCheck = allSyncRuns.slice(4);
+      const oldFailedRunIds = runsToCheck.filter(r => r.status === 'failed').map(r => r.id);
+      if (oldFailedRunIds.length > 0) {
+        await adminClient.from('macs_api_sync_runs').delete().in('id', oldFailedRunIds);
+        console.log(`🧹 MACS retention: deleted ${oldFailedRunIds.length} old failed sync runs.`);
+      }
     }
 
     return { deleted: deletedCount, remaining: pollingKept + permanentCount };
