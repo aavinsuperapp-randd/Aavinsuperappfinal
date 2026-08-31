@@ -31,14 +31,16 @@
         <a href="dashboard.html" class="qs-nav-item">
           <span>📊</span> Dashboard
         </a>
-
+        <a href="samples.html" class="qs-nav-item">
+          <span>📋</span> Queue
+        </a>
         <a href="history.html" class="qs-nav-item">
           <span>📜</span> Test History
         </a>
         <a href="profile.html" class="qs-nav-item">
           <span>👤</span> My Profile
         </a>
-        <button id="logout-btn" class="qs-nav-item logout-btn" style="margin-top: auto; margin-bottom: 16px; color: #FCA5A5;">
+        <button id="logout-btn" class="qs-nav-item logout-btn" style="margin-top: 4px; color: #FCA5A5;">
           <span>🚪</span> Logout
         </button>
       </nav>
@@ -48,21 +50,16 @@
     <div class="qc-main">
       <header class="qc-header">
         <div class="qc-header-left">
-          <button id="qc-mobile-toggle-btn" class="qc-mobile-btn">☰</button>
-          <div class="qc-header-title">QC Laboratory Testing Form</div>
+          <button id="qc-mobile-toggle-btn" class="qc-mobile-btn" aria-label="Toggle Navigation Menu" title="Toggle Navigation Menu">⋮</button>
+          <div class="qc-header-title">QC LAB</div>
         </div>
         <div class="qc-header-right">
-          <div>Role: <strong>QC Worker</strong></div>
           <div>User: <strong id="qc-header-name">Loading...</strong></div>
         </div>
       </header>
 
       <main class="qc-content">
         <div id="main-qc-content" class="hidden">
-
-          <a href="samples.html" style="font-size:0.84rem; font-weight:600; color:var(--qc-700); text-decoration:none; display:inline-flex; align-items:center; gap:4px; margin-bottom:16px;">
-            ← Back to Samples Queue
-          </a>
 
           <div class="qc-page-top" style="margin-bottom:14px;">
             <h1>Laboratory Sample Testing 🧪</h1>
@@ -78,32 +75,12 @@
             </div>
             <div class="qc-info-grid">
               <div class="qc-info-item">
-                <div class="qc-info-label">Sample ID</div>
-                <div class="qc-info-value" id="info-sample-id">Loading...</div>
-              </div>
-              <div class="qc-info-item">
                 <div class="qc-info-label">BMC Name</div>
                 <div class="qc-info-value" id="info-bmc-name">Loading...</div>
               </div>
               <div class="qc-info-item">
-                <div class="qc-info-label">Location / District</div>
-                <div class="qc-info-value" id="info-bmc-loc">Loading...</div>
-              </div>
-              <div class="qc-info-item">
                 <div class="qc-info-label">Field Worker</div>
                 <div class="qc-info-value" id="info-worker-name">Loading...</div>
-              </div>
-              <div class="qc-info-item">
-                <div class="qc-info-label">Trip Number</div>
-                <div class="qc-info-value" id="info-trip-no">Loading...</div>
-              </div>
-              <div class="qc-info-item">
-                <div class="qc-info-label">Collection Date/Time</div>
-                <div class="qc-info-value" id="info-coll-time">Loading...</div>
-              </div>
-              <div class="qc-info-item">
-                <div class="qc-info-label">Compartment</div>
-                <div class="qc-info-value" id="info-compartment">Loading...</div>
               </div>
               <div class="qc-info-item">
                 <div class="qc-info-label">Tanker Board No.</div>

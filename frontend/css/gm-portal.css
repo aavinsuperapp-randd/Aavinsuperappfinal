@@ -99,7 +99,7 @@ a.admin-nav-item.active span:first-child {
 }
 
 .admin-nav-item.logout-btn {
-  margin-top: auto;
+  margin-top: 4px;
   margin-bottom: 24px;
   color: rgba(254,202,202,0.9);
 }
@@ -1731,15 +1731,35 @@ html, body {
   overflow-x: hidden;
 }
 
-/* Tablet adjustments */
+/* ── Responsive ── */
 @media (max-width: 1024px) {
-  .kpi-row, .kpi-grid-5, .three-col, .two-col, .rankings-grid, .items-grid, .live-workers-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
+  .admin-sidebar {
+    position: fixed;
+    left: -280px;
+    top: 0;
+    height: 100vh;
+    width: 280px;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), left 0.3s ease;
+    z-index: 9999;
   }
+  .admin-sidebar.open, .admin-sidebar.active { left: 0; }
+  .sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(2px);
+    z-index: 9998;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+  }
+  .sidebar-overlay.show, .sidebar-overlay.active { opacity: 1; visibility: visible; display: block !important; }
+  .sidebar-toggle { display: flex !important; }
+  .admin-main { margin-left: 0; }
 }
 
 /* Sidebar & General Mobile adjustments */
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .admin-sidebar {
     position: fixed !important;
     left: -320px;
@@ -1755,18 +1775,19 @@ html, body {
     transform: translateX(0) !important;
   }
   .sidebar-overlay {
-    display: none;
     position: fixed !important;
     inset: 0;
     background: rgba(15, 23, 42, 0.6) !important;
     backdrop-filter: blur(2px);
     z-index: 9998 !important;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
   }
   .sidebar-overlay.show, .sidebar-overlay.active { 
-    display: block !important; 
+    visibility: visible !important; 
     opacity: 1 !important;
+    display: block !important;
   }
   .sidebar-toggle { display: flex !important; }
   .admin-main { margin-left: 0 !important; width: 100%; overflow-x: hidden; }
@@ -1839,4 +1860,29 @@ html, body {
   .item-card-header { flex-direction: column; align-items: flex-start; }
   .item-actions { width: 100%; justify-content: space-between; margin-top: 10px; }
   .btn-prioritize-action { width: 100%; text-align: center; justify-content: center; }
+}
+
+/* Unreadable hover fix for route header rows in table */
+tr.route-header-row,
+tr.route-header-row:hover,
+.qc-table tbody tr.route-header-row,
+.qc-table tbody tr.route-header-row:hover,
+.gm-table tbody tr.route-header-row,
+.gm-table tbody tr.route-header-row:hover,
+.admin-table tbody tr.route-header-row,
+.admin-table tbody tr.route-header-row:hover {
+  background: #1E293B !important;
+  color: #FFFFFF !important;
+}
+
+tr.route-header-row td,
+tr.route-header-row:hover td,
+.qc-table tbody tr.route-header-row td,
+.qc-table tbody tr.route-header-row:hover td,
+.gm-table tbody tr.route-header-row td,
+.gm-table tbody tr.route-header-row:hover td,
+.admin-table tbody tr.route-header-row td,
+.admin-table tbody tr.route-header-row:hover td {
+  background: #1E293B !important;
+  color: #FFFFFF !important;
 }

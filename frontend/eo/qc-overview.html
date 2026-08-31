@@ -48,14 +48,14 @@
         <a href="invoices.html" class="admin-nav-item"><span>🧾</span> Invoices</a>
         <a href="qc-overview.html" class="admin-nav-item active"><span>🔬</span> QC MACS Overview</a>
         <a href="bmcs.html" class="admin-nav-item"><span>🏭</span> BMC Management</a>
-        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:auto; margin-bottom:16px;"><span>🚪</span> Logout</button>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:4px;"><span>🚪</span> Logout</button>
       </nav>
     </aside>
 
     <div class="admin-main">
       <header class="admin-header">
         <div class="header-left">
-          <button id="sidebar-toggle-btn" class="sidebar-toggle">☰</button>
+          <button id="sidebar-toggle-btn" class="sidebar-toggle" aria-label="Toggle Navigation Menu" title="Toggle Navigation Menu">⋮</button>
           <div class="header-greeting">
             <h2>EO PORTAL</h2>
             <p id="dashboard-date-subtitle">Executive Quality &amp; MACS Readings Overview</p>
@@ -81,50 +81,43 @@
               <p style="color:#64748B; margin:4px 0 0 0;">Compare Worker MACS readings with QC MACS readings date-wise</p>
             </div>
 
-            <!-- Modern 2-Row Control Card -->
+            <!-- Modern 3-Row Responsive Control Card -->
             <div class="macs-controls-card" style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:14px; padding:16px 20px; box-shadow:0 2px 8px rgba(0,0,0,0.04); margin-bottom:20px;">
-              <!-- Row 1: Quick Date Presets -->
-              <div class="macs-presets-row" style="display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
-                <span style="font-weight:700; color:#334155; font-size:0.85rem; margin-right:4px;">Date Presets:</span>
-                <button type="button" id="btn-quick-today" class="btn-qc btn-qc-outline" style="padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer;">Today</button>
-                <button type="button" id="btn-quick-yesterday" class="btn-qc btn-qc-outline" style="padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer;">Yesterday</button>
-                <button type="button" id="macs-sync-btn" onclick="handleManualSync()" class="btn-qc btn-qc-primary" style="margin-left:auto; padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer; background:linear-gradient(135deg, #2563EB, #1D4ED8); color:#FFFFFF; border:none; display:inline-flex; align-items:center; gap:6px;">🔄 Sync Now</button>
+              <!-- Row 1: Date Buttons & Sync Now in single row -->
+              <div class="macs-controls-row" style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                  <span style="font-weight:700; color:#334155; font-size:0.88rem;">Date:</span>
+                  <button type="button" id="btn-quick-today" class="btn-qc btn-qc-outline" style="padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer;">Today</button>
+                  <button type="button" id="btn-quick-yesterday" class="btn-qc btn-qc-outline" style="padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer;">Yesterday</button>
+                </div>
+                <button type="button" id="macs-sync-btn" onclick="handleManualSync()" class="btn-qc btn-qc-primary" style="padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer; background:linear-gradient(135deg, #2563EB, #1D4ED8); color:#FFFFFF; border:none; display:inline-flex; align-items:center; gap:6px;">🔄 Sync Now</button>
               </div>
 
-              <!-- Row 2: Route, Date, Period & Search -->
-              <div class="macs-filters-row" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-                <div style="flex:1; min-width:170px; display:flex; align-items:center; gap:6px;">
+              <!-- Row 2: Route & Date in single row -->
+              <div class="macs-controls-row" style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:140px; display:flex; align-items:center; gap:8px;">
                   <span style="font-weight:700; color:#334155; font-size:0.85rem; white-space:nowrap;">Route:</span>
-                  <select id="macs-route-filter" class="qc-form-input" style="width:100%; padding:8px 12px; border-radius:8px; font-weight:600; background:#FFFFFF; border:1px solid #CBD5E1;">
-                    <option value="all">🛣️ All Routes</option>
+                  <select id="macs-route-filter" class="qc-form-input" style="width:100%; padding:8px 12px; border-radius:8px; font-weight:600; background:#FFFFFF; border:1px solid #CBD5E1; font-size:0.88rem;">
+                    <option value="all">All Routes</option>
                   </select>
                 </div>
 
-                <div style="flex:1; min-width:160px; display:flex; align-items:center; gap:6px;">
+                <div style="flex:1; min-width:140px; display:flex; align-items:center; gap:8px;">
                   <span style="font-weight:700; color:#334155; font-size:0.85rem; white-space:nowrap;">Date:</span>
-                  <select id="macs-date-select" class="qc-form-input" style="width:100%; padding:8px 12px; border-radius:8px; font-weight:600; background:#FFFFFF; border:1px solid #CBD5E1;">
+                  <select id="macs-date-select" class="qc-form-input" style="width:100%; padding:8px 12px; border-radius:8px; font-weight:600; background:#FFFFFF; border:1px solid #CBD5E1; font-size:0.88rem;">
                     <option value="">Loading dates...</option>
                   </select>
                 </div>
+              </div>
 
-                <div style="flex:1; min-width:170px; display:flex; align-items:center; gap:6px;">
-                  <span style="font-weight:700; color:#334155; font-size:0.85rem; white-space:nowrap;">Period:</span>
-                  <select id="macs-period-select" class="qc-form-input" style="width:100%; padding:8px 12px; border-radius:8px; font-weight:600; background:#FFFFFF; border:1px solid #CBD5E1;">
-                    <option value="both" selected>Both (Morning &amp; Evening)</option>
-                    <option value="morning">Morning</option>
-                    <option value="evening">Evening</option>
-                  </select>
-                </div>
-
-                <div style="flex:1.2; min-width:200px;">
-                  <input type="text" id="macs-search-input" class="qc-form-input" placeholder="🔍 Search BMC Code or Name..." style="width:100%; padding:8px 14px; border-radius:8px; font-weight:500; background:#FFFFFF; border:1px solid #CBD5E1; box-sizing:border-box;">
-                </div>
-
-                <div>
-                  <a href="../qc-agm/excel-import.html" class="btn-qc btn-qc-primary" style="padding:8px 16px; border-radius:8px; text-decoration:none; font-weight:700; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px; white-space:nowrap;">
-                    📥 Import Excel
-                  </a>
-                </div>
+              <!-- Row 3: Period in single row (neat UI/UX) -->
+              <div class="macs-controls-row" style="display:flex; align-items:center; gap:8px;">
+                <span style="font-weight:700; color:#334155; font-size:0.85rem; white-space:nowrap;">Period:</span>
+                <select id="macs-period-select" class="qc-form-input" style="width:100%; max-width:320px; padding:8px 12px; border-radius:8px; font-weight:600; background:#FFFFFF; border:1px solid #CBD5E1; font-size:0.88rem;">
+                  <option value="both" selected>Both (Morning &amp; Evening)</option>
+                  <option value="morning">Morning</option>
+                  <option value="evening">Evening</option>
+                </select>
               </div>
             </div>
           </div>

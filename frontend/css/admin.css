@@ -76,7 +76,7 @@
 }
 
 .admin-nav-item.logout-btn {
-  margin-top: auto;
+  margin-top: 4px;
   margin-bottom: 16px;
   color: #FCA5A5;
 }
@@ -360,38 +360,92 @@ html, body {
   }
 }
 
-/* Sidebar & General Mobile adjustments */
-@media (max-width: 900px) {
+/* ── Sidebar Toggle Button & Overlay Design System ── */
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0;
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  border-radius: 10px;
+  color: #1E293B;
+  font-size: 1.25rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-right: 14px;
+  outline: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sidebar-toggle:hover {
+  background: #E2E8F0;
+  color: #0F172A;
+  border-color: #94A3B8;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.sidebar-toggle:active {
+  transform: scale(0.95);
+  background: #CBD5E1;
+}
+
+.sidebar-overlay {
+  position: fixed !important;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 9998 !important;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease !important;
+  pointer-events: none;
+}
+
+.sidebar-overlay.show, .sidebar-overlay.active {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+
+body.sidebar-open {
+  overflow: hidden !important;
+}
+
+/* Sidebar & General Mobile/Tablet adjustments (Screen width <= 1024px) */
+@media (max-width: 1024px) {
   .admin-sidebar {
     position: fixed !important;
-    left: -320px;
-    top: 0;
-    height: 100vh;
+    left: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: 100vh !important;
     width: 280px !important;
-    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s ease !important;
     z-index: 9999 !important;
-    box-shadow: 4px 0 24px rgba(0,0,0,0.15) !important;
+    transform: translateX(-100%) !important;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.2) !important;
+    will-change: transform;
   }
+
   .admin-sidebar.open, .admin-sidebar.active { 
-    left: 0 !important; 
     transform: translateX(0) !important;
   }
-  .sidebar-overlay {
-    display: none;
-    position: fixed !important;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.6) !important;
-    backdrop-filter: blur(2px);
-    z-index: 9998 !important;
-    opacity: 0;
-    transition: opacity 0.3s ease;
+
+  .sidebar-toggle { display: inline-flex !important; }
+
+  .admin-main { 
+    margin-left: 0 !important; 
+    width: 100% !important; 
+    overflow-x: hidden; 
   }
-  .sidebar-overlay.show, .sidebar-overlay.active { 
-    display: block !important; 
-    opacity: 1 !important;
-  }
-  .sidebar-toggle { display: flex !important; }
-  .admin-main { margin-left: 0 !important; width: 100%; overflow-x: hidden; }
   
   .admin-header { 
     padding: 0 16px !important; 
@@ -463,8 +517,8 @@ html, body {
   .btn-prioritize-action { width: 100%; text-align: center; justify-content: center; }
 }
 
-/* ── Desktop & Tablet (With Sidebar Fixed) ── */
-@media (min-width: 901px) {
+/* ── Desktop Devices (Screen width > 1024px) ── */
+@media (min-width: 1025px) {
   .admin-sidebar {
     position: fixed !important;
     top: 0 !important;
@@ -474,6 +528,8 @@ html, body {
     height: 100vh !important;
     z-index: 1000 !important;
     overflow-y: auto !important;
+    transform: translateX(0) !important;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
   }
   .admin-sidebar.collapsed {
     transform: translateX(-100%) !important;
@@ -481,7 +537,7 @@ html, body {
   .admin-main {
     margin-left: 240px !important;
     width: calc(100% - 240px) !important;
-    transition: margin-left 0.3s ease, width 0.3s ease !important;
+    transition: margin-left 0.3s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
   }
   .admin-main.expanded {
     margin-left: 0 !important;

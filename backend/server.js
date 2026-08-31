@@ -7619,21 +7619,118 @@ app.get('/api/qc-worker/samples/:id', requireQcWorker, async (req, res) => {
         return res.json({ sample: existingVisits[0] });
       }
 
+      // No existing visit for this BMC — we need to create one with a valid trip_id
       const { data: bmc } = await adminClient.from('bmcs').select('*').eq('id', bmcId).single();
       if (!bmc) return res.status(404).json({ error: 'BMC not found.' });
+
+      // 1. Try to find an existing trip that has this BMC assigned (e.g. from transport)
+      let tripId = null;
+      const { data: tripsWithBmc } = await adminClient
+        .from('trips')
+        .select('id')
+        .eq('bmc_id', bmcId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (tripsWithBmc && tripsWithBmc.length > 0) {
+        tripId = tripsWithBmc[0].id;
+      }
+
+      // 2. If no trip found, look for a recent trip today that could serve as context
+      if (!tripId) {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const { data: recentTrips } = await adminClient
+          .from('trips')
+          .select('id')
+          .gte('created_at', todayStart.toISOString())
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (recentTrips && recentTrips.length > 0) {
+          tripId = recentTrips[0].id;
+        }
+      }
+
+      // 3. Last resort — create a dedicated QC Lab trip for this testing session
+      if (!tripId) {
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const tripNumber = `QC-LAB-${dateStr}-${now.getTime().toString(36).toUpperCase()}`;
+        const { data: qcTrip, error: tripErr } = await adminClient
+          .from('trips')
+          .insert({
+            trip_name: `QC Lab Test - ${bmc.name || 'BMC'}`,
+            trip_number: tripNumber,
+            worker_id: req.profile.id,
+            status: 'in_progress',
+            bmc_id: bmc.id,
+            created_at: now.toISOString()
+          })
+          .select()
+          .single();
+        if (tripErr || !qcTrip) throw tripErr || new Error('Failed to create QC lab trip context.');
+        tripId = qcTrip.id;
+      }
+
+      // Calculate next visit sequence for the trip
+      const { data: existingSeq } = await adminClient
+        .from('trip_bmc_visits')
+        .select('visit_sequence')
+        .eq('trip_id', tripId)
+        .order('visit_sequence', { ascending: false })
+        .limit(1);
+      const nextSeq = existingSeq && existingSeq.length > 0 ? (existingSeq[0].visit_sequence || 0) + 1 : 1;
 
       const { data: newVisit, error: vErr } = await adminClient
         .from('trip_bmc_visits')
         .insert([{
           bmc_id: bmc.id,
-          status: 'visited',
+          trip_id: tripId,
+          visit_sequence: nextSeq,
+          status: 'completed',
           created_at: new Date().toISOString()
         }])
-        .select('*, bmc:bmcs(*), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
+        .select('*, bmc:bmcs(*), trip:trips(*, worker:profiles!trips_worker_id_fkey(*)), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
         .single();
 
       if (vErr || !newVisit) throw vErr || new Error('Failed to create sample visit.');
       return res.json({ sample: newVisit });
+    }
+
+    // Handle bmc_code_ prefix — resolve BMC by code, then use the same logic as bmc_ prefix
+    if (rawId && rawId.startsWith('bmc_code_')) {
+      const bmcCode = rawId.replace('bmc_code_', '');
+      const { data: bmcByCode } = await adminClient
+        .from('bmcs')
+        .select('id')
+        .eq('bmc_code', bmcCode)
+        .maybeSingle();
+      if (!bmcByCode) return res.status(404).json({ error: `BMC with code "${bmcCode}" not found.` });
+      
+      // Look for existing visits for this BMC
+      const { data: existingCodeVisits } = await adminClient
+        .from('trip_bmc_visits')
+        .select('*, bmc:bmcs(*), trip:trips(*, worker:profiles!trips_worker_id_fkey(*)), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
+        .eq('bmc_id', bmcByCode.id)
+        .order('created_at', { ascending: false });
+
+      if (existingCodeVisits && existingCodeVisits.length > 0) {
+        return res.json({ sample: existingCodeVisits[0] });
+      }
+
+      // No existing visit — return the BMC info as a lightweight sample stub
+      const { data: bmcFull } = await adminClient.from('bmcs').select('*').eq('id', bmcByCode.id).single();
+      return res.json({
+        sample: {
+          id: `bmc_${bmcByCode.id}`,
+          bmc_id: bmcByCode.id,
+          bmc: bmcFull,
+          trip: null,
+          ftir_tests: [],
+          gerber_tests: [],
+          qc_test: null,
+          status: 'completed'
+        }
+      });
     }
 
     const { data: visit, error } = await adminClient
@@ -7990,14 +8087,104 @@ app.post('/api/qc-worker/tests', requireQcWorker, async (req, res) => {
   if (errRem) return res.status(400).json({ error: errRem });
 
   try {
+    // Resolve synthetic bmc_ prefixed visit_id to a real visit
+    let resolvedVisitId = visit_id;
+    if (typeof visit_id === 'string' && visit_id.startsWith('bmc_')) {
+      const bmcId = visit_id.replace('bmc_', '');
+      // Check for existing visits for this BMC
+      const { data: existingVisits } = await adminClient
+        .from('trip_bmc_visits')
+        .select('id')
+        .eq('bmc_id', bmcId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (existingVisits && existingVisits.length > 0) {
+        resolvedVisitId = existingVisits[0].id;
+      } else {
+        // Need to create a visit with a proper trip_id
+        const { data: bmc } = await adminClient.from('bmcs').select('*').eq('id', bmcId).maybeSingle();
+        if (!bmc) return res.status(404).json({ error: 'BMC not found for the given visit_id.' });
+
+        let tripId = null;
+
+        // Try existing trip for this BMC
+        const { data: tripsWithBmc } = await adminClient
+          .from('trips')
+          .select('id')
+          .eq('bmc_id', bmcId)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (tripsWithBmc && tripsWithBmc.length > 0) tripId = tripsWithBmc[0].id;
+
+        // Try any trip today
+        if (!tripId) {
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          const { data: recentTrips } = await adminClient
+            .from('trips')
+            .select('id')
+            .gte('created_at', todayStart.toISOString())
+            .order('created_at', { ascending: false })
+            .limit(1);
+          if (recentTrips && recentTrips.length > 0) tripId = recentTrips[0].id;
+        }
+
+        // Create QC Lab trip as last resort
+        if (!tripId) {
+          const now = new Date();
+          const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+          const tripNumber = `QC-LAB-${dateStr}-${now.getTime().toString(36).toUpperCase()}`;
+          const { data: qcTrip, error: tripErr } = await adminClient
+            .from('trips')
+            .insert({
+              trip_name: `QC Lab Test - ${bmc.name || 'BMC'}`,
+              trip_number: tripNumber,
+              worker_id: profile.id,
+              status: 'in_progress',
+              bmc_id: bmc.id,
+              created_at: now.toISOString()
+            })
+            .select()
+            .single();
+          if (tripErr || !qcTrip) throw tripErr || new Error('Failed to create QC lab trip.');
+          tripId = qcTrip.id;
+        }
+
+        // Calculate next visit sequence for the trip
+        const { data: existingSeq } = await adminClient
+          .from('trip_bmc_visits')
+          .select('visit_sequence')
+          .eq('trip_id', tripId)
+          .order('visit_sequence', { ascending: false })
+          .limit(1);
+        const nextSeq = existingSeq && existingSeq.length > 0 ? (existingSeq[0].visit_sequence || 0) + 1 : 1;
+
+        // Create the visit
+        const { data: newVisit, error: vErr } = await adminClient
+          .from('trip_bmc_visits')
+          .insert([{
+            bmc_id: bmc.id,
+            trip_id: tripId,
+            visit_sequence: nextSeq,
+            status: 'completed',
+            created_at: new Date().toISOString()
+          }])
+          .select('id')
+          .single();
+        if (vErr || !newVisit) throw vErr || new Error('Failed to create sample visit for test.');
+        resolvedVisitId = newVisit.id;
+      }
+    }
+
     const { data: existing } = await adminClient
       .from('qc_lab_tests')
       .select('id, status')
-      .eq('visit_id', visit_id)
+      .eq('visit_id', resolvedVisitId)
       .maybeSingle();
 
     const payload = {
-      visit_id,
+      visit_id: resolvedVisitId,
       qc_worker_id: profile.id,
       sample_received_at: sample_received_at || new Date().toISOString(),
       sample_condition: sample_condition || 'good',
@@ -10251,7 +10438,7 @@ const MACS_API_CONFIG = {
   uCode: 2,
   unionCode: 2,
   syncIntervalMs: 15 * 60 * 1000, // 15 minutes
-  timeoutMs: 30000 // 30 seconds
+  timeoutMs: 60000 // 60 seconds
 };
 
 // Track scheduler state for status endpoint
@@ -10547,9 +10734,10 @@ async function macsBmcSyncService(options = {}) {
 
   } catch (err) {
     // 8. Handle errors — mark sync as failed, preserve previous data
-    const errorMsg = err.name === 'AbortError' 
+    const isTimeout = err.name === 'AbortError' || (err.cause && err.cause.name === 'AbortError');
+    const errorMsg = isTimeout
       ? `Request timed out after ${MACS_API_CONFIG.timeoutMs / 1000}s` 
-      : err.message;
+      : (err.message || String(err));
 
     console.error(`❌ MACS API Sync: Failed — ${errorMsg}`);
 

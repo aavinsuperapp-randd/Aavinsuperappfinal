@@ -4,13 +4,33 @@ let currentVisitId = null;
 let currentSample = null;
 let currentQcTestId = null;
 
+// Safe DOM Helper Functions
+function setElText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function setElValue(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.value = val ?? '';
+}
+
+function getElValue(id) {
+  const el = document.getElementById(id);
+  return el ? el.value : '';
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const profile = await checkAuth('qc_worker');
   if (!profile) return;
 
-  document.getElementById('main-qc-content').classList.remove('hidden');
-  document.getElementById('qc-header-name').textContent = profile.name;
-  document.getElementById('logout-btn').addEventListener('click', handleLogout);
+  const mainContent = document.getElementById('main-qc-content');
+  if (mainContent) mainContent.classList.remove('hidden');
+
+  setElText('qc-header-name', profile.name);
+
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
 
   const params = new URLSearchParams(window.location.search);
   currentVisitId = params.get('visit_id');
@@ -24,11 +44,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadSampleDetails();
 
   // Form submit (save draft)
-  document.getElementById('qc-test-form').addEventListener('submit', handleSaveDraft);
+  const testForm = document.getElementById('qc-test-form');
+  if (testForm) testForm.addEventListener('submit', handleSaveDraft);
+
   // Submit final report button
-  document.getElementById('btn-submit-report').addEventListener('click', handleOpenConfirmModal);
+  const submitBtn = document.getElementById('btn-submit-report');
+  if (submitBtn) submitBtn.addEventListener('click', handleOpenConfirmModal);
+
   // Confirm submission inside modal
-  document.getElementById('btn-confirm-submit').addEventListener('click', handleFinalSubmit);
+  const confirmBtn = document.getElementById('btn-confirm-submit');
+  if (confirmBtn) confirmBtn.addEventListener('click', handleFinalSubmit);
 });
 
 async function loadSampleDetails() {
@@ -50,14 +75,14 @@ function renderSampleInfo() {
   if (!s) return;
 
   const sampleId = `SMP-${s.id.slice(0, 6).toUpperCase()}`;
-  document.getElementById('info-sample-id').textContent = sampleId;
-  document.getElementById('info-bmc-name').textContent = s.bmc ? s.bmc.name : 'N/A';
-  document.getElementById('info-bmc-loc').textContent = s.bmc ? `${s.bmc.location}, ${s.bmc.district}` : 'N/A';
-  document.getElementById('info-worker-name').textContent = s.trip && s.trip.worker ? s.trip.worker.name : 'Field Worker';
-  document.getElementById('info-trip-no').textContent = s.trip ? (s.trip.trip_number || s.trip.trip_name) : 'N/A';
-  document.getElementById('info-coll-time').textContent = s.visit_end_time ? new Date(s.visit_end_time).toLocaleString() : 'N/A';
-  document.getElementById('info-compartment').textContent = s.compartment ? s.compartment.toUpperCase() : 'N/A';
-  document.getElementById('info-tanker').textContent = s.trip ? (s.trip.tanker_number || 'N/A') : 'N/A';
+  setElText('info-sample-id', sampleId);
+  setElText('info-bmc-name', s.bmc ? s.bmc.name : 'N/A');
+  setElText('info-bmc-loc', s.bmc ? `${s.bmc.location}, ${s.bmc.district}` : 'N/A');
+  setElText('info-worker-name', s.trip && s.trip.worker ? s.trip.worker.name : '-');
+  setElText('info-trip-no', s.trip ? (s.trip.trip_number || s.trip.trip_name) : 'N/A');
+  setElText('info-coll-time', s.visit_end_time ? new Date(s.visit_end_time).toLocaleString() : 'N/A');
+  setElText('info-compartment', s.compartment ? s.compartment.toUpperCase() : 'N/A');
+  setElText('info-tanker', s.trip ? (s.trip.tanker_number || '-') : '-');
 }
 
 function renderBmcTestResult() {
@@ -68,8 +93,10 @@ function renderBmcTestResult() {
   const gerber = Array.isArray(s.gerber_tests) ? s.gerber_tests[0] : s.gerber_tests;
 
   const container = document.getElementById('bmc-test-result-display');
+  if (!container) return;
+
   if (!ftir && !gerber) {
-    container.innerHTML = `<div class="text-sm text-muted">No Field Worker BMC test record recorded for this visit.</div>`;
+    container.innerHTML = `<div class="text-sm text-muted" style="font-weight:600; color:#64748B;">No Spot Analyzer values recorded for this visit.</div>`;
     return;
   }
 
@@ -125,14 +152,15 @@ function populateQcForm() {
   const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
   if (qcTest) {
     currentQcTestId = qcTest.id;
-    document.getElementById('qc-fat').value = qcTest.fat ?? '';
-    document.getElementById('qc-snf').value = qcTest.snf ?? '';
-    document.getElementById('qc-temp').value = qcTest.temperature ?? '';
-    document.getElementById('qc-condition').value = qcTest.sample_condition || 'good';
-    document.getElementById('qc-remarks').value = qcTest.remarks || '';
+    setElValue('qc-fat', qcTest.fat);
+    setElValue('qc-snf', qcTest.snf);
+    setElValue('qc-temp', qcTest.temperature);
+    setElValue('qc-condition', qcTest.sample_condition || 'good');
+    setElValue('qc-remarks', qcTest.remarks);
+
     if (qcTest.created_at || qcTest.received_at) {
       const recTime = qcTest.received_at || qcTest.created_at;
-      document.getElementById('qc-received-time').value = new Date(recTime).toISOString().slice(0, 16);
+      setElValue('qc-received-time', new Date(recTime).toISOString().slice(0, 16));
     }
 
     // Show status indicator
@@ -141,7 +169,6 @@ function populateQcForm() {
       if (qcTest.status === 'submitted' || qcTest.status === 'approved') {
         statusBox.className = 'status-box status-approved mt-2 mb-3';
         statusBox.innerHTML = `<strong>Status: ${qcTest.status.toUpperCase()}</strong> — Report has been finalized and submitted to QC AGM.`;
-        // Disable form editing if already approved
         if (qcTest.status === 'approved') {
           disableFormInputs();
         }
@@ -153,7 +180,7 @@ function populateQcForm() {
   } else {
     // Auto fill sample received time to current time
     const nowIso = new Date().toISOString().slice(0, 16);
-    document.getElementById('qc-received-time').value = nowIso;
+    setElValue('qc-received-time', nowIso);
   }
 }
 
@@ -161,16 +188,18 @@ function disableFormInputs() {
   document.querySelectorAll('#qc-test-form input, #qc-test-form select, #qc-test-form textarea').forEach(el => {
     el.disabled = true;
   });
-  document.getElementById('btn-save-draft').style.display = 'none';
-  document.getElementById('btn-submit-report').style.display = 'none';
+  const saveBtn = document.getElementById('btn-save-draft');
+  if (saveBtn) saveBtn.style.display = 'none';
+  const submitBtn = document.getElementById('btn-submit-report');
+  if (submitBtn) submitBtn.style.display = 'none';
 }
 
 async function handleSaveDraft(e) {
   if (e) e.preventDefault();
 
-  const fat = document.getElementById('qc-fat').value;
-  const snf = document.getElementById('qc-snf').value;
-  const temp = document.getElementById('qc-temp').value;
+  const fat = getElValue('qc-fat');
+  const snf = getElValue('qc-snf');
+  const temp = getElValue('qc-temp');
 
   if (!fat || !snf) {
     showToast('Fat % and SNF % are required parameters.', 'error');
@@ -179,11 +208,11 @@ async function handleSaveDraft(e) {
 
   const payload = {
     visit_id: currentVisitId,
-    sample_condition: document.getElementById('qc-condition').value,
+    sample_condition: getElValue('qc-condition') || 'good',
     fat,
     snf,
     temperature: temp,
-    remarks: document.getElementById('qc-remarks').value
+    remarks: getElValue('qc-remarks')
   };
 
   try {
@@ -199,8 +228,8 @@ async function handleSaveDraft(e) {
 
 async function handleOpenConfirmModal() {
   // First save draft
-  const fat = document.getElementById('qc-fat').value;
-  const snf = document.getElementById('qc-snf').value;
+  const fat = getElValue('qc-fat');
+  const snf = getElValue('qc-snf');
 
   if (!fat || !snf) {
     showToast('Please enter required parameters (Fat % and SNF %) before submitting.', 'error');
@@ -221,26 +250,27 @@ async function handleOpenConfirmModal() {
   const bmcFat = (ftir && ftir.fat) ?? (gerber && gerber.fat_percentage) ?? 'N/A';
   const bmcSnf = (ftir && ftir.snf) ?? (gerber && gerber.snf) ?? 'N/A';
 
-  const qcFat = document.getElementById('qc-fat').value;
-  const qcSnf = document.getElementById('qc-snf').value;
+  const qcFat = getElValue('qc-fat');
+  const qcSnf = getElValue('qc-snf');
 
   let diffFat = 'N/A';
   let diffSnf = 'N/A';
   if (bmcFat !== 'N/A' && qcFat) diffFat = (parseFloat(qcFat) - parseFloat(bmcFat)).toFixed(2);
   if (bmcSnf !== 'N/A' && qcSnf) diffSnf = (parseFloat(qcSnf) - parseFloat(bmcSnf)).toFixed(2);
 
-  document.getElementById('sum-sample-id').textContent = `SMP-${s.id.slice(0, 6).toUpperCase()}`;
-  document.getElementById('sum-bmc-name').textContent = s.bmc ? s.bmc.name : 'N/A';
-  document.getElementById('sum-bmc-fat').textContent = `${bmcFat}%`;
-  document.getElementById('sum-qc-fat').textContent = `${qcFat}%`;
-  document.getElementById('sum-diff-fat').textContent = `${diffFat > 0 ? '+' : ''}${diffFat}%`;
+  setElText('sum-sample-id', `SMP-${s.id.slice(0, 6).toUpperCase()}`);
+  setElText('sum-bmc-name', s.bmc ? s.bmc.name : 'N/A');
+  setElText('sum-bmc-fat', `${bmcFat}%`);
+  setElText('sum-qc-fat', `${qcFat}%`);
+  setElText('sum-diff-fat', `${diffFat > 0 ? '+' : ''}${diffFat}%`);
 
-  document.getElementById('sum-bmc-snf').textContent = `${bmcSnf}%`;
-  document.getElementById('sum-qc-snf').textContent = `${qcSnf}%`;
-  document.getElementById('sum-diff-snf').textContent = `${diffSnf > 0 ? '+' : ''}${diffSnf}%`;
+  setElText('sum-bmc-snf', `${bmcSnf}%`);
+  setElText('sum-qc-snf', `${qcSnf}%`);
+  setElText('sum-diff-snf', `${diffSnf > 0 ? '+' : ''}${diffSnf}%`);
 
   // Open modal
-  document.getElementById('confirm-modal').classList.remove('hidden');
+  const modal = document.getElementById('confirm-modal');
+  if (modal) modal.classList.remove('hidden');
 }
 
 async function handleFinalSubmit() {
@@ -249,10 +279,12 @@ async function handleFinalSubmit() {
     showToast('Submitting final report to QC AGM...', 'info');
     await apiQcSubmitTest(currentQcTestId);
     showToast('QC Test Report submitted successfully!', 'success');
-    document.getElementById('confirm-modal').classList.add('hidden');
+    const modal = document.getElementById('confirm-modal');
+    if (modal) modal.classList.add('hidden');
     setTimeout(() => window.location.href = 'samples.html', 1000);
   } catch (err) {
     console.error('Error submitting report:', err);
     showToast(err.message || 'Failed to submit report.', 'error');
   }
 }
+

@@ -20,25 +20,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function setupQcAgmSidebarToggle() {
-  const toggleBtn = document.getElementById('qc-agm-toggle-btn') || document.getElementById('sidebar-toggle-btn');
-  const sidebar = document.getElementById('qc-agm-sidebar') || document.querySelector('.qc-sidebar');
-  const overlay = document.getElementById('qc-agm-sidebar-overlay') || document.querySelector('.qc-sidebar-overlay');
-
-  if (toggleBtn && sidebar) {
-    toggleBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      sidebar.classList.toggle('open');
-      if (overlay) overlay.classList.toggle('show');
-    });
-  }
-
-  if (overlay && sidebar) {
-    overlay.addEventListener('click', () => {
-      sidebar.classList.remove('open');
-      overlay.classList.remove('show');
-    });
+  if (typeof initQcAgmSidebarToggle === 'function') {
+    initQcAgmSidebarToggle();
   }
 }
+
 
 async function loadMasterBmcs() {
   try {
@@ -235,7 +221,7 @@ function populateRouteFilterOptions() {
 
   const routesList = Array.from(routesSet).sort();
 
-  routeSelect.innerHTML = `<option value="all">🛣️ All Routes</option>` +
+  routeSelect.innerHTML = `<option value="all">All Routes</option>` +
     routesList.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
 
   if (currentVal && Array.from(routeSelect.options).some(o => o.value === currentVal)) {
@@ -331,11 +317,11 @@ function renderFilteredReadings() {
     Object.keys(groups1).forEach(rName => {
       const groupItems = groups1[rName];
       html1 += `
-        <tr style="background: linear-gradient(135deg, #1e293b, #334155); color: #ffffff; font-weight: 700;">
-          <td colspan="7" style="padding: 10px 16px; border-radius: 4px;">
+        <tr class="route-header-row" style="background: #1E293B !important; color: #ffffff !important; font-weight: 700;">
+          <td colspan="7" style="padding: 10px 16px; background: #1E293B !important; color: #ffffff !important; border-radius: 4px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span>🛣️ Route: ${esc(rName)}</span>
-              <span style="font-size:0.75rem; background:rgba(255,255,255,0.2); padding:2px 10px; border-radius:12px;">${groupItems.length} BMC${groupItems.length !== 1 ? 's' : ''}</span>
+              <span style="color:#FFFFFF !important; font-weight:800; font-size:0.92rem;">Route: ${esc(rName)}</span>
+              <span style="font-size:0.75rem; background:rgba(255,255,255,0.2); color:#FFFFFF !important; padding:2px 10px; border-radius:12px; font-weight:700;">${groupItems.length} BMC${groupItems.length !== 1 ? 's' : ''}</span>
             </div>
           </td>
         </tr>

@@ -113,22 +113,83 @@ async function apiQcAgmGetExcelData() {
 
 // Sidebar toggle for QC AGM portal
 function initQcAgmSidebarToggle() {
-  const toggleBtn = document.getElementById('qc-agm-toggle-btn');
-  const sidebar = document.getElementById('qc-agm-sidebar');
-  const overlay = document.getElementById('qc-agm-sidebar-overlay');
+  const toggleBtns = document.querySelectorAll('#qc-agm-toggle-btn, .qc-mobile-btn, #sidebar-toggle-btn, .sidebar-toggle');
+  const sidebar = document.getElementById('qc-agm-sidebar') || document.querySelector('.qc-sidebar');
+  let overlay = document.getElementById('qc-agm-sidebar-overlay') || document.querySelector('.qc-sidebar-overlay');
 
-  function toggleSidebar() {
-    if (sidebar) sidebar.classList.toggle('open');
-    if (overlay) overlay.classList.toggle('show');
+  if (!sidebar) return;
+
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'qc-sidebar-overlay';
+    overlay.id = 'qc-agm-sidebar-overlay';
+    document.body.appendChild(overlay);
   }
 
-  function closeSidebar() {
-    if (sidebar) sidebar.classList.remove('open');
-    if (overlay) overlay.classList.remove('show');
+  function handleQcToggle(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const isTabletOrMobile = window.innerWidth <= 1024;
+    if (isTabletOrMobile) {
+      const isOpen = sidebar.classList.contains('open') || sidebar.classList.contains('active');
+      if (isOpen) {
+        closeQcSidebar();
+      } else {
+        sidebar.classList.add('open', 'active');
+        overlay.classList.add('show', 'active');
+        document.body.classList.add('sidebar-open');
+      }
+    } else {
+      sidebar.classList.toggle('collapsed');
+      const main = document.querySelector('.qc-main, .admin-main');
+      if (main) main.classList.toggle('expanded');
+    }
   }
 
-  if (toggleBtn) toggleBtn.addEventListener('click', toggleSidebar);
-  if (overlay) overlay.addEventListener('click', closeSidebar);
+  function closeQcSidebar() {
+    sidebar.classList.remove('open', 'active');
+    overlay.classList.remove('show', 'active');
+    document.body.classList.remove('sidebar-open');
+  }
+
+  if (!overlay.dataset.bound) {
+    overlay.dataset.bound = 'true';
+    overlay.addEventListener('click', closeQcSidebar);
+  }
+
+  toggleBtns.forEach(btn => {
+    if (!btn.dataset.bound) {
+      btn.dataset.bound = 'true';
+      btn.addEventListener('click', handleQcToggle);
+    }
+  });
+
+  sidebar.querySelectorAll('a, button').forEach(link => {
+    if (!link.dataset.closeBound) {
+      link.dataset.closeBound = 'true';
+      link.addEventListener('click', () => {
+        if (window.innerWidth <= 1024) closeQcSidebar();
+      });
+    }
+  });
+
+  if (!window.qcAgmResizeBound) {
+    window.qcAgmResizeBound = true;
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 1024) {
+        closeQcSidebar();
+      }
+    });
+  }
+
+  if (!window.qcAgmKeyBound) {
+    window.qcAgmKeyBound = true;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeQcSidebar();
+    });
+  }
 }
 
 if (document.readyState === 'loading') {

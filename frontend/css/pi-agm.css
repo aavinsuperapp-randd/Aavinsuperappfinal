@@ -18,7 +18,7 @@ html, body {
 }
 
 /* Sidebar & General Mobile adjustments */
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .admin-sidebar {
     position: fixed !important;
     left: -320px;
@@ -34,18 +34,19 @@ html, body {
     transform: translateX(0) !important;
   }
   .sidebar-overlay {
-    display: none;
     position: fixed !important;
     inset: 0;
     background: rgba(15, 23, 42, 0.6) !important;
     backdrop-filter: blur(2px);
     z-index: 9998 !important;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
   }
   .sidebar-overlay.show, .sidebar-overlay.active { 
-    display: block !important; 
+    visibility: visible !important; 
     opacity: 1 !important;
+    display: block !important;
   }
   .sidebar-toggle { display: flex !important; }
   .admin-main { margin-left: 0 !important; width: 100%; overflow-x: hidden; }

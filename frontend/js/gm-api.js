@@ -218,54 +218,108 @@ async function apiGmDeleteVehicle(vehicleId) {
 }
 
 // ── Sidebar Toggle (shared across all GM and P&I AGM portal pages) ──────────────────
+function handleGmSidebarToggle(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const sidebar = document.querySelector('.admin-sidebar, .qc-sidebar, #gm-sidebar, #worker-sidebar, #transport-sidebar');
+  const main = document.querySelector('.admin-main, .qc-main, .worker-main, .transport-main');
+  let overlay = document.querySelector('#sidebar-overlay, #qc-agm-sidebar-overlay, .sidebar-overlay, .qc-sidebar-overlay');
+
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    overlay.id = 'sidebar-overlay';
+    document.body.appendChild(overlay);
+  }
+
+  if (!sidebar) return;
+
+  const isTabletOrMobile = window.innerWidth <= 1024;
+
+  if (isTabletOrMobile) {
+    const isOpen = sidebar.classList.contains('open') || sidebar.classList.contains('active');
+    if (isOpen) {
+      closeGmSidebar();
+    } else {
+      sidebar.classList.add('open', 'active');
+      overlay.classList.add('show', 'active');
+      document.body.classList.add('sidebar-open');
+    }
+  } else {
+    sidebar.classList.toggle('collapsed');
+    if (main) main.classList.toggle('expanded');
+  }
+}
+
+function closeGmSidebar() {
+  const sidebar = document.querySelector('.admin-sidebar, .qc-sidebar, #gm-sidebar, #worker-sidebar, #transport-sidebar');
+  const overlay = document.querySelector('#sidebar-overlay, #qc-agm-sidebar-overlay, .sidebar-overlay, .qc-sidebar-overlay');
+  if (sidebar) sidebar.classList.remove('open', 'active');
+  if (overlay) overlay.classList.remove('show', 'active');
+  document.body.classList.remove('sidebar-open');
+}
+
 function initGmSidebarToggle() {
   const toggleBtns = document.querySelectorAll('#sidebar-toggle-btn, .sidebar-toggle, #qc-agm-toggle-btn, .qc-mobile-btn');
   const sidebar = document.querySelector('.admin-sidebar, .qc-sidebar, #gm-sidebar, #worker-sidebar, #transport-sidebar');
-  const main = document.querySelector('.admin-main, .qc-main, .worker-main, .transport-main');
-  const overlay = document.querySelector('#sidebar-overlay, #qc-agm-sidebar-overlay, .sidebar-overlay, .qc-sidebar-overlay');
 
-  function toggleSidebar(e) {
-    if (e) e.stopPropagation();
-    if (window.innerWidth > 900) {
-      if (sidebar) sidebar.classList.toggle('collapsed');
-      if (main) main.classList.toggle('expanded');
-    } else {
-      if (sidebar && sidebar.classList.contains('open')) {
-        sidebar.classList.remove('open');
-        if (overlay) overlay.classList.remove('show');
-      } else {
-        if (sidebar) sidebar.classList.add('open');
-        if (overlay) overlay.classList.add('show');
-      }
-    }
+  if (!sidebar) return;
+
+  let overlay = document.querySelector('#sidebar-overlay, #qc-agm-sidebar-overlay, .sidebar-overlay, .qc-sidebar-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    overlay.id = 'sidebar-overlay';
+    document.body.appendChild(overlay);
   }
 
-  function closeSidebar() {
-    if (window.innerWidth <= 900) {
-      if (sidebar) sidebar.classList.remove('open');
-      if (overlay) overlay.classList.remove('show');
-    }
+  if (overlay && !overlay.dataset.bound) {
+    overlay.dataset.bound = 'true';
+    overlay.addEventListener('click', closeGmSidebar);
   }
 
   toggleBtns.forEach(btn => {
-    btn.removeEventListener('click', toggleSidebar);
-    btn.addEventListener('click', toggleSidebar);
+    if (!btn.dataset.bound) {
+      btn.dataset.bound = 'true';
+      btn.addEventListener('click', handleGmSidebarToggle);
+    }
   });
 
-  if (overlay) {
-    overlay.removeEventListener('click', closeSidebar);
-    overlay.addEventListener('click', closeSidebar);
-  }
+  sidebar.querySelectorAll('a, button').forEach(link => {
+    if (!link.dataset.closeBound) {
+      link.dataset.closeBound = 'true';
+      link.addEventListener('click', () => {
+        if (window.innerWidth <= 1024) {
+          closeGmSidebar();
+        }
+      });
+    }
+  });
 
-  if (sidebar) {
-    sidebar.querySelectorAll('a, button').forEach(link => {
-      link.addEventListener('click', closeSidebar);
+  if (!window.gmResizeBound) {
+    window.gmResizeBound = true;
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 1024) {
+        closeGmSidebar();
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && window.innerWidth <= 1024) {
+        closeGmSidebar();
+      }
     });
   }
 }
+
+window.initGmSidebarToggle = initGmSidebarToggle;
+window.closeGmSidebar = closeGmSidebar;
+window.handleGmSidebarToggle = handleGmSidebarToggle;
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initGmSidebarToggle);
 } else {
   initGmSidebarToggle();
 }
+
