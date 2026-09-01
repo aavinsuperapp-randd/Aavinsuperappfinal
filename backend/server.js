@@ -7868,6 +7868,9 @@ app.get('/api/qc-worker/dashboard', requireQcWorker, async (req, res) => {
       visitsQuery = visitsQuery.gte('visit_end_time', fromIso).lte('visit_end_time', toIso);
     }
 
+    const { data: spotVisits, error: visitsError } = await visitsQuery;
+    if (visitsError) throw visitsError;
+
     let spotVisitsFiltered = spotVisits || [];
 
     if (spotVisitsFiltered.length > 0 && period !== 'all') {

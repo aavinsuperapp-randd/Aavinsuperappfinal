@@ -162,26 +162,26 @@
 
       <main class="admin-content">
         <!-- Modern Responsive Filter Card -->
-        <div class="invoices-filter-card">
-          <!-- Row 1: Quick Date Filter Buttons & Date Picker -->
-          <div class="invoices-filter-row">
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-              <span style="font-weight:700; color:#334155; font-size:0.85rem;">Date Filter:</span>
-              <button type="button" id="btn-date-today" class="btn-date-filter active">Today</button>
-              <button type="button" id="btn-date-yesterday" class="btn-date-filter">Yesterday</button>
-              <button type="button" id="btn-date-all" class="btn-date-filter">All Invoices</button>
-            </div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span style="font-weight:700; color:#334155; font-size:0.85rem; white-space:nowrap;">Select Date:</span>
-              <input type="date" id="invoice-date-picker" class="invoice-date-input">
-            </div>
+        <div class="invoices-filter-card" style="display: flex; flex-direction: column; gap: 14px;">
+          
+          <!-- Row 1: Date Filter -->
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span style="font-weight:700; color:#334155; font-size:0.85rem; min-width: 90px;">Date Filter:</span>
+            <button type="button" id="btn-date-today" class="btn-date-filter active">Today</button>
+            <button type="button" id="btn-date-yesterday" class="btn-date-filter">Yesterday</button>
           </div>
-
-          <!-- Row 2: Search Bar & Clear -->
-          <div class="invoices-search-bar">
-            <input type="text" id="invoice-search-input" placeholder="Search by BMC Code, BMC Name, or Serial Number...">
-            <button id="invoice-search-btn" class="btn-search">🔍 Search</button>
-            <button id="invoice-reset-btn" class="btn-reset-filter" title="Reset all filters">✕ Clear</button>
+          
+          <!-- Row 2: Select Date -->
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span style="font-weight:700; color:#334155; font-size:0.85rem; min-width: 90px;">Select Date:</span>
+            <input type="date" id="invoice-date-picker" class="invoice-date-input" style="width: 100%; max-width: 200px;">
+          </div>
+          
+          <!-- Row 3: Search Bar -->
+          <div class="invoices-search-bar" style="display:flex; flex-wrap:nowrap; width:100%; gap:8px;">
+            <input type="text" id="invoice-search-input" placeholder="Search by BMC Code, Name, or Serial..." style="flex:1; min-width:0;">
+            <button id="invoice-search-btn" class="btn-search" style="white-space:nowrap;">🔍 Search</button>
+            <button id="invoice-reset-btn" class="btn-reset-filter" title="Reset all filters" style="white-space:nowrap;">✕ Clear</button>
           </div>
         </div>
 
