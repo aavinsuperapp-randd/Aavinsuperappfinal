@@ -38,6 +38,7 @@ async function gmFetch(endpoint, options = {}) {
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
   return json;
 }
+window.piAgmFetch = gmFetch;
 
 // Fetch P&I AGM Dashboard Data (Fixed Last 7 Days - Legacy)
 async function apiGetGmDashboard() {

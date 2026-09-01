@@ -28,6 +28,32 @@ function formatDateTime(iso) {
   } catch(e) { return '—'; }
 }
 
+let currentSelectedDate = getTodayDateStr(); // 'YYYY-MM-DD' by default
+let currentSearchQuery = '';
+
+function getTodayDateStr() {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+}
+
+function getYesterdayDateStr() {
+  const d = new Date(Date.now() - 86400000);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+}
+
+function formatDateLabel(dateStr) {
+  if (!dateStr || dateStr === 'all') return 'All Invoices';
+  const todayStr = getTodayDateStr();
+  const yesterdayStr = getYesterdayDateStr();
+  if (dateStr === todayStr) {
+    return `Today (${formatDate(todayStr)})`;
+  }
+  if (dateStr === yesterdayStr) {
+    return `Yesterday (${formatDate(yesterdayStr)})`;
+  }
+  return formatDate(dateStr);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const profile = await checkAuth('pi_agm');
   if (!profile) return;
@@ -57,13 +83,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
 
-  // Search
-  const searchBtn = document.getElementById('invoice-search-btn');
-  const searchInput = document.getElementById('invoice-search-input');
-  if (searchBtn) searchBtn.addEventListener('click', () => loadInvoices(searchInput?.value.trim()));
-  if (searchInput) searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') loadInvoices(searchInput.value.trim());
-  });
+  // Setup Date and Search Controls
+  setupFilterControls();
 
   // Modal close
   document.getElementById('inv-modal-close')?.addEventListener('click', closeInvoiceModal);
@@ -72,34 +93,156 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadInvoices();
 });
 
-async function loadInvoices(searchQuery = '') {
+function setupFilterControls() {
+  const btnToday = document.getElementById('btn-date-today');
+  const btnYesterday = document.getElementById('btn-date-yesterday');
+  const btnAll = document.getElementById('btn-date-all');
+  const datePicker = document.getElementById('invoice-date-picker');
+  const searchInput = document.getElementById('invoice-search-input');
+  const searchBtn = document.getElementById('invoice-search-btn');
+  const resetBtn = document.getElementById('invoice-reset-btn');
+
+  if (datePicker) {
+    datePicker.value = currentSelectedDate;
+    datePicker.addEventListener('change', () => {
+      setFilterDate(datePicker.value);
+    });
+  }
+
+  if (btnToday) {
+    btnToday.addEventListener('click', () => setFilterDate(getTodayDateStr()));
+  }
+
+  if (btnYesterday) {
+    btnYesterday.addEventListener('click', () => setFilterDate(getYesterdayDateStr()));
+  }
+
+  if (btnAll) {
+    btnAll.addEventListener('click', () => setFilterDate('all'));
+  }
+
+  if (searchBtn && searchInput) {
+    searchBtn.addEventListener('click', () => {
+      currentSearchQuery = searchInput.value.trim();
+      loadInvoices();
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        currentSearchQuery = searchInput.value.trim();
+        loadInvoices();
+      }
+    });
+  }
+
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      if (searchInput) searchInput.value = '';
+      currentSearchQuery = '';
+      setFilterDate(getTodayDateStr());
+    });
+  }
+
+  updateDateButtonStyles();
+}
+
+function setFilterDate(dateStr) {
+  currentSelectedDate = dateStr || 'all';
+  const datePicker = document.getElementById('invoice-date-picker');
+  if (datePicker) {
+    datePicker.value = (dateStr === 'all' || !dateStr) ? '' : dateStr;
+  }
+  updateDateButtonStyles();
+  loadInvoices();
+}
+window.setFilterDate = setFilterDate;
+
+function updateDateButtonStyles() {
+  const btnToday = document.getElementById('btn-date-today');
+  const btnYesterday = document.getElementById('btn-date-yesterday');
+  const btnAll = document.getElementById('btn-date-all');
+
+  const todayStr = getTodayDateStr();
+  const yesterdayStr = getYesterdayDateStr();
+
+  const isToday = currentSelectedDate === todayStr;
+  const isYesterday = currentSelectedDate === yesterdayStr;
+  const isAll = currentSelectedDate === 'all' || !currentSelectedDate;
+
+  if (btnToday) btnToday.className = isToday ? 'btn-date-filter active' : 'btn-date-filter';
+  if (btnYesterday) btnYesterday.className = isYesterday ? 'btn-date-filter active' : 'btn-date-filter';
+  if (btnAll) btnAll.className = isAll ? 'btn-date-filter active' : 'btn-date-filter';
+
+  const statusEl = document.getElementById('invoice-filter-status');
+  if (statusEl) {
+    statusEl.textContent = `Showing: ${formatDateLabel(currentSelectedDate)}`;
+  }
+}
+
+async function loadInvoices() {
   const tbody = document.getElementById('invoices-table-body');
   const badge = document.getElementById('invoice-count-badge');
   if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="invoice-empty">Loading invoices...</td></tr>';
 
   try {
-    const params = searchQuery ? `?q=${encodeURIComponent(searchQuery)}` : '';
-    const res = await gmFetch(`/api/gm/invoices${params}`);
+    const params = new URLSearchParams();
+    if (currentSearchQuery) params.set('q', currentSearchQuery);
+    if (currentSelectedDate && currentSelectedDate !== 'all') params.set('date', currentSelectedDate);
+
+    const qs = params.toString() ? `?${params.toString()}` : (currentSelectedDate === 'all' ? '?date=all' : '');
+    const res = await gmFetch(`/api/gm/invoices${qs}`);
     const invoices = res.invoices || [];
 
     if (badge) badge.textContent = invoices.length;
 
     if (invoices.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="invoice-empty">
-        ${searchQuery ? `No invoices found matching "${esc(searchQuery)}"` : 'No invoices generated yet. Invoices are created when Spot Analyzers close BMC visits.'}
-      </td></tr>`;
+      const dateLabel = formatDateLabel(currentSelectedDate);
+      if (currentSearchQuery) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center">
+          <div class="ui-state-card ui-state-no-results" style="border:none;box-shadow:none;margin:0;padding:24px 16px;">
+            <div class="ui-state-icon" style="width:36px;height:36px;margin-bottom:8px;">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            </div>
+            <div class="ui-state-title" style="font-size:0.9rem;">No Invoices Found</div>
+            <div class="ui-state-desc" style="font-size:0.8rem;margin-bottom:0;">No invoices matching "${esc(currentSearchQuery)}" for ${dateLabel}</div>
+          </div>
+        </td></tr>`;
+      } else if (currentSelectedDate && currentSelectedDate !== 'all') {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center">
+          <div class="ui-state-card ui-state-empty" style="border:none;box-shadow:none;margin:0;padding:24px 16px;">
+            <div class="ui-state-icon" style="width:36px;height:36px;margin-bottom:8px;">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            </div>
+            <div class="ui-state-title" style="font-size:0.9rem;">No Invoices for ${dateLabel}</div>
+            <div class="ui-state-desc" style="font-size:0.8rem;margin-bottom:12px;">No BMC visit invoices recorded on this date.</div>
+            <button type="button" class="btn-date-filter" onclick="setFilterDate('all')" style="background:#2563EB;color:#FFF;border-color:#1D4ED8;">📅 View All Invoices</button>
+          </div>
+        </td></tr>`;
+      } else {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center">
+          <div class="ui-state-card ui-state-empty" style="border:none;box-shadow:none;margin:0;padding:24px 16px;">
+            <div class="ui-state-icon" style="width:36px;height:36px;margin-bottom:8px;">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
+            </div>
+            <div class="ui-state-title" style="font-size:0.9rem;">No Invoices Available</div>
+            <div class="ui-state-desc" style="font-size:0.8rem;margin-bottom:0;">Invoices are automatically generated when Spot Analyzers close BMC visits.</div>
+          </div>
+        </td></tr>`;
+      }
       return;
     }
 
     tbody.innerHTML = invoices.map((inv, idx) => {
       const dateStr = inv.visit_end_time ? formatDate(inv.visit_end_time) : '—';
       return `
-        <tr>
+        <tr style="cursor:pointer;" onclick="openInvoicePreview('${inv.visit_id}')">
           <td style="text-align:center;font-weight:600;color:#64748B;">${idx + 1}</td>
           <td><strong style="color:#1D4ED8;">${esc(inv.bmc_code || '—')}</strong></td>
           <td><strong>${esc(inv.bmc_name || '—')}</strong></td>
           <td>${dateStr}</td>
-          <td style="text-align:right;white-space:nowrap;">
+          <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation()">
             <button class="btn-invoice-pdf" onclick="downloadInvoicePdf('${inv.visit_id}')">📄 Download PDF</button>
           </td>
         </tr>

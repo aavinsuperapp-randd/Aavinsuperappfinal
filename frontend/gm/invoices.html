@@ -12,22 +12,51 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
   <style>
+    .invoices-filter-card {
+      background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 14px;
+      padding: 16px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px;
+    }
+    .invoices-filter-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin-bottom: 14px; flex-wrap: wrap;
+    }
+    .btn-date-filter {
+      padding: 7px 16px; font-weight: 700; font-size: 0.82rem; border-radius: 8px;
+      cursor: pointer; transition: all 0.2s ease; border: 1px solid #CBD5E1;
+      background: #F1F5F9; color: #475569;
+    }
+    .btn-date-filter:hover { background: #E2E8F0; color: #1E293B; }
+    .btn-date-filter.active {
+      background: #2563EB; color: #FFFFFF; border-color: #1D4ED8;
+      box-shadow: 0 2px 6px rgba(37,99,235,0.3);
+    }
+    .invoice-date-input {
+      padding: 6px 12px; border-radius: 8px; font-weight: 600; font-family: Outfit, sans-serif;
+      background: #FFFFFF; border: 1.5px solid #CBD5E1; font-size: 0.88rem; outline: none;
+      color: #0F172A; transition: border 0.15s;
+    }
+    .invoice-date-input:focus { border-color: #2563EB; }
+    .btn-reset-filter {
+      padding: 9px 14px; border: 1.5px solid #CBD5E1; background: #F8FAFC; color: #475569;
+      border-radius: 8px; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: all 0.15s;
+    }
+    .btn-reset-filter:hover { background: #E2E8F0; color: #0F172A; }
     .invoices-search-bar {
-      display: flex; gap: 10px; align-items: center; margin-bottom: 20px;
+      display: flex; gap: 10px; align-items: center; margin-bottom: 0;
     }
     .invoices-search-bar input {
-      flex: 1; padding: 10px 16px; border: 1.5px solid #CBD5E1; border-radius: 10px;
-      font-size: 0.92rem; font-family: Outfit, sans-serif; outline: none;
+      flex: 1; padding: 9px 14px; border: 1.5px solid #CBD5E1; border-radius: 8px;
+      font-size: 0.88rem; font-family: Outfit, sans-serif; outline: none;
       transition: border 0.15s;
     }
     .invoices-search-bar input:focus { border-color: #2563EB; }
-    .invoices-search-bar button {
-      padding: 10px 20px; border: none; border-radius: 10px;
+    .invoices-search-bar button.btn-search {
+      padding: 9px 18px; border: none; border-radius: 8px;
       background: linear-gradient(135deg, #2563EB, #1D4ED8); color: #fff;
-      font-weight: 700; font-size: 0.88rem; cursor: pointer;
+      font-weight: 700; font-size: 0.85rem; cursor: pointer;
       transition: opacity 0.15s;
     }
-    .invoices-search-bar button:hover { opacity: 0.88; }
+    .invoices-search-bar button.btn-search:hover { opacity: 0.88; }
     .invoice-table {
       width: 100%; border-collapse: collapse; font-size: 0.85rem;
     }
@@ -143,17 +172,37 @@
       </header>
 
       <main class="admin-content">
+        <!-- Modern Responsive Filter Card -->
+        <div class="invoices-filter-card">
+          <!-- Row 1: Quick Date Filter Buttons & Date Picker -->
+          <div class="invoices-filter-row">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span style="font-weight:700; color:#334155; font-size:0.85rem;">Date Filter:</span>
+              <button type="button" id="btn-date-today" class="btn-date-filter active">Today</button>
+              <button type="button" id="btn-date-yesterday" class="btn-date-filter">Yesterday</button>
+              <button type="button" id="btn-date-all" class="btn-date-filter">All Invoices</button>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-weight:700; color:#334155; font-size:0.85rem; white-space:nowrap;">Select Date:</span>
+              <input type="date" id="invoice-date-picker" class="invoice-date-input">
+            </div>
+          </div>
+
+          <!-- Row 2: Search Bar & Clear -->
+          <div class="invoices-search-bar">
+            <input type="text" id="invoice-search-input" placeholder="Search by BMC Code, BMC Name, or Serial Number...">
+            <button id="invoice-search-btn" class="btn-search">🔍 Search</button>
+            <button id="invoice-reset-btn" class="btn-reset-filter" title="Reset all filters">✕ Clear</button>
+          </div>
+        </div>
+
         <div class="content-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
             <h3 style="margin:0;font-size:1.05rem;font-weight:800;color:#0F172A;">
               Tanker Milk Despatch Advice Records
               <span class="invoice-count-badge" id="invoice-count-badge">0</span>
             </h3>
-          </div>
-
-          <div class="invoices-search-bar">
-            <input type="text" id="invoice-search-input" placeholder="Search by BMC Code, BMC Name, or Serial Number...">
-            <button id="invoice-search-btn">🔍 Search</button>
+            <div id="invoice-filter-status" style="font-size:0.82rem; font-weight:600; color:#64748B;">Showing: Today's Invoices</div>
           </div>
 
           <div class="table-responsive">

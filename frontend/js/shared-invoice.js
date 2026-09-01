@@ -5,7 +5,13 @@ async function downloadInvoicePdf(visitId) {
     const isWorker = window.location.pathname.includes('/worker/');
     const fetchFunc = isWorker 
       ? (typeof workerFetch === 'function' ? workerFetch : null) 
-      : (typeof gmFetch === 'function' ? gmFetch : (typeof qcAgmFetch === 'function' ? qcAgmFetch : (typeof eoFetch === 'function' ? eoFetch : null)));
+      : (typeof gmFetch === 'function' 
+          ? gmFetch 
+          : (typeof qcAgmFetch === 'function' 
+              ? qcAgmFetch 
+              : (typeof eoFetch === 'function' 
+                  ? eoFetch 
+                  : (typeof piAgmFetch === 'function' ? piAgmFetch : null))));
     
     let endpoint = `/api/gm/invoices/${visitId}`;
     if (isWorker) {

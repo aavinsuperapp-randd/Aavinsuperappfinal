@@ -1663,12 +1663,12 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
 
           // Diary / QC Lab Test: combine QC AGM test result & visit milk weight
           let diary_result = '—';
-          const visitMilkKg = v.milk_quantity_kg || v.in_weight || null;
-          const diaryParts = [];
-          if (visitMilkKg !== null && visitMilkKg !== undefined) {
-            diaryParts.push(`${visitMilkKg} kg`);
-          }
           if (qcTest) {
+            const diaryParts = [];
+            const visitMilkKg = v.milk_quantity_kg || v.in_weight || null;
+            if (visitMilkKg !== null && visitMilkKg !== undefined) {
+              diaryParts.push(`${visitMilkKg} kg`);
+            }
             if (qcTest.fat !== null && qcTest.fat !== undefined) {
               diaryParts.push(`FAT: ${qcTest.fat}%`);
             }
@@ -1678,9 +1678,9 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
             if (qcTest.clr !== null && qcTest.clr !== undefined) {
               diaryParts.push(`CLR: ${qcTest.clr}`);
             }
-          }
-          if (diaryParts.length > 0) {
-            diary_result = diaryParts.join(' | ');
+            if (diaryParts.length > 0) {
+              diary_result = diaryParts.join(' | ');
+            }
           }
 
           return {
@@ -6700,6 +6700,7 @@ app.get('/api/worker/invoices/:visitId', requireWorker, async (req, res) => {
 app.get('/api/gm/invoices', requirePiAgm, async (req, res) => {
   const { adminClient } = req;
   const searchQuery = (req.query.q || '').trim().toLowerCase();
+  const filterDate = (req.query.date || '').trim(); // e.g. 'YYYY-MM-DD' or 'all'
 
   try {
     // Select all completed / visited BMC visits
@@ -6709,7 +6710,7 @@ app.get('/api/gm/invoices', requirePiAgm, async (req, res) => {
       .or(`status.eq.completed,status.eq.visited,visit_end_time.not.is.null,invoice_serial_no.not.is.null`)
       .order('visit_end_time', { ascending: false });
 
-    const { data: visits, error } = await query.limit(300);
+    const { data: visits, error } = await query.limit(500);
     if (error) throw error;
 
     // Enrich with trip + driver data
@@ -6801,6 +6802,22 @@ app.get('/api/gm/invoices', requirePiAgm, async (req, res) => {
         duty_type: tripData.duty_type || '—'
       };
     });
+
+    // Filter by date if provided and not 'all'
+    if (filterDate && filterDate !== 'all') {
+      enriched = enriched.filter(inv => {
+        const time = inv.visit_end_time || inv.visit_start_time;
+        if (!time) return false;
+        try {
+          const d = new Date(time);
+          if (isNaN(d.getTime())) return false;
+          const istDate = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+          return istDate === filterDate || time.startsWith(filterDate);
+        } catch (e) {
+          return false;
+        }
+      });
+    }
 
     // Filter by searchQuery if provided (search by BMC Code, BMC Name, or Invoice Serial Number)
     if (searchQuery) {
