@@ -968,7 +968,7 @@ async function startWorkerLocationTracking(tripId) {
       if (workerPendingPoints.length > 0) {
         flushWorkerGpsQueue(activeTrackingTripId);
       }
-    }, 5000);
+    }, 120000);
   }
 }
 

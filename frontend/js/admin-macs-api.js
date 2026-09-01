@@ -43,24 +43,40 @@ window.switchMacsStream = async function(streamKey) {
 let pendingDeleteAction = null;
 let currentModalSyncRunId = null;
 
-document.addEventListener('DOMContentLoaded', async () => {
-  // Auth is handled by admin.js which runs before this script
+// Single controlled timer handle to prevent duplicate/overlapping intervals
+if (window.macsAutoRefreshInterval) {
+  clearInterval(window.macsAutoRefreshInterval);
+  window.macsAutoRefreshInterval = null;
+}
 
+document.addEventListener('DOMContentLoaded', async () => {
   // Check if we're on the MACS API page
   if (!document.getElementById('macs-data-table')) return;
 
-  // Load initial data
+  // Enforce admin auth check before initiating MACS API requests
+  const profile = await checkAuth('admin');
+  if (!profile) return;
+
+  // Clear any pre-existing interval to prevent duplicate timers
+  if (window.macsAutoRefreshInterval) {
+    clearInterval(window.macsAutoRefreshInterval);
+    window.macsAutoRefreshInterval = null;
+  }
+
+  // Load initial data ONCE on page load
   await Promise.all([
     loadMacsApiStatus(),
     loadMacsApiData(1),
     loadSyncHistory()
   ]);
 
-  // Auto-refresh status & sync history every 60 seconds
-  setInterval(() => {
-    loadMacsApiStatus();
-    loadSyncHistory();
-  }, 60000);
+  // Set single controlled auto-refresh interval: 30 minutes (1,800,000 ms)
+  window.macsAutoRefreshInterval = setInterval(() => {
+    if (document.getElementById('macs-data-table')) {
+      loadMacsApiStatus();
+      loadSyncHistory();
+    }
+  }, 1800000);
 });
 
 // ─── Status Panel ─────────────────────────────────────────────────────────────
