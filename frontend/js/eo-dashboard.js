@@ -165,7 +165,7 @@ function renderOverview(data) {
 
   // KPIs
   if (document.getElementById('kpi-total-trips')) document.getElementById('kpi-total-trips').textContent = kpis.total_trips ?? trips.length;
-  if (document.getElementById('kpi-active-trips')) document.getElementById('kpi-active-trips').textContent = kpis.active_trips ?? trips.filter(t => t.status === 'active').length;
+  if (document.getElementById('kpi-active-trips')) document.getElementById('kpi-active-trips').textContent = kpis.active_trips ?? trips.filter(t => ['started', 'in_progress', 'active', 'returning', 'in_transit'].includes(t.status)).length;
   if (document.getElementById('kpi-completed-trips')) document.getElementById('kpi-completed-trips').textContent = kpis.completed_trips ?? trips.filter(t => t.status === 'completed').length;
   if (document.getElementById('kpi-total-milk')) document.getElementById('kpi-total-milk').textContent = `${(kpis.total_milk_liters || 0).toLocaleString()} kg`;
 
@@ -323,7 +323,7 @@ function exportToPDF() {
   doc.text('1. DASHBOARD SUMMARY', 14, currentY);
 
   const totalTripsVal = String(kpis.total_trips || trips.length || 0);
-  const activeTripsVal = String(kpis.active_trips || trips.filter(t => ['started', 'in_progress', 'active', 'returning'].includes(t.status)).length || 0);
+  const activeTripsVal = String(kpis.active_trips || trips.filter(t => ['started', 'in_progress', 'active', 'returning', 'in_transit'].includes(t.status)).length || 0);
   const finishedTripsVal = String(kpis.completed_trips || trips.filter(t => ['completed', 'finished'].includes(t.status)).length || 0);
   const milkCollectedVal = `${(kpis.total_milk_liters || 0).toLocaleString()} kg`;
 

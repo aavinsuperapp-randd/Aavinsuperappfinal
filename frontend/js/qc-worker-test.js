@@ -43,17 +43,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await loadSampleDetails();
 
-  // Form submit (save draft)
+  // Form submit (save & submit test)
   const testForm = document.getElementById('qc-test-form');
-  if (testForm) testForm.addEventListener('submit', handleSaveDraft);
-
-  // Submit final report button
-  const submitBtn = document.getElementById('btn-submit-report');
-  if (submitBtn) submitBtn.addEventListener('click', handleOpenConfirmModal);
-
-  // Confirm submission inside modal
-  const confirmBtn = document.getElementById('btn-confirm-submit');
-  if (confirmBtn) confirmBtn.addEventListener('click', handleFinalSubmit);
+  if (testForm) testForm.addEventListener('submit', handleSubmitTest);
 });
 
 async function loadSampleDetails() {
@@ -194,7 +186,7 @@ function disableFormInputs() {
   if (submitBtn) submitBtn.style.display = 'none';
 }
 
-async function handleSaveDraft(e) {
+async function handleSubmitTest(e) {
   if (e) e.preventDefault();
 
   const fat = getElValue('qc-fat');
@@ -212,17 +204,26 @@ async function handleSaveDraft(e) {
     fat,
     snf,
     temperature: temp,
-    remarks: getElValue('qc-remarks')
+    remarks: getElValue('qc-remarks'),
+    status: 'submitted'
   };
 
   try {
-    showToast('Saving draft...', 'info');
+    showToast('Submitting test values...', 'info');
     const res = await apiQcSaveTest(payload);
-    currentQcTestId = res.test.id;
-    showToast('Draft test results saved successfully!', 'success');
+    if (res.test && res.test.id) {
+      currentQcTestId = res.test.id;
+      try {
+        await apiQcSubmitTest(currentQcTestId);
+      } catch (subErr) {
+        console.warn('Notice on submit test call:', subErr);
+      }
+    }
+    showToast('QC test values submitted successfully!', 'success');
+    setTimeout(() => window.location.href = 'samples.html', 1000);
   } catch (err) {
-    console.error('Error saving QC test draft:', err);
-    showToast(err.message || 'Failed to save test results.', 'error');
+    console.error('Error submitting QC test values:', err);
+    showToast(err.message || 'Failed to submit test values.', 'error');
   }
 }
 

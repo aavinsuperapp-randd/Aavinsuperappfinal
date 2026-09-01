@@ -1217,7 +1217,7 @@ app.get('/api/gm/dashboard', requirePiAgm, async (req, res) => {
     const tripList = trips || [];
     const total_trips = tripList.length;
     const completed_trips = tripList.filter(t => t.status === 'completed').length;
-    const active_trips = tripList.filter(t => t.status === 'active').length;
+    const active_trips = tripList.filter(t => ['started', 'in_progress', 'active', 'returning', 'in_transit'].includes(t.status)).length;
 
     const { data: visits } = await adminClient
       .from('trip_bmc_visits')
@@ -1448,9 +1448,9 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
       adminClient.from('bmcs').select('*').order('name')
     ]);
 
-    const rawTrips = (tripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted');
+    const rawTrips = (tripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted' && !t.trip_number?.startsWith('QC-LAB') && !t.trip_name?.startsWith('QC Lab'));
     const rawDriverTrips = (driverTripsRes.data || []).filter(dt => dt.status !== 'deleted' && (dt.assignment_status ? dt.assignment_status !== 'deleted' : true));
-    const trendTripList = (trendTripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted');
+    const trendTripList = (trendTripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted' && !t.trip_number?.startsWith('QC-LAB') && !t.trip_name?.startsWith('QC Lab'));
 
     // Build unified trip map, merging driver_trips (Transport Manager duties) with trips
     const tripMapById = {};
@@ -1531,7 +1531,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
 
     // ── KPIs ──
     const total_trips = tripList.length;
-    const active_trips = tripList.filter(t => t.status === 'active').length;
+    const active_trips = tripList.filter(t => ['started', 'in_progress', 'active', 'returning', 'in_transit'].includes(t.status)).length;
     const completed_trips = tripList.filter(t => t.status === 'completed').length;
     const total_bmc_visits = visitList.length;
 
@@ -1585,7 +1585,19 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
 
     // ── Enrich trips with worker, visits, test counts ──
     const enrichedTrips = tripList.map(t => {
-      const tVisits = visitList.filter(v => v.trip_id === t.id);
+      const tVisits = visitList.filter(v => {
+        if (v.trip_id !== t.id) return false;
+        const bmcName = (bmcMap[v.bmc_id] && bmcMap[v.bmc_id].name) || '';
+        const isAssigned = (t.bmc_id === v.bmc_id) ||
+                           (t.route && bmcName && t.route.toLowerCase().includes(bmcName.toLowerCase())) ||
+                           (Array.isArray(t.selected_bmcs) && t.selected_bmcs.some(sb => (sb.bmc_id || sb.id) === v.bmc_id));
+        const hasSpotData = Boolean(
+          (ftirList && ftirList.some(f => f.visit_id === v.id)) ||
+          (gerberList && gerberList.some(g => g.visit_id === v.id)) ||
+          v.milk_quantity_liters || v.milk_quantity_kg || v.in_weight || v.visited_by_worker
+        );
+        return isAssigned || hasSpotData;
+      });
       const tVisitIds = tVisits.map(v => v.id);
       const tFtir = ftirList.filter(f => tVisitIds.includes(f.visit_id)).length;
       const tGerber = gerberList.filter(g => tVisitIds.includes(g.visit_id)).length;
@@ -1762,7 +1774,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
       .filter(p => p.role === 'user' && p.status === 'approved')
       .map(p => {
         const workerTrips = tripList.filter(t => t.worker_id === p.id);
-        const activeTrip = workerTrips.find(t => t.status === 'active');
+        const activeTrip = workerTrips.find(t => ['started', 'in_progress', 'active', 'returning', 'in_transit'].includes(t.status));
         return {
           id: p.id,
           name: p.name,
@@ -2838,7 +2850,7 @@ app.get('/api/worker/dashboard-stats', requireWorker, async (req, res) => {
     res.json({
       total_trips: trips.length,
       completed_trips: trips.filter(t => t.status === 'completed').length,
-      active_trips: trips.filter(t => t.status === 'active').length,
+      active_trips: trips.filter(t => ['started', 'in_progress', 'active', 'returning', 'in_transit'].includes(t.status)).length,
       total_bmc_visits: visits.length,
       completed_bmc_visits: visits.filter(v => v.status === 'completed').length,
     });
@@ -3730,7 +3742,7 @@ app.get('/api/analysis', async (req, res) => {
 
     const totalTrips = tripList.length;
     const completedTrips = tripList.filter(t => t.status === 'completed').length;
-    const activeTrips = tripList.filter(t => t.status === 'active').length;
+    const activeTrips = tripList.filter(t => ['started', 'in_progress', 'active', 'returning', 'in_transit'].includes(t.status)).length;
 
     const totalBmcVisited = visitList.length;
     const completedVisits = visitList.filter(v => v.status === 'completed').length;
@@ -7329,7 +7341,7 @@ app.get('/api/gm/available-workers', requirePiAgm, async (req, res) => {
         .from('trips')
         .select('worker_id')
         .in('worker_id', workerIds)
-        .eq('status', 'active');
+        .in('status', ['started', 'in_progress', 'active', 'returning', 'in_transit']);
       (activeTrips || []).forEach(t => {
         activeTripCounts[t.worker_id] = (activeTripCounts[t.worker_id] || 0) + 1;
       });
@@ -7636,6 +7648,68 @@ app.get('/api/qc-worker/dashboard-trips', requireQcWorker, async (req, res) => {
   }
 });
 
+// Helper to find or create an isolated standalone QC trip & visit for a BMC (so it never pollutes transport duties)
+async function getOrCreateStandaloneQcVisit(adminClient, bmcId, workerId) {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  let { data: qcTrip } = await adminClient
+    .from('trips')
+    .select('id')
+    .ilike('trip_number', 'QC-LAB%')
+    .gte('created_at', todayStart.toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!qcTrip) {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const tripNumber = `QC-LAB-STANDALONE-${dateStr}`;
+    const { data: newTrip, error: tripErr } = await adminClient
+      .from('trips')
+      .insert({
+        trip_name: `QC Lab Standalone`,
+        trip_number: tripNumber,
+        worker_id: workerId || null,
+        status: 'completed',
+        bmc_id: bmcId,
+        created_at: now.toISOString()
+      })
+      .select()
+      .single();
+    if (tripErr) throw tripErr;
+    qcTrip = newTrip;
+  }
+
+  let { data: qcVisit } = await adminClient
+    .from('trip_bmc_visits')
+    .select('*, bmc:bmcs(*), trip:trips(*, worker:profiles!trips_worker_id_fkey(*)), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
+    .eq('bmc_id', bmcId)
+    .eq('trip_id', qcTrip.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!qcVisit) {
+    const { data: newVisit, error: vErr } = await adminClient
+      .from('trip_bmc_visits')
+      .insert([{
+        bmc_id: bmcId,
+        trip_id: qcTrip.id,
+        visit_sequence: 1,
+        status: 'completed',
+        created_at: new Date().toISOString()
+      }])
+      .select('*, bmc:bmcs(*), trip:trips(*, worker:profiles!trips_worker_id_fkey(*)), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
+      .single();
+    if (vErr) throw vErr;
+    qcVisit = newVisit;
+  }
+
+  return qcVisit;
+}
+
 // GET /api/qc-worker/samples
 app.get('/api/qc-worker/samples', requireQcWorker, async (req, res) => {
   const { adminClient } = req;
@@ -7676,91 +7750,26 @@ app.get('/api/qc-worker/samples/:id', requireQcWorker, async (req, res) => {
     const rawId = req.params.id;
     if (rawId && rawId.startsWith('bmc_')) {
       const bmcId = rawId.replace('bmc_', '');
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      // Check if a visit exists today with actual Spot Analyst data (FTIR/Gerber tests)
       const { data: existingVisits } = await adminClient
         .from('trip_bmc_visits')
         .select('*, bmc:bmcs(*), trip:trips(*, worker:profiles!trips_worker_id_fkey(*)), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
         .eq('bmc_id', bmcId)
+        .gte('created_at', todayStart.toISOString())
         .order('created_at', { ascending: false });
 
-      if (existingVisits && existingVisits.length > 0) {
-        return res.json({ sample: existingVisits[0] });
+      const spotVisit = (existingVisits || []).find(v => (v.ftir_tests && v.ftir_tests.length > 0) || (v.gerber_tests && v.gerber_tests.length > 0) || v.visited_by_worker);
+
+      if (spotVisit) {
+        return res.json({ sample: spotVisit });
       }
 
-      // No existing visit for this BMC — we need to create one with a valid trip_id
-      const { data: bmc } = await adminClient.from('bmcs').select('*').eq('id', bmcId).single();
-      if (!bmc) return res.status(404).json({ error: 'BMC not found.' });
-
-      // 1. Try to find an existing trip that has this BMC assigned (e.g. from transport)
-      let tripId = null;
-      const { data: tripsWithBmc } = await adminClient
-        .from('trips')
-        .select('id')
-        .eq('bmc_id', bmcId)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      if (tripsWithBmc && tripsWithBmc.length > 0) {
-        tripId = tripsWithBmc[0].id;
-      }
-
-      // 2. If no trip found, look for a recent trip today that could serve as context
-      if (!tripId) {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const { data: recentTrips } = await adminClient
-          .from('trips')
-          .select('id')
-          .gte('created_at', todayStart.toISOString())
-          .order('created_at', { ascending: false })
-          .limit(1);
-        if (recentTrips && recentTrips.length > 0) {
-          tripId = recentTrips[0].id;
-        }
-      }
-
-      // 3. Last resort — create a dedicated QC Lab trip for this testing session
-      if (!tripId) {
-        const now = new Date();
-        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-        const tripNumber = `QC-LAB-${dateStr}-${now.getTime().toString(36).toUpperCase()}`;
-        const { data: qcTrip, error: tripErr } = await adminClient
-          .from('trips')
-          .insert({
-            trip_name: `QC Lab Test - ${bmc.name || 'BMC'}`,
-            trip_number: tripNumber,
-            worker_id: req.profile.id,
-            status: 'in_progress',
-            bmc_id: bmc.id,
-            created_at: now.toISOString()
-          })
-          .select()
-          .single();
-        if (tripErr || !qcTrip) throw tripErr || new Error('Failed to create QC lab trip context.');
-        tripId = qcTrip.id;
-      }
-
-      // Calculate next visit sequence for the trip
-      const { data: existingSeq } = await adminClient
-        .from('trip_bmc_visits')
-        .select('visit_sequence')
-        .eq('trip_id', tripId)
-        .order('visit_sequence', { ascending: false })
-        .limit(1);
-      const nextSeq = existingSeq && existingSeq.length > 0 ? (existingSeq[0].visit_sequence || 0) + 1 : 1;
-
-      const { data: newVisit, error: vErr } = await adminClient
-        .from('trip_bmc_visits')
-        .insert([{
-          bmc_id: bmc.id,
-          trip_id: tripId,
-          visit_sequence: nextSeq,
-          status: 'completed',
-          created_at: new Date().toISOString()
-        }])
-        .select('*, bmc:bmcs(*), trip:trips(*, worker:profiles!trips_worker_id_fkey(*)), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
-        .single();
-
-      if (vErr || !newVisit) throw vErr || new Error('Failed to create sample visit.');
-      return res.json({ sample: newVisit });
+      // No Spot Analyst visit for this BMC today — return standalone QC visit
+      const standaloneVisit = await getOrCreateStandaloneQcVisit(adminClient, bmcId, req.profile.id);
+      return res.json({ sample: standaloneVisit });
     }
 
     // Handle bmc_code_ prefix — resolve BMC by code, then use the same logic as bmc_ prefix
@@ -7773,31 +7782,21 @@ app.get('/api/qc-worker/samples/:id', requireQcWorker, async (req, res) => {
         .maybeSingle();
       if (!bmcByCode) return res.status(404).json({ error: `BMC with code "${bmcCode}" not found.` });
       
-      // Look for existing visits for this BMC
+      // Look for existing visits for this BMC with Spot Analyst data
       const { data: existingCodeVisits } = await adminClient
         .from('trip_bmc_visits')
         .select('*, bmc:bmcs(*), trip:trips(*, worker:profiles!trips_worker_id_fkey(*)), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
         .eq('bmc_id', bmcByCode.id)
         .order('created_at', { ascending: false });
 
-      if (existingCodeVisits && existingCodeVisits.length > 0) {
-        return res.json({ sample: existingCodeVisits[0] });
+      const spotCodeVisit = (existingCodeVisits || []).find(v => (v.ftir_tests && v.ftir_tests.length > 0) || (v.gerber_tests && v.gerber_tests.length > 0) || v.visited_by_worker);
+
+      if (spotCodeVisit) {
+        return res.json({ sample: spotCodeVisit });
       }
 
-      // No existing visit — return the BMC info as a lightweight sample stub
-      const { data: bmcFull } = await adminClient.from('bmcs').select('*').eq('id', bmcByCode.id).single();
-      return res.json({
-        sample: {
-          id: `bmc_${bmcByCode.id}`,
-          bmc_id: bmcByCode.id,
-          bmc: bmcFull,
-          trip: null,
-          ftir_tests: [],
-          gerber_tests: [],
-          qc_test: null,
-          status: 'completed'
-        }
-      });
+      const standaloneVisit = await getOrCreateStandaloneQcVisit(adminClient, bmcByCode.id, req.profile.id);
+      return res.json({ sample: standaloneVisit });
     }
 
     const { data: visit, error } = await adminClient
@@ -8201,89 +8200,24 @@ app.post('/api/qc-worker/tests', requireQcWorker, async (req, res) => {
     let resolvedVisitId = visit_id;
     if (typeof visit_id === 'string' && visit_id.startsWith('bmc_')) {
       const bmcId = visit_id.replace('bmc_', '');
-      // Check for existing visits for this BMC
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      // Check for existing visits for this BMC TODAY with Spot Analyst data
       const { data: existingVisits } = await adminClient
         .from('trip_bmc_visits')
-        .select('id')
+        .select('id, ftir_tests(*), gerber_tests(*), visited_by_worker')
         .eq('bmc_id', bmcId)
-        .order('created_at', { ascending: false })
-        .limit(1);
+        .gte('created_at', todayStart.toISOString())
+        .order('created_at', { ascending: false });
 
-      if (existingVisits && existingVisits.length > 0) {
-        resolvedVisitId = existingVisits[0].id;
+      const spotVisit = (existingVisits || []).find(v => (v.ftir_tests && v.ftir_tests.length > 0) || (v.gerber_tests && v.gerber_tests.length > 0) || v.visited_by_worker);
+
+      if (spotVisit) {
+        resolvedVisitId = spotVisit.id;
       } else {
-        // Need to create a visit with a proper trip_id
-        const { data: bmc } = await adminClient.from('bmcs').select('*').eq('id', bmcId).maybeSingle();
-        if (!bmc) return res.status(404).json({ error: 'BMC not found for the given visit_id.' });
-
-        let tripId = null;
-
-        // Try existing trip for this BMC
-        const { data: tripsWithBmc } = await adminClient
-          .from('trips')
-          .select('id')
-          .eq('bmc_id', bmcId)
-          .order('created_at', { ascending: false })
-          .limit(1);
-        if (tripsWithBmc && tripsWithBmc.length > 0) tripId = tripsWithBmc[0].id;
-
-        // Try any trip today
-        if (!tripId) {
-          const todayStart = new Date();
-          todayStart.setHours(0, 0, 0, 0);
-          const { data: recentTrips } = await adminClient
-            .from('trips')
-            .select('id')
-            .gte('created_at', todayStart.toISOString())
-            .order('created_at', { ascending: false })
-            .limit(1);
-          if (recentTrips && recentTrips.length > 0) tripId = recentTrips[0].id;
-        }
-
-        // Create QC Lab trip as last resort
-        if (!tripId) {
-          const now = new Date();
-          const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-          const tripNumber = `QC-LAB-${dateStr}-${now.getTime().toString(36).toUpperCase()}`;
-          const { data: qcTrip, error: tripErr } = await adminClient
-            .from('trips')
-            .insert({
-              trip_name: `QC Lab Test - ${bmc.name || 'BMC'}`,
-              trip_number: tripNumber,
-              worker_id: profile.id,
-              status: 'in_progress',
-              bmc_id: bmc.id,
-              created_at: now.toISOString()
-            })
-            .select()
-            .single();
-          if (tripErr || !qcTrip) throw tripErr || new Error('Failed to create QC lab trip.');
-          tripId = qcTrip.id;
-        }
-
-        // Calculate next visit sequence for the trip
-        const { data: existingSeq } = await adminClient
-          .from('trip_bmc_visits')
-          .select('visit_sequence')
-          .eq('trip_id', tripId)
-          .order('visit_sequence', { ascending: false })
-          .limit(1);
-        const nextSeq = existingSeq && existingSeq.length > 0 ? (existingSeq[0].visit_sequence || 0) + 1 : 1;
-
-        // Create the visit
-        const { data: newVisit, error: vErr } = await adminClient
-          .from('trip_bmc_visits')
-          .insert([{
-            bmc_id: bmc.id,
-            trip_id: tripId,
-            visit_sequence: nextSeq,
-            status: 'completed',
-            created_at: new Date().toISOString()
-          }])
-          .select('id')
-          .single();
-        if (vErr || !newVisit) throw vErr || new Error('Failed to create sample visit for test.');
-        resolvedVisitId = newVisit.id;
+        const standaloneVisit = await getOrCreateStandaloneQcVisit(adminClient, bmcId, profile.id);
+        resolvedVisitId = standaloneVisit.id;
       }
     }
 
@@ -8314,7 +8248,7 @@ app.post('/api/qc-worker/tests', requireQcWorker, async (req, res) => {
       overall_result: overall_result || 'pass',
       remarks: remarks || null,
       additional_observations: additional_observations || null,
-      status: existing ? (existing.status === 'returned' ? 'in_progress' : existing.status) : 'in_progress',
+      status: req.body.status || (fat !== undefined && fat !== null && fat !== '' && snf !== undefined && snf !== null && snf !== '' ? 'submitted' : (existing ? (existing.status === 'returned' ? 'in_progress' : existing.status) : 'in_progress')),
       updated_at: new Date().toISOString()
     };
 
@@ -10459,7 +10393,7 @@ async function workerAnalysisHandler(req, res) {
         work_time_formatted: workTimeFormatted,
         total_trips: tripList.length,
         completed_trips: completedTrips.length,
-        active_trips: tripList.filter(t => t.status === 'active' || t.status === 'in_progress').length
+        active_trips: tripList.filter(t => ['started', 'in_progress', 'active', 'returning', 'in_transit'].includes(t.status)).length
       },
       trips: enrichedTrips,
       visits: verifiedVisits

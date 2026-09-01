@@ -42,7 +42,14 @@ function filterSamples() {
 
     const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
     let currentStatus = 'pending';
-    if (qcTest) currentStatus = qcTest.status;
+    if (qcTest) {
+      const isCompleted = qcTest.status === 'submitted' || qcTest.status === 'approved' || (qcTest.fat != null && qcTest.snf != null && String(qcTest.fat).trim() !== '' && String(qcTest.snf).trim() !== '');
+      if (isCompleted) {
+        currentStatus = 'submitted';
+      } else {
+        currentStatus = qcTest.status;
+      }
+    }
 
     const matchesStatus = statusFilter === 'all' || currentStatus === statusFilter;
 
@@ -95,18 +102,17 @@ function renderSamplesTable(samples) {
     let btnText = '🧪 Test Sample';
 
     if (qcTest) {
-      if (qcTest.status === 'in_progress') {
-        statusPill = `<span class="qc-pill pill-progress">Testing in Progress</span>`;
-        btnText = '📝 Continue Test';
-      } else if (qcTest.status === 'submitted') {
-        statusPill = `<span class="qc-pill pill-submitted">Submitted</span>`;
-        btnText = '👁️ View Report';
-      } else if (qcTest.status === 'approved') {
-        statusPill = `<span class="qc-pill pill-approved">Approved</span>`;
+      const isCompleted = qcTest.status === 'submitted' || qcTest.status === 'approved' || (qcTest.fat != null && qcTest.snf != null && String(qcTest.fat).trim() !== '' && String(qcTest.snf).trim() !== '');
+
+      if (isCompleted) {
+        statusPill = `<span class="qc-pill pill-submitted">Completed</span>`;
         btnText = '👁️ View Report';
       } else if (qcTest.status === 'returned') {
         statusPill = `<span class="qc-pill pill-returned">Returned for Correction</span>`;
         btnText = '✏️ Edit & Resubmit';
+      } else if (qcTest.status === 'in_progress') {
+        statusPill = `<span class="qc-pill pill-progress">Testing in Progress</span>`;
+        btnText = '📝 Continue Test';
       }
     }
 
