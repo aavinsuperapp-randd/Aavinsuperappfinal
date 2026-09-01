@@ -771,7 +771,8 @@ async function viewDutyDetails(dutyId) {
 
   // Clean user remarks (strip internal __BMC_DATA__ string)
   const cleanRemarks = (duty.remarks || '').split('\n__BMC_DATA__=')[0].trim();
-  document.getElementById('duty-remarks').textContent = cleanRemarks || 'No remarks';
+  const remarksEl = document.getElementById('duty-remarks');
+  if (remarksEl) remarksEl.textContent = cleanRemarks || 'No remarks';
 
   setupDutyMap(duty);
 
