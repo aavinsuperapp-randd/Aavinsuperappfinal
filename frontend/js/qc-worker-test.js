@@ -75,6 +75,18 @@ function renderSampleInfo() {
   setElText('info-coll-time', s.visit_end_time ? new Date(s.visit_end_time).toLocaleString() : 'N/A');
   setElText('info-compartment', s.compartment ? s.compartment.toUpperCase() : 'N/A');
   setElText('info-tanker', s.trip ? (s.trip.tanker_number || '-') : '-');
+
+  const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
+  let qtyVal = s.milk_quantity_kg || s.in_weight || (s.milk_quantity_liters ? `${s.milk_quantity_liters} L` : null);
+  if (qcTest) {
+    let savedQty = qcTest.quantity || qcTest.quantity_kg || qcTest.sample_kg || qcTest.sample_liters;
+    if (!savedQty && qcTest.additional_observations) {
+      const match = qcTest.additional_observations.match(/\[QTY_KG:\s*([\d.]+)]/);
+      if (match) savedQty = match[1];
+    }
+    if (savedQty) qtyVal = savedQty;
+  }
+  setElText('info-quantity', qtyVal ? `${qtyVal} KG` : 'Not Specified');
 }
 
 function renderBmcTestResult() {
@@ -150,6 +162,14 @@ function populateQcForm() {
     setElValue('qc-condition', qcTest.sample_condition || 'good');
     setElValue('qc-remarks', qcTest.remarks);
 
+    let savedQty = qcTest.quantity || qcTest.quantity_kg || qcTest.sample_kg || qcTest.sample_liters || '';
+    if (!savedQty && qcTest.additional_observations) {
+      const match = qcTest.additional_observations.match(/\[QTY_KG:\s*([\d.]+)]/);
+      if (match) savedQty = match[1];
+    }
+    if (!savedQty && s.milk_quantity_kg) savedQty = s.milk_quantity_kg;
+    setElValue('qc-quantity', savedQty);
+
     if (qcTest.created_at || qcTest.received_at) {
       const recTime = qcTest.received_at || qcTest.created_at;
       setElValue('qc-received-time', new Date(recTime).toISOString().slice(0, 16));
@@ -170,9 +190,10 @@ function populateQcForm() {
       }
     }
   } else {
-    // Auto fill sample received time to current time
+    // Auto fill sample received time to current time and milk quantity if present
     const nowIso = new Date().toISOString().slice(0, 16);
     setElValue('qc-received-time', nowIso);
+    setElValue('qc-quantity', s.milk_quantity_kg || s.in_weight || '');
   }
 }
 
@@ -192,6 +213,7 @@ async function handleSubmitTest(e) {
   const fat = getElValue('qc-fat');
   const snf = getElValue('qc-snf');
   const temp = getElValue('qc-temp');
+  const qtyInput = getElValue('qc-quantity');
 
   if (!fat || !snf) {
     showToast('Fat % and SNF % are required parameters.', 'error');
@@ -204,6 +226,11 @@ async function handleSubmitTest(e) {
     fat,
     snf,
     temperature: temp,
+    quantity: qtyInput !== '' && qtyInput !== null ? parseFloat(qtyInput) : null,
+    quantity_kg: qtyInput !== '' && qtyInput !== null ? parseFloat(qtyInput) : null,
+    sample_kg: qtyInput !== '' && qtyInput !== null ? parseFloat(qtyInput) : null,
+    sample_liters: qtyInput !== '' && qtyInput !== null ? parseFloat(qtyInput) : null,
+    milk_quantity_kg: qtyInput !== '' && qtyInput !== null ? parseFloat(qtyInput) : null,
     remarks: getElValue('qc-remarks'),
     status: 'submitted'
   };

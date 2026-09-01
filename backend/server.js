@@ -8223,9 +8223,33 @@ app.post('/api/qc-worker/tests', requireQcWorker, async (req, res) => {
 
     const { data: existing } = await adminClient
       .from('qc_lab_tests')
-      .select('id, status')
+      .select('id, status, additional_observations')
       .eq('visit_id', resolvedVisitId)
       .maybeSingle();
+
+    const rawQty = req.body.quantity ?? req.body.quantity_kg ?? req.body.sample_kg ?? req.body.sample_liters ?? req.body.milk_quantity_kg;
+    const qtyVal = (rawQty !== undefined && rawQty !== '' && rawQty !== null && !isNaN(parseFloat(rawQty))) ? parseFloat(rawQty) : null;
+
+    let obs = additional_observations || (existing ? existing.additional_observations : '') || '';
+    if (qtyVal !== null) {
+      obs = obs.replace(/\[QTY_KG:\s*[\d.]+\s*\]/g, '').trim();
+      obs = obs ? `${obs} [QTY_KG:${qtyVal}]` : `[QTY_KG:${qtyVal}]`;
+    }
+
+    if (qtyVal !== null && resolvedVisitId) {
+      try {
+        await adminClient
+          .from('trip_bmc_visits')
+          .update({
+            milk_quantity_kg: qtyVal,
+            milk_quantity_liters: parseFloat((qtyVal / 1.03).toFixed(2)),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', resolvedVisitId);
+      } catch (visitQtyErr) {
+        console.warn('Notice on updating visit milk quantity:', visitQtyErr.message);
+      }
+    }
 
     const payload = {
       visit_id: resolvedVisitId,
@@ -8247,7 +8271,7 @@ app.post('/api/qc-worker/tests', requireQcWorker, async (req, res) => {
       instrument_id: instrument_id || null,
       overall_result: overall_result || 'pass',
       remarks: remarks || null,
-      additional_observations: additional_observations || null,
+      additional_observations: obs || null,
       status: req.body.status || (fat !== undefined && fat !== null && fat !== '' && snf !== undefined && snf !== null && snf !== '' ? 'submitted' : (existing ? (existing.status === 'returned' ? 'in_progress' : existing.status) : 'in_progress')),
       updated_at: new Date().toISOString()
     };
@@ -8270,6 +8294,13 @@ app.post('/api/qc-worker/tests', requireQcWorker, async (req, res) => {
         .single();
       if (error) throw error;
       resultData = data;
+    }
+
+    if (resultData) {
+      resultData.quantity = qtyVal;
+      resultData.quantity_kg = qtyVal;
+      resultData.sample_kg = qtyVal;
+      resultData.milk_quantity_kg = qtyVal;
     }
 
     res.json({ success: true, test: resultData });
