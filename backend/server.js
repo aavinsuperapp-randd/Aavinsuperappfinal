@@ -34,7 +34,7 @@ app.use(cors({
     ) {
       return callback(null, true);
     }
-    return callback(null, true);
+    return callback(new Error('CORS policy violation'), false);
   },
   credentials: true
 }));
@@ -283,7 +283,7 @@ async function getLatestLiveMacsByBmcCode(adminClient, dateStr) {
   try {
     const { data: rows, error } = await adminClient
       .from('macs_api_bmc_data')
-      .select('*, sync_run:macs_api_sync_runs(error_message)')
+      .select('*, sync_run:macs_api_sync_runs(error_message, status)')
       .eq('report_date', macsDate)
       .order('fetched_at', { ascending: false });
 
@@ -303,7 +303,7 @@ async function getLatestLiveMacsByBmcCode(adminClient, dateStr) {
         if (msg.includes('MORNING')) rowStream = 'morning';
         else if (msg.includes('EVENING')) rowStream = 'evening';
 
-        if (msg.includes('DAILY_2355_')) {
+        if (msg.includes('DAILY_2355_') && row.sync_run.status === 'success') {
           isDailySnapshot = true;
         }
       }
@@ -384,7 +384,7 @@ async function getLiveMacsHistoryForBmc(adminClient, bmcCode, fromDate, toDate, 
   try {
     let query = adminClient
       .from('macs_api_bmc_data')
-      .select('*, sync_run:macs_api_sync_runs(error_message)')
+      .select('*, sync_run:macs_api_sync_runs(error_message, status)')
       .eq('macs_bmc_code', parseInt(bmcCode) || bmcCode)
       .order('fetched_at', { ascending: false });
 
@@ -411,7 +411,7 @@ async function getLiveMacsHistoryForBmc(adminClient, bmcCode, fromDate, toDate, 
         const msg = row.sync_run.error_message.toUpperCase();
         if (msg.includes('MORNING')) rowStream = 'morning';
         else if (msg.includes('EVENING')) rowStream = 'evening';
-        if (msg.includes('DAILY_2355_')) {
+        if (msg.includes('DAILY_2355_') && row.sync_run.status === 'success') {
           isDailySnapshot = true;
         }
       }
@@ -668,12 +668,15 @@ app.delete('/api/admin/users/:id', requireAdminRole, async (req, res) => {
 
 // Helper function for safe table cleanup without builder syntax errors
 async function safeDeleteTable(client, tableName) {
-  try {
-    const dummyId = '00000000-0000-0000-0000-000000000000';
-    const { error } = await client.from(tableName).delete().neq('id', dummyId);
-    if (error) console.warn(`Notice deleting from ${tableName}:`, error.message);
-  } catch (err) {
-    console.warn(`Notice deleting from ${tableName}:`, err.message);
+  const dummyId = '00000000-0000-0000-0000-000000000000';
+  const { error } = await client.from(tableName).delete().neq('id', dummyId);
+  if (error) {
+    if (error.code === 'PGRST205' || (error.message && error.message.includes('Could not find the table'))) {
+      console.log(`[RESET] Skipping missing table: ${tableName}`);
+      return;
+    }
+    console.error(`Error deleting from ${tableName}:`, error.message);
+    throw error;
   }
 }
 
@@ -3747,114 +3750,7 @@ app.post('/api/visits/:visitId/rating', requireWorker, async (req, res) => {
   res.json({ rating: result.data });
 });
 
-// ─── GET /api/analysis ────────────────────────────────────────────────────────
-app.get('/api/analysis', async (req, res) => {
-  const adminClient = getAdminClient();
-  if (!adminClient) return res.status(503).json({ error: 'Server not configured.' });
 
-  try {
-    let { startDate, endDate } = req.query;
-    let startIso, endIso;
-
-    if (startDate) {
-      startIso = new Date(startDate + 'T00:00:00.000Z').toISOString();
-    } else {
-      const d = new Date();
-      d.setDate(d.getDate() - 7);
-      startIso = d.toISOString();
-    }
-
-    if (endDate) {
-      endIso = new Date(endDate + 'T23:59:59.999Z').toISOString();
-    } else {
-      endIso = new Date().toISOString();
-    }
-
-    const { data: trips } = await adminClient
-      .from('trips')
-      .select('*, driver:drivers(name), tanker:tankers(board_number)')
-      .gte('created_at', startIso)
-      .lte('created_at', endIso)
-      .order('created_at', { ascending: false });
-
-    const { data: visits } = await adminClient
-      .from('trip_bmc_visits')
-      .select(`*, bmc:bmcs(*),
-        ftir_tests(*), gerber_tests(*),
-        requirement_checks(*), bmc_issues(*), bmc_ratings(*)`)
-      .gte('created_at', startIso)
-      .lte('created_at', endIso)
-      .order('created_at', { ascending: false });
-
-    const tripList = trips || [];
-    const visitList = visits || [];
-
-    const totalTrips = tripList.length;
-    const completedTrips = tripList.filter(t => t.status === 'completed').length;
-    const activeTrips = tripList.filter(t => ['started', 'in_progress', 'active', 'returning', 'in_transit'].includes(t.status)).length;
-
-    const totalBmcVisited = visitList.length;
-    const completedVisits = visitList.filter(v => v.status === 'completed').length;
-
-    let totalMilkKg = 0;
-    let ftirPass = 0, ftirWarn = 0, ftirFail = 0;
-    let gerberPass = 0, gerberWarn = 0, gerberFail = 0;
-    let totalIssues = 0;
-    let ratingSum = 0, ratingCount = 0;
-
-    visitList.forEach(v => {
-      if (v.milk_quantity_liters) totalMilkKg += Number(v.milk_quantity_liters);
-
-      const ftir = Array.isArray(v.ftir_tests) ? v.ftir_tests[0] : v.ftir_tests;
-      if (ftir && ftir.overall_result) {
-        if (ftir.overall_result === 'pass') ftirPass++;
-        else if (ftir.overall_result === 'warning') ftirWarn++;
-        else if (ftir.overall_result === 'fail') ftirFail++;
-      }
-
-      const gerber = Array.isArray(v.gerber_tests) ? v.gerber_tests[0] : v.gerber_tests;
-      if (gerber && gerber.overall_result) {
-        if (gerber.overall_result === 'pass') gerberPass++;
-        else if (gerber.overall_result === 'warning') gerberWarn++;
-        else if (gerber.overall_result === 'fail') gerberFail++;
-      }
-
-      if (v.bmc_issues && Array.isArray(v.bmc_issues)) {
-        totalIssues += v.bmc_issues.length;
-      }
-
-      const rating = Array.isArray(v.bmc_ratings) ? v.bmc_ratings[0] : v.bmc_ratings;
-      if (rating) {
-        const score = rating.behaviour || rating.overall_rating || 5;
-        ratingSum += Number(score);
-        ratingCount++;
-      }
-    });
-
-    const avgRating = ratingCount > 0 ? (ratingSum / ratingCount).toFixed(1) : '5.0';
-
-    res.json({
-      filter: { startDate, endDate, startIso, endIso },
-      kpis: {
-        total_trips: totalTrips,
-        completed_trips: completedTrips,
-        active_trips: activeTrips,
-        total_bmc_visited: totalBmcVisited,
-        completed_visits: completedVisits,
-        total_milk_kg: Math.round(totalMilkKg),
-        total_issues: totalIssues,
-        avg_rating: avgRating,
-        ftir_stats: { pass: ftirPass, warning: ftirWarn, fail: ftirFail },
-        gerber_stats: { pass: gerberPass, warning: gerberWarn, fail: gerberFail }
-      },
-      trips: tripList,
-      visits: visitList
-    });
-  } catch (err) {
-    console.error('Analysis API error:', err);
-    res.status(500).json({ error: err.message || 'Failed to fetch analysis.' });
-  }
-});
 
 
 
@@ -9815,11 +9711,8 @@ app.delete('/api/qc-agm/macs/readings/:id', requireQcAgm, async (req, res) => {
 
 // DELETE /api/qc-agm/macs/import-batch/:batchId — Delete MACS import batch & all mapped daily rows
 async function handleDeleteImportBatch(req, res) {
-  const token = (req.headers.authorization || '').replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Authorization header required.' });
-
   try {
-    const adminClient = req.adminClient || getAdminClient();
+    const adminClient = req.adminClient;
     if (!adminClient) return res.status(503).json({ error: 'Database client not available.' });
 
     const batchId = req.params.batchId || req.params.id;
@@ -9846,8 +9739,8 @@ async function handleDeleteImportBatch(req, res) {
   }
 }
 
-app.delete('/api/qc-agm/macs/import-batch/:batchId', handleDeleteImportBatch);
-app.delete('/api/qc-agm/macs/import/:id', handleDeleteImportBatch);
+app.delete('/api/qc-agm/macs/import-batch/:batchId', requireQcAgm, handleDeleteImportBatch);
+app.delete('/api/qc-agm/macs/import/:id', requireQcAgm, handleDeleteImportBatch);
 
 // GET /api/pi-agm/bmcs/:bmcCode/daily-comparison — Side-by-side MACS vs Spot vs Diary comparison
 app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, res) => {
@@ -9976,49 +9869,6 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
   }
 });
 
-// GET /api/trips/:id — Fetch single trip details for worker & close trip modal
-app.get('/api/trips/:id', requireWorker, async (req, res) => {
-  const { adminClient } = req;
-  const { id } = req.params;
-  try {
-    const { data: dt, error } = await adminClient
-      .from('driver_trips')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-
-    let tripObj = null;
-
-    if (dt) {
-      tripObj = {
-        ...dt,
-        out_km: dt.out_km !== null && dt.out_km !== undefined ? dt.out_km : null,
-        out_weight: dt.out_weight !== null && dt.out_weight !== undefined ? dt.out_weight : (dt.out_tanker_weight !== null && dt.out_tanker_weight !== undefined ? dt.out_tanker_weight : null),
-        out_tanker_weight: dt.out_weight !== null && dt.out_weight !== undefined ? dt.out_weight : (dt.out_tanker_weight !== null && dt.out_tanker_weight !== undefined ? dt.out_tanker_weight : null),
-        in_km: dt.in_km !== null && dt.in_km !== undefined ? dt.in_km : null,
-        in_weight: dt.in_weight !== null && dt.in_weight !== undefined ? dt.in_weight : null
-      };
-    } else {
-      const { data: t } = await adminClient
-        .from('trips')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
-      if (!t) return res.status(404).json({ error: 'Trip not found.' });
-      tripObj = t;
-    }
-
-    const { data: visits } = await adminClient
-      .from('trip_bmc_visits')
-      .select('*, bmc:bmcs(*)')
-      .eq('trip_id', id)
-      .order('visit_sequence', { ascending: true });
-
-    res.json({ trip: tripObj, visits: visits || [] });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // PATCH /api/trips/:id/start-worker — Worker measurement start trip input (transitions status to in_progress)
 app.patch('/api/trips/:id/start-worker', requireWorker, async (req, res) => {
@@ -10164,8 +10014,8 @@ const handleStartSpotTrip = async (req, res) => {
   }
 };
 
-app.post('/api/trips/:id/start-spot', handleStartSpotTrip);
-app.patch('/api/trips/:id/start-spot', handleStartSpotTrip);
+app.post('/api/trips/:id/start-spot', requireAuthAny, handleStartSpotTrip);
+app.patch('/api/trips/:id/start-spot', requireAuthAny, handleStartSpotTrip);
 
 // PATCH /api/trips/:id/complete-worker — Worker measurement complete/end trip input
 app.patch('/api/trips/:id/complete-worker', requireWorker, async (req, res) => {
@@ -10482,7 +10332,6 @@ async function workerAnalysisHandler(req, res) {
 }
 
 app.get('/api/worker/analysis', requireWorker, workerAnalysisHandler);
-app.get('/api/analysis', requireWorker, workerAnalysisHandler);
 
 // GET /api/pi-agm/mileage — P&I Mileage Dashboard Endpoint
 app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
@@ -10690,7 +10539,7 @@ async function enforceMacsRetention(adminClient) {
       syncRunStreamMap.set(r.id, stream);
 
       const isExplicitTag = r.error_message && (r.error_message.includes('DAILY_2355_') || r.error_message === 'DAILY_2355_SNAPSHOT');
-      if (isExplicitTag) {
+      if (isExplicitTag && r.status === 'success') {
         dailySyncRunIds.add(r.id);
       }
     });
@@ -11120,6 +10969,9 @@ function scheduleNextDaily2355Sync() {
   console.log(`🌙 MACS DAILY SCHEDULER: Next snapshot at ${istDateStr} ${istTimeStr} IST (${next1825UTC.toISOString()} UTC) — in ${(msUntilNext / 60000).toFixed(1)} mins`);
 
   setTimeout(() => {
+    // ── Compute and lock the ONE COMMON snapshot date BEFORE waiting for any lock ──
+    const lockedSnapshotDate = getIstDateStr();
+
     const runDaily = async () => {
       if (macsSchedulerState.isRunning) {
         console.log('⏳ MACS DAILY SCHEDULER: Live sync in progress. Waiting 30 seconds...');
@@ -11128,14 +10980,11 @@ function scheduleNextDaily2355Sync() {
       }
 
       macsSchedulerState.isRunning = true;
+      
+      const snapshotDate = lockedSnapshotDate;
 
-      // ── Compute the ONE COMMON snapshot date at execution time in IST ──
       const execNow = new Date();
       const istExec = new Date(execNow.getTime() + (5.5 * 60 * 60 * 1000));
-      const snapshotDD = String(istExec.getUTCDate()).padStart(2, '0');
-      const snapshotMM = String(istExec.getUTCMonth() + 1).padStart(2, '0');
-      const snapshotYYYY = istExec.getUTCFullYear();
-      const snapshotDate = `${snapshotDD}/${snapshotMM}/${snapshotYYYY}`;
 
       const istExecTime = String(istExec.getUTCHours()).padStart(2, '0') + ':' +
         String(istExec.getUTCMinutes()).padStart(2, '0') + ':' +
