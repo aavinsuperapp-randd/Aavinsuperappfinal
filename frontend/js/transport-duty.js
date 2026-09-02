@@ -1030,7 +1030,7 @@ async function setupDutyMap(duty) {
       updateMapData(duty.id);
       
       if (['started', 'in_progress', 'active', 'returning'].includes(duty.status)) {
-        dutyMapInterval = setInterval(() => updateMapData(duty.id), 120000);
+        dutyMapInterval = setInterval(() => updateMapData(duty.id), 10000);
       }
     }, 300);
   } else {
@@ -1140,7 +1140,7 @@ function setupAllActiveMap() {
   }, 400);
 
   if (allActiveMapInterval) clearInterval(allActiveMapInterval);
-  allActiveMapInterval = setInterval(updateAllActiveMapData, 120000);
+  allActiveMapInterval = setInterval(updateAllActiveMapData, 10000);
 }
 
 async function updateAllActiveMapData() {

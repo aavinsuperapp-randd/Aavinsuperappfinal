@@ -10643,12 +10643,7 @@ async function enforceMacsRetention(adminClient) {
       syncRunStreamMap.set(r.id, stream);
 
       const isExplicitTag = r.error_message && (r.error_message.includes('DAILY_2355_') || r.error_message === 'DAILY_2355_SNAPSHOT');
-      let is2355Time = false;
-      if (r.started_at) {
-        const d = new Date(r.started_at);
-        is2355Time = d.getHours() === 23 && d.getMinutes() >= 50;
-      }
-      if (isExplicitTag || is2355Time) {
+      if (isExplicitTag) {
         dailySyncRunIds.add(r.id);
       }
     });
@@ -10674,10 +10669,8 @@ async function enforceMacsRetention(adminClient) {
 
     for (const row of allRows) {
       const isDailyRun = row.sync_run_id && dailySyncRunIds.has(row.sync_run_id);
-      const fetchedDate = row.fetched_at ? new Date(row.fetched_at) : null;
-      const is2355Time = fetchedDate && fetchedDate.getHours() === 23 && fetchedDate.getMinutes() >= 50;
 
-      if (isDailyRun || is2355Time) {
+      if (isDailyRun) {
         permanentCount++; // Permanent daily snapshot — DO NOT DELETE
       } else {
         pollingRows.push(row);
@@ -10789,12 +10782,18 @@ async function macsBmcSyncService(options = {}) {
   macsSchedulerState.streams[streamKey].isRunning = true;
 
   // Generate current date in DD/MM/YYYY format in IST timezone (+5:30)
+  // If an explicit snapshotDate is provided (daily scheduler), use it directly
   const now = new Date();
-  const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
-  const dd = String(istNow.getUTCDate()).padStart(2, '0');
-  const mm = String(istNow.getUTCMonth() + 1).padStart(2, '0');
-  const yyyy = istNow.getUTCFullYear();
-  const formattedDate = `${dd}/${mm}/${yyyy}`;
+  let formattedDate;
+  if (options.snapshotDate) {
+    formattedDate = options.snapshotDate;
+  } else {
+    const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+    const dd = String(istNow.getUTCDate()).padStart(2, '0');
+    const mm = String(istNow.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = istNow.getUTCFullYear();
+    formattedDate = `${dd}/${mm}/${yyyy}`;
+  }
 
   const streamTag = isDaily2355 ? `DAILY_2355_${streamKey.toUpperCase()}` : `STREAM_${streamKey.toUpperCase()}`;
 
@@ -11021,34 +11020,70 @@ function startMacsApiScheduler() {
   }, 10000);
 }
 
-// ─── MACS API Dedicated 23:55 Daily Scheduler ────────────────────────────────
+// ─── MACS API Dedicated 23:55 Daily Scheduler (IST = UTC+5:30) ────────────────
+// 23:55 IST = 18:25 UTC. We schedule in UTC to avoid server-local timezone issues.
 function scheduleNextDaily2355Sync() {
   const now = new Date();
-  const next2355 = new Date();
-  next2355.setHours(23, 55, 0, 0);
 
-  // If 23:55 today has already passed, schedule for 23:55 tomorrow
-  if (now.getTime() >= next2355.getTime()) {
-    next2355.setDate(next2355.getDate() + 1);
+  // Compute next 18:25:00 UTC (= 23:55:00 IST)
+  const next1825UTC = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    18, 25, 0, 0
+  ));
+
+  // If 18:25 UTC today has already passed, schedule for 18:25 UTC tomorrow
+  if (now.getTime() >= next1825UTC.getTime()) {
+    next1825UTC.setUTCDate(next1825UTC.getUTCDate() + 1);
   }
 
-  const msUntilNext2355 = next2355.getTime() - now.getTime();
-  const nextFormatted = next2355.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const dateFormatted = next2355.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  console.log(`🌙 MACS API 23:55 Daily Scheduler: Next snapshot scheduled for ${dateFormatted} at ${nextFormatted} (in ${(msUntilNext2355 / 60000).toFixed(1)} mins)`);
+  const msUntilNext = next1825UTC.getTime() - now.getTime();
+
+  // Compute the IST display time for logging
+  const istDisplay = new Date(next1825UTC.getTime() + (5.5 * 60 * 60 * 1000));
+  const istDateStr = String(istDisplay.getUTCDate()).padStart(2, '0') + '/' +
+    String(istDisplay.getUTCMonth() + 1).padStart(2, '0') + '/' +
+    istDisplay.getUTCFullYear();
+  const istTimeStr = String(istDisplay.getUTCHours()).padStart(2, '0') + ':' +
+    String(istDisplay.getUTCMinutes()).padStart(2, '0') + ':' +
+    String(istDisplay.getUTCSeconds()).padStart(2, '0');
+
+  console.log(`🌙 MACS DAILY SCHEDULER: Next snapshot at ${istDateStr} ${istTimeStr} IST (${next1825UTC.toISOString()} UTC) — in ${(msUntilNext / 60000).toFixed(1)} mins`);
 
   setTimeout(async () => {
-    console.log('🌙 MACS API 23:55 Daily Scheduler: Executing dedicated 23:55 daily MACS fetch for all 3 streams...');
+    // ── Compute the ONE COMMON snapshot date at execution time in IST ──
+    const execNow = new Date();
+    const istExec = new Date(execNow.getTime() + (5.5 * 60 * 60 * 1000));
+    const snapshotDD = String(istExec.getUTCDate()).padStart(2, '0');
+    const snapshotMM = String(istExec.getUTCMonth() + 1).padStart(2, '0');
+    const snapshotYYYY = istExec.getUTCFullYear();
+    const snapshotDate = `${snapshotDD}/${snapshotMM}/${snapshotYYYY}`;
+
+    const istExecTime = String(istExec.getUTCHours()).padStart(2, '0') + ':' +
+      String(istExec.getUTCMinutes()).padStart(2, '0') + ':' +
+      String(istExec.getUTCSeconds()).padStart(2, '0');
+
+    console.log('═══════════════════════════════════════════════════════════════');
+    console.log('🌙 DAILY MACS SNAPSHOT START');
+    console.log(`   UTC : ${execNow.toISOString()}`);
+    console.log(`   IST : ${snapshotDate} ${istExecTime}`);
+    console.log(`   Snapshot Date: ${snapshotDate}`);
+    console.log('═══════════════════════════════════════════════════════════════');
+
     try {
-      await macsBmcSyncService({ stream: 'morning', isDaily2355: true });
-      await macsBmcSyncService({ stream: 'evening', isDaily2355: true });
-      await macsBmcSyncService({ stream: 'both', isDaily2355: true });
+      // All three streams use the SAME snapshotDate
+      await macsBmcSyncService({ stream: 'morning', isDaily2355: true, snapshotDate });
+      await macsBmcSyncService({ stream: 'evening', isDaily2355: true, snapshotDate });
+      await macsBmcSyncService({ stream: 'both',    isDaily2355: true, snapshotDate });
+
+      console.log(`✅ DAILY MACS SNAPSHOT COMPLETE — All 3 streams saved for ${snapshotDate}`);
     } catch (err) {
       console.error('❌ MACS API 23:55 Daily Scheduler error:', err.message);
     } finally {
       scheduleNextDaily2355Sync();
     }
-  }, msUntilNext2355);
+  }, msUntilNext);
 }
 
 // Start schedulers when server boots
@@ -11167,12 +11202,10 @@ app.get('/api/admin/macs-api/daily-snapshots', requireAuthAny, async (req, res) 
       if (!dateKey) return;
 
       const isExplicitDaily = run.error_message && (run.error_message.includes('DAILY_2355_') || run.error_message === 'DAILY_2355_SNAPSHOT');
-      const startDate = run.started_at ? new Date(run.started_at) : null;
-      const is2355Time = startDate && startDate.getHours() === 23 && startDate.getMinutes() >= 50;
 
       if (!dailyMap.has(dateKey)) {
-        if (isExplicitDaily || is2355Time) {
-          dailyMap.set(dateKey, { ...run, is_explicit_daily: isExplicitDaily });
+        if (isExplicitDaily) {
+          dailyMap.set(dateKey, { ...run, is_explicit_daily: true });
         }
       } else if (isExplicitDaily && !dailyMap.get(dateKey).is_explicit_daily) {
         dailyMap.set(dateKey, { ...run, is_explicit_daily: true });
@@ -11222,13 +11255,6 @@ app.get('/api/admin/macs-api/daily-snapshots/:date', requireAuthAny, async (req,
     if (runErr) throw runErr;
 
     let targetRun = (runs || []).find(r => r.error_message && (r.error_message.includes(dailyTag) || r.error_message === 'DAILY_2355_SNAPSHOT'));
-    if (!targetRun) {
-      targetRun = (runs || []).find(r => {
-        if (!r.started_at) return false;
-        const d = new Date(r.started_at);
-        return d.getHours() === 23 && d.getMinutes() >= 50;
-      });
-    }
     if (!targetRun && runs && runs.length > 0) {
       targetRun = runs[0];
     }

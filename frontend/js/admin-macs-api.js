@@ -624,8 +624,9 @@ function formatDateTime(isoStr) {
   if (!isoStr) return '—';
   try {
     const d = new Date(isoStr);
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) +
-      ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    // Always display in IST (Asia/Kolkata) regardless of browser timezone
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) +
+      ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' });
   } catch {
     return isoStr;
   }
@@ -832,7 +833,8 @@ function formatTimeOnly(isoStr) {
   if (!isoStr) return '23:55:00';
   try {
     const d = new Date(isoStr);
-    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    // Always display in IST (Asia/Kolkata) regardless of browser timezone
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' });
   } catch {
     return isoStr;
   }

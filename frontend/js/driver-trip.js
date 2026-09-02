@@ -482,7 +482,7 @@ function startFallbackLocationTracking() {
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
-  }, 120000);
+  }, 10000);
 }
 
 function stopFallbackLocationTracking() {

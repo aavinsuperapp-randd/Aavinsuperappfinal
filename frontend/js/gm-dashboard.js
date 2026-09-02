@@ -1101,7 +1101,7 @@ async function setupTripMap(trip) {
 
       // Live polling every 15s for active trips
       if (['started', 'in_progress', 'active', 'returning'].includes(trip.status)) {
-        gmTripMapInterval = setInterval(() => updateTripMapData(trip.id), 120000);
+        gmTripMapInterval = setInterval(() => updateTripMapData(trip.id), 10000);
       }
     }, 300);
   } else {

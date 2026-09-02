@@ -1080,7 +1080,7 @@ async function setupPiAgmTripMap(trip) {
 
       // Live polling every 15s for active trips
       if (['started', 'in_progress', 'active', 'returning'].includes(trip.status)) {
-        piAgmTripMapInterval = setInterval(() => updatePiAgmTripMapData(trip.id), 120000);
+        piAgmTripMapInterval = setInterval(() => updatePiAgmTripMapData(trip.id), 10000);
       }
     }, 300);
   } else {
