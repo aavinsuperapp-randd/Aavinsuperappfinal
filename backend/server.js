@@ -29,6 +29,7 @@ app.use(cors({
       origin.startsWith('https://localhost') ||
       origin.startsWith('https://127.0.0.1') ||
       origin.startsWith('file://') ||
+      origin.startsWith('https://aavinsuperapp-randd.github.io') ||
       allowedOrigins.includes(origin) ||
       (process.env.PRODUCTION_DOMAIN && origin === process.env.PRODUCTION_DOMAIN)
     ) {
