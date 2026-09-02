@@ -90,7 +90,7 @@ function setDatePreset(preset) {
   
   if (preset === 'today') {
     document.getElementById('btn-today').classList.add('active');
-    const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     document.getElementById('duty-date-filter').value = today;
     currentFilters.date = today;
     currentFilters.dateRange = '';
@@ -183,7 +183,7 @@ async function setupCreateTripModal() {
     selectedBmcs = [];
     isBmcSelectionSaved = false;
     if (dateInput && !dateInput.value) {
-      dateInput.value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+      dateInput.value = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     }
 
     renderSelectedBmcs();
@@ -606,7 +606,7 @@ async function fetchCreateTripOptions() {
     const periodSelect = document.getElementById('ct-macs-period');
     
     if (dateInput && !dateInput.value) {
-      dateInput.value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+      dateInput.value = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     }
     const selDate = dateInput?.value || new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
     const selPeriod = periodSelect?.value || 'both';

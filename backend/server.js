@@ -187,6 +187,14 @@ function convertISOToMacsDate(isoDate) {
 }
 
 /**
+ * Get current business date in IST as YYYY-MM-DD
+ */
+function getIstDateStr() {
+  const d = new Date(Date.now() + 5.5 * 3600000);
+  return d.toISOString().split('T')[0];
+}
+
+/**
  * Normalize a raw macs_api_bmc_data row into a clean structure.
  */
 function normalizeLiveMacsRecord(row, stream = 'both') {
@@ -255,20 +263,22 @@ async function getLatestLiveMacsByBmcCode(adminClient, dateStr) {
 
   if (!adminClient) return results;
 
-  // Convert YYYY-MM-DD to DD/MM/YYYY for macs_api_bmc_data.report_date filter
+  const now = new Date();
+  const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const todayDD = String(istNow.getUTCDate()).padStart(2, '0');
+  const todayMM = String(istNow.getUTCMonth() + 1).padStart(2, '0');
+  const todayYYYY = istNow.getUTCFullYear();
+  const todayMacsDate = `${todayDD}/${todayMM}/${todayYYYY}`;
+
   let macsDate;
   if (dateStr) {
     macsDate = convertISOToMacsDate(dateStr);
   } else {
-    const now = new Date();
-    const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
-    const dd = String(istNow.getUTCDate()).padStart(2, '0');
-    const mm = String(istNow.getUTCMonth() + 1).padStart(2, '0');
-    const yyyy = istNow.getUTCFullYear();
-    macsDate = `${dd}/${mm}/${yyyy}`;
+    macsDate = todayMacsDate;
   }
-
   if (!macsDate) return results;
+
+  const isHistoricalDate = (macsDate !== todayMacsDate);
 
   try {
     const { data: rows, error } = await adminClient
@@ -285,21 +295,38 @@ async function getLatestLiveMacsByBmcCode(adminClient, dateStr) {
     (rows || []).forEach(row => {
       const code = String(row.macs_bmc_code).trim();
       if (!code) return;
-      
+
       let rowStream = 'both';
+      let isDailySnapshot = false;
       if (row.sync_run && row.sync_run.error_message) {
         const msg = row.sync_run.error_message.toUpperCase();
         if (msg.includes('MORNING')) rowStream = 'morning';
         else if (msg.includes('EVENING')) rowStream = 'evening';
+
+        if (msg.includes('DAILY_2355_')) {
+          isDailySnapshot = true;
+        }
       }
 
       const normRow = normalizeLiveMacsRecord(row, rowStream);
+      normRow.is_daily_snapshot = isDailySnapshot;
 
       if (!results[rowStream].has(code)) {
         results[rowStream].set(code, normRow);
+      } else if (isHistoricalDate) {
+        const existing = results[rowStream].get(code);
+        if (isDailySnapshot && existing && !existing.is_daily_snapshot) {
+          results[rowStream].set(code, normRow);
+        }
       }
+
       if (!results.all.has(code)) {
         results.all.set(code, normRow);
+      } else if (isHistoricalDate) {
+        const existingAll = results.all.get(code);
+        if (isDailySnapshot && existingAll && !existingAll.is_daily_snapshot) {
+          results.all.set(code, normRow);
+        }
       }
     });
 
@@ -368,14 +395,25 @@ async function getLiveMacsHistoryForBmc(adminClient, bmcCode, fromDate, toDate, 
       return [];
     }
 
-    // Deduplicate by report_date (keep latest fetched_at per date)
+    const now = new Date();
+    const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+    const todayDD = String(istNow.getUTCDate()).padStart(2, '0');
+    const todayMM = String(istNow.getUTCMonth() + 1).padStart(2, '0');
+    const todayYYYY = istNow.getUTCFullYear();
+    const todayIsoDate = `${todayYYYY}-${todayMM}-${todayDD}`;
+
+    // Deduplicate by report_date (prefer DAILY_2355_ snapshot over normal live row for historical dates)
     const dateMap = new Map();
     (rows || []).forEach(row => {
       let rowStream = 'both';
+      let isDailySnapshot = false;
       if (row.sync_run && row.sync_run.error_message) {
         const msg = row.sync_run.error_message.toUpperCase();
         if (msg.includes('MORNING')) rowStream = 'morning';
         else if (msg.includes('EVENING')) rowStream = 'evening';
+        if (msg.includes('DAILY_2355_')) {
+          isDailySnapshot = true;
+        }
       }
 
       if (streamKey !== 'all' && rowStream !== streamKey) return;
@@ -385,10 +423,21 @@ async function getLiveMacsHistoryForBmc(adminClient, bmcCode, fromDate, toDate, 
       // Apply date range filter
       if (fromDate && isoDate < fromDate) return;
       if (toDate && isoDate > toDate) return;
+
+      const isHistoricalDate = (isoDate !== todayIsoDate);
+
       const mapKey = streamKey === 'all' ? `${isoDate}_${rowStream}` : isoDate;
+
+      const norm = normalizeLiveMacsRecord(row, rowStream);
+      norm.is_daily_snapshot = isDailySnapshot;
+
       if (!dateMap.has(mapKey)) {
-        const norm = normalizeLiveMacsRecord(row, rowStream);
         dateMap.set(mapKey, norm);
+      } else if (isHistoricalDate) {
+        const existing = dateMap.get(mapKey);
+        if (isDailySnapshot && existing && !existing.is_daily_snapshot) {
+          dateMap.set(mapKey, norm);
+        }
       }
     });
 
@@ -482,7 +531,7 @@ app.post('/api/register', async (req, res) => {
         .select('id')
         .eq('name', name)
         .maybeSingle();
-        
+
       if (!existingDriver) {
         await adminClient.from('drivers').insert({
           name: name,
@@ -680,7 +729,7 @@ app.post('/api/admin/website-data-reset', requireAdminRole, async (req, res) => 
 
     return res.json({
       success: true,
-      message: targetScope === 'all' 
+      message: targetScope === 'all'
         ? 'Website data reset completed successfully! All excel import data, duty data, macs readings, spot analyzer records, and diary test logs have been deleted.'
         : `Website data reset for category '${targetScope}' completed successfully.`,
       scope: targetScope,
@@ -915,12 +964,12 @@ async function findBmcByIdOrCode(adminClient, idOrCode) {
   if (!idOrCode) return null;
   const strVal = String(idOrCode).trim();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(strVal);
-  
+
   if (isUuid) {
     const { data } = await adminClient.from('bmcs').select('*').eq('id', strVal).maybeSingle();
     if (data) return data;
   }
-  
+
   const { data: byCode } = await adminClient.from('bmcs').select('*').eq('bmc_code', strVal).maybeSingle();
   if (byCode) return byCode;
 
@@ -928,7 +977,7 @@ async function findBmcByIdOrCode(adminClient, idOrCode) {
     const { data: byNumCode } = await adminClient.from('bmcs').select('*').eq('bmc_code', String(Number(strVal))).maybeSingle();
     if (byNumCode) return byNumCode;
   }
-  
+
   return null;
 }
 
@@ -946,7 +995,7 @@ const safeDeleteBmcHandler = async (req, res) => {
     await adminClient.from('bmc_silos').delete().eq('bmc_id', bmcId);
     // 2. Delete EO assignments referencing this BMC
     await adminClient.from('eo_bmc_assignments').delete().eq('bmc_id', bmcId);
-    
+
     // 2.5 Delete historical records to satisfy foreign key constraints and allow deletion
     try {
       await adminClient.from('driver_trips').delete().eq('bmc_id', bmcId);
@@ -955,7 +1004,7 @@ const safeDeleteBmcHandler = async (req, res) => {
     } catch (cleanupErr) {
       console.warn('Warning deleting historical bmc_id references:', cleanupErr.message);
     }
-    
+
     // 3. Delete trip visits and their dependencies referencing this BMC
     try {
       if (bmcId) {
@@ -980,7 +1029,7 @@ const safeDeleteBmcHandler = async (req, res) => {
     } catch (vErr) {
       console.warn('Warning deleting trip_bmc_visits dependencies:', vErr.message);
     }
-    
+
     // 4. Delete BMC main record
     const { error } = await adminClient.from('bmcs').delete().eq('id', bmcId);
     if (error) throw error;
@@ -1423,7 +1472,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
 
   try {
     // Fetch live MACS data from macs_api_bmc_data (replaces qc_excel_import_rows)
-    const macsDateForLookup = (startDateParam && endDateParam) ? startDateParam : (dateParam && dateParam !== 'all' && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) ? dateParam : new Date().toISOString().split('T')[0];
+    const macsDateForLookup = (startDateParam && endDateParam) ? startDateParam : (dateParam && dateParam !== 'all' && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) ? dateParam : getIstDateStr();
     const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, macsDateForLookup);
 
     const [
@@ -1589,8 +1638,8 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
         if (v.trip_id !== t.id) return false;
         const bmcName = (bmcMap[v.bmc_id] && bmcMap[v.bmc_id].name) || '';
         const isAssigned = (t.bmc_id === v.bmc_id) ||
-                           (t.route && bmcName && t.route.toLowerCase().includes(bmcName.toLowerCase())) ||
-                           (Array.isArray(t.selected_bmcs) && t.selected_bmcs.some(sb => (sb.bmc_id || sb.id) === v.bmc_id));
+          (t.route && bmcName && t.route.toLowerCase().includes(bmcName.toLowerCase())) ||
+          (Array.isArray(t.selected_bmcs) && t.selected_bmcs.some(sb => (sb.bmc_id || sb.id) === v.bmc_id));
         const hasSpotData = Boolean(
           (ftirList && ftirList.some(f => f.visit_id === v.id)) ||
           (gerberList && gerberList.some(g => g.visit_id === v.id)) ||
@@ -1611,10 +1660,10 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
       }
 
       const worker = profileMap[t.worker_id] || { name: 'Unknown Worker' };
-      const driverName = (t.assigned_driver_id && driverMap[t.assigned_driver_id]) || 
-                         (t.driver_id && driverMap[t.driver_id]) || 
-                         profileMap[t.assigned_driver_id]?.name || 
-                         t.driver_name || null;
+      const driverName = (t.assigned_driver_id && driverMap[t.assigned_driver_id]) ||
+        (t.driver_id && driverMap[t.driver_id]) ||
+        profileMap[t.assigned_driver_id]?.name ||
+        t.driver_name || null;
       const tankerNumber = t.tanker_number || t.vehicle_number || null;
       const lastVisit = tVisits.length > 0 ? tVisits[tVisits.length - 1] : null;
       const lastBmc = lastVisit && bmcMap[lastVisit.bmc_id] ? bmcMap[lastVisit.bmc_id].name : '—';
@@ -1664,7 +1713,7 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
           const bmcCode = String(bmcMap[v.bmc_id]?.bmc_code || '').trim();
           const tripPeriod = (t.duty_type || 'both').toLowerCase();
           const macsRecord = liveMacsByCode[tripPeriod] ? liveMacsByCode[tripPeriod].get(bmcCode) : null;
-          
+
           let macs_result = '—';
           if (macsRecord && macsRecord.liters !== null && macsRecord.liters > 0) {
             const parts = [`${macsRecord.liters} L`];
@@ -2670,10 +2719,10 @@ app.put('/api/gm/bmcs/:bmcCode', requirePiAgm, async (req, res) => {
 
           if (s.id && existingIds.includes(s.id)) {
             const { error: uErr } = await adminClient.from('bmc_silos').update(siloData).eq('id', s.id);
-            if (uErr) console.error(`[GM BMC UPDATE] Silo ${i+1} update error:`, uErr.message);
+            if (uErr) console.error(`[GM BMC UPDATE] Silo ${i + 1} update error:`, uErr.message);
           } else {
             const { error: iErr } = await adminClient.from('bmc_silos').insert(siloData);
-            if (iErr) console.error(`[GM BMC UPDATE] Silo ${i+1} insert error:`, iErr.message);
+            if (iErr) console.error(`[GM BMC UPDATE] Silo ${i + 1} insert error:`, iErr.message);
           }
         }
         console.log('[GM BMC UPDATE] Silos processed OK');
@@ -2970,7 +3019,7 @@ app.get('/api/trips', requireWorker, async (req, res) => {
 // ─── GET /api/trips/:id ───────────────────────────────────────────────────────
 app.get('/api/trips/:id', requireAuthAny, async (req, res) => {
   const { adminClient } = req;
-  
+
   // Try trips table first
   let { data: trip, error } = await adminClient
     .from('trips')
@@ -3471,7 +3520,7 @@ app.post('/api/visits/:visitId/ftir', requireWorker, async (req, res) => {
     tested_at: new Date()
   };
 
-  let result = existing 
+  let result = existing
     ? await adminClient.from('ftir_tests').update(payload).eq('id', existing.id).select().single()
     : await adminClient.from('ftir_tests').insert(payload).select().single();
 
@@ -3546,7 +3595,7 @@ app.post('/api/visits/:visitId/gerber', requireWorker, async (req, res) => {
     if (payload.mbrt || payload.mprt) extraRemarks.push(`MBRT/MPRT: ${payload.mbrt || payload.mprt}`);
     if (payload.acidity !== null && payload.acidity !== undefined) extraRemarks.push(`Acidity: ${payload.acidity}%`);
     if (extraRemarks.length > 0) {
-      fallbackPayload.remarks = fallbackPayload.remarks 
+      fallbackPayload.remarks = fallbackPayload.remarks
         ? `${fallbackPayload.remarks} | ${extraRemarks.join(', ')}`
         : extraRemarks.join(', ');
     }
@@ -3594,9 +3643,9 @@ app.post('/api/visits/:visitId/gerber', requireWorker, async (req, res) => {
 // ─── POST /api/visits/:visitId/requirements ───────────────────────────────────
 app.post('/api/visits/:visitId/requirements', requireWorker, async (req, res) => {
   const { adminClient } = req;
-  const fields = ['seal_cutter_available','seal_cutter_working','acid_available','acid_condition',
-    'ftir_machine_available','ftir_machine_working','cooling_system_working',
-    'power_backup_available','weighing_scale_working','remarks'];
+  const fields = ['seal_cutter_available', 'seal_cutter_working', 'acid_available', 'acid_condition',
+    'ftir_machine_available', 'ftir_machine_working', 'cooling_system_working',
+    'power_backup_available', 'weighing_scale_working', 'remarks'];
   const payload = { visit_id: req.params.visitId };
   for (const f of fields) { if (req.body[f] !== undefined) payload[f] = req.body[f]; }
 
@@ -4183,7 +4232,7 @@ app.put('/api/transport/vehicles/:id', requireTransportOfficer, async (req, res)
   console.log('[VEHICLE UPDATE] Body:', JSON.stringify(body));
 
   const capValue = body.capacity_liters !== undefined ? parseInt(body.capacity_liters) :
-                    body.capacity !== undefined ? parseInt(body.capacity) : undefined;
+    body.capacity !== undefined ? parseInt(body.capacity) : undefined;
 
   const updateData = {};
   if (body.board_number !== undefined) updateData.board_number = body.board_number;
@@ -4552,8 +4601,8 @@ async function requireDriver(req, res, next) {
 function calcMileage(outWeight, inWeight, outKm, inKm) {
   const outKmNum = Number(outKm || 0);
   const inKmNum = Number(inKm || 0);
-  const kmTravelled = (inKmNum > 0 && outKmNum > 0 && inKmNum >= outKmNum) 
-    ? parseFloat((inKmNum - outKmNum).toFixed(2)) 
+  const kmTravelled = (inKmNum > 0 && outKmNum > 0 && inKmNum >= outKmNum)
+    ? parseFloat((inKmNum - outKmNum).toFixed(2))
     : (inKmNum > 0 && inKmNum >= outKmNum ? parseFloat((inKmNum - outKmNum).toFixed(2)) : 0);
 
   const hasInWeight = inWeight !== undefined && inWeight !== null && inWeight !== '' && inWeight !== '—';
@@ -4571,8 +4620,8 @@ function calcMileage(outWeight, inWeight, outKm, inKm) {
 
   const dieselKg = parseFloat((outWeightNum - inWeightNum).toFixed(2));
   const dieselConsumption = parseFloat((dieselKg / 0.832).toFixed(2));
-  const averageMileage = (dieselConsumption > 0 && kmTravelled > 0) 
-    ? parseFloat((kmTravelled / dieselConsumption).toFixed(2)) 
+  const averageMileage = (dieselConsumption > 0 && kmTravelled > 0)
+    ? parseFloat((kmTravelled / dieselConsumption).toFixed(2))
     : null;
 
   return {
@@ -4605,7 +4654,7 @@ app.get('/api/driver/dashboard', requireDriver, async (req, res) => {
       const d = new Date(t.scheduled_start_time || t.created_at);
       return d >= startOfDay && d <= endOfDay;
     });
-    const activeTrip = allTrips.find(t => ['assigned','accepted','ready','in_progress','returning'].includes(t.status));
+    const activeTrip = allTrips.find(t => ['assigned', 'accepted', 'ready', 'in_progress', 'returning'].includes(t.status));
 
     // Today's work time
     const todayCompleted = completedTrips.filter(t => {
@@ -4859,10 +4908,10 @@ function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon/2) * Math.sin(dLon/2);
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
 // ─── PATCH /api/driver/trips/:id/location ────────────────────────────────────
@@ -4912,7 +4961,7 @@ async function handleTripLocationUpdate(req, res) {
       try {
         const jStr = trip.remarks.split('__JOURNEY_DATA__=')[1].split('\n')[0];
         journey = JSON.parse(jStr);
-      } catch(e) {}
+      } catch (e) { }
     }
 
     if (journey.length === 0 && trip.start_lat && trip.start_lng) {
@@ -4937,7 +4986,7 @@ async function handleTripLocationUpdate(req, res) {
         const lastPt = journey[journey.length - 1];
         const dist = calculateDistanceMeters(lastPt.lat, lastPt.lng, pt.lat, pt.lng);
         const timeDiffMs = new Date(pt.timestamp).getTime() - new Date(lastPt.timestamp || 0).getTime();
-        
+
         if (dist >= 2 || timeDiffMs >= 5000) {
           journey.push(pt);
           addedCount++;
@@ -4961,9 +5010,9 @@ async function handleTripLocationUpdate(req, res) {
       try {
         const iStr = cleanRemarks.split('__INTERRUPTIONS_DATA__=')[1].split('\n')[0];
         interruptions = JSON.parse(iStr);
-      } catch(e) {}
+      } catch (e) { }
     }
-    
+
     if (tracking_status) {
       interruptions.push({ status: tracking_status, timestamp: new Date().toISOString() });
     }
@@ -5060,7 +5109,7 @@ app.get('/api/transport/active-duties-locations', requireTransportOfficer, async
         try {
           const jStr = trip.remarks.split('__JOURNEY_DATA__=')[1].split('\n')[0];
           journey = JSON.parse(jStr);
-        } catch(e) {}
+        } catch (e) { }
       }
 
       // Filter and clean journey points
@@ -5142,15 +5191,15 @@ app.get('/api/driver/history', requireDriver, async (req, res) => {
     const now = new Date();
 
     if (range === 'today') {
-      const s = new Date(now); s.setHours(0,0,0,0);
-      const e = new Date(now); e.setHours(23,59,59,999);
+      const s = new Date(now); s.setHours(0, 0, 0, 0);
+      const e = new Date(now); e.setHours(23, 59, 59, 999);
       startIso = s.toISOString(); endIso = e.toISOString();
     } else if (range === 'yesterday') {
-      const s = new Date(now); s.setDate(s.getDate()-1); s.setHours(0,0,0,0);
-      const e = new Date(now); e.setDate(e.getDate()-1); e.setHours(23,59,59,999);
+      const s = new Date(now); s.setDate(s.getDate() - 1); s.setHours(0, 0, 0, 0);
+      const e = new Date(now); e.setDate(e.getDate() - 1); e.setHours(23, 59, 59, 999);
       startIso = s.toISOString(); endIso = e.toISOString();
     } else if (range === 'week') {
-      const s = new Date(now); s.setDate(now.getDate() - now.getDay()); s.setHours(0,0,0,0);
+      const s = new Date(now); s.setDate(now.getDate() - now.getDay()); s.setHours(0, 0, 0, 0);
       startIso = s.toISOString(); endIso = now.toISOString();
     } else if (range === 'month') {
       const s = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -5161,7 +5210,7 @@ app.get('/api/driver/history', requireDriver, async (req, res) => {
       endIso = e.toISOString();
     } else {
       // Default: last 30 days
-      const s = new Date(now); s.setDate(s.getDate()-30);
+      const s = new Date(now); s.setDate(s.getDate() - 30);
       startIso = s.toISOString(); endIso = now.toISOString();
     }
 
@@ -5187,8 +5236,8 @@ app.get('/api/driver/worktime', requireDriver, async (req, res) => {
     const now = new Date();
 
     // Time ranges
-    const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
-    const weekStart = new Date(now); weekStart.setDate(now.getDate()-now.getDay()); weekStart.setHours(0,0,0,0);
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0, 0, 0, 0);
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const { data: trips } = await adminClient
@@ -5352,8 +5401,8 @@ app.get('/api/transport/driver-trips', requireTransportOfficer, async (req, res)
     if (status) query = query.eq('status', status);
     if (driver_id) query = query.eq('assigned_driver_id', driver_id);
     if (date) {
-      const s = new Date(date); s.setHours(0,0,0,0);
-      const e = new Date(date); e.setHours(23,59,59,999);
+      const s = new Date(date); s.setHours(0, 0, 0, 0);
+      const e = new Date(date); e.setHours(23, 59, 59, 999);
       query = query.gte('created_at', s.toISOString()).lte('created_at', e.toISOString());
     }
 
@@ -5676,7 +5725,7 @@ app.get('/api/transport/bmcs-list', requireTransportOfficer, async (req, res) =>
     if (error) throw error;
 
     // Use query param date or default to today
-    let dateStr = req.query.date || new Date().toISOString().split('T')[0];
+    let dateStr = req.query.date || getIstDateStr();
     const period = (req.query.period || 'both').toLowerCase();
 
     // Fetch live MACS data from macs_api_bmc_data
@@ -5720,7 +5769,7 @@ app.get('/api/transport/macs-summary', requireTransportOfficer, async (req, res)
       .order('name');
     if (error) throw error;
 
-    let dateStr = req.query.date || new Date().toISOString().split('T')[0];
+    let dateStr = req.query.date || getIstDateStr();
     const period = (req.query.period || 'all').toLowerCase();
 
     // Fetch live MACS data from macs_api_bmc_data
@@ -5884,7 +5933,7 @@ app.get('/api/eo/dashboard', requireExecutiveOfficer, async (req, res) => {
     }
 
     // Calculate dates
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getIstDateStr();
 
     // Compute stats
     let todaysTestsCount = 0;
@@ -6106,18 +6155,16 @@ app.get('/api/eo/test-results', requireExecutiveOfficer, async (req, res) => {
     });
 
     // Date filtering
-    const now = new Date();
+    const nowIstTime = Date.now() + 5.5 * 3600000;
     if (dateFilter === 'today') {
-      const todayStr = now.toISOString().split('T')[0];
+      const todayStr = getIstDateStr();
       tests = tests.filter(t => (t.test_time || '').startsWith(todayStr));
     } else if (dateFilter === 'yesterday') {
-      const y = new Date(now);
-      y.setDate(now.getDate() - 1);
-      const yStr = y.toISOString().split('T')[0];
+      const yStr = new Date(nowIstTime - 86400000).toISOString().split('T')[0];
       tests = tests.filter(t => (t.test_time || '').startsWith(yStr));
     } else if (dateFilter === 'this_week') {
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay());
+      const startOfWeek = new Date(nowIstTime);
+      startOfWeek.setDate(startOfWeek.getUTCDate() - startOfWeek.getUTCDay());
       tests = tests.filter(t => new Date(t.test_time) >= startOfWeek);
     } else if (dateFilter === 'this_month') {
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -6494,7 +6541,7 @@ app.post('/api/admin/executive-officers/:id/bmcs', requireAdminRole, async (req,
       .eq('status', 'active');
 
     const currentAssignedIds = (existing || []).map(a => a.bmc_id);
-    
+
     // BMCs to deactivate
     const toDeactivate = currentAssignedIds.filter(id => !targetBmcIds.includes(id));
     if (toDeactivate.length > 0) {
@@ -7192,7 +7239,7 @@ app.get('/api/worker/assigned-trips', requireWorker, async (req, res) => {
         const tripDate = new Date(tripDateStr);
         const tzOffset = tripDate.getTimezoneOffset() * 60000;
         const tripLocalISO = (new Date(tripDate - tzOffset)).toISOString().slice(0, 10);
-        
+
         if (startDate && endDate) {
           if (tripLocalISO < startDate || tripLocalISO > endDate) return;
         } else if (date) {
@@ -7240,7 +7287,7 @@ app.get('/api/worker/assigned-trips', requireWorker, async (req, res) => {
       const { data: dProfiles } = await adminClient.from('profiles').select('id, name').in('id', driverIds);
       (dProfiles || []).forEach(p => driverProfileMap[p.id] = p.name);
     }
-    
+
     tripList.forEach(t => {
       t.driver_name = driverProfileMap[t.assigned_driver_id] || 'Assigned Driver';
       delete t.assigned_driver_id;
@@ -7402,7 +7449,7 @@ app.get('/api/qc-worker/dashboard-stats', requireQcWorker, async (req, res) => {
     const testedVisits = new Set((tests || []).map(t => t.visit_id));
     const pendingSamplesCount = (visits || []).filter(v => !testedVisits.has(v.id)).length;
     const submittedCount = (tests || []).filter(t => t.status === 'submitted' || t.status === 'approved').length;
-    
+
     // The user requested only Pending, Tested Report, and Total Samples.
     res.json({
       samples_pending: pendingSamplesCount,
@@ -7430,7 +7477,7 @@ app.get('/api/qc-worker/dashboard-bmcs', requireQcWorker, async (req, res) => {
       .select('*, bmc:bmcs(*), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*), trip:trips(*)');
 
     // 3. Fetch live MACS data from macs_api_bmc_data
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getIstDateStr();
     const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, todayStr);
 
     const visitsByCode = {};
@@ -7586,7 +7633,7 @@ app.get('/api/qc-worker/dashboard-trips', requireQcWorker, async (req, res) => {
     }
 
     // Fetch live MACS data from macs_api_bmc_data for the date
-    const macsDateStr = startDate || new Date().toISOString().split('T')[0];
+    const macsDateStr = startDate || getIstDateStr();
     const liveMacsByCode = await getLatestLiveMacsByBmcCode(adminClient, macsDateStr);
 
     // Enrich visits with MACS and Spot Analyzer data
@@ -7781,7 +7828,7 @@ app.get('/api/qc-worker/samples/:id', requireQcWorker, async (req, res) => {
         .eq('bmc_code', bmcCode)
         .maybeSingle();
       if (!bmcByCode) return res.status(404).json({ error: `BMC with code "${bmcCode}" not found.` });
-      
+
       // Look for existing visits for this BMC with Spot Analyst data
       const { data: existingCodeVisits } = await adminClient
         .from('trip_bmc_visits')
@@ -7978,7 +8025,7 @@ app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
       : liveMacsByCode.all;
 
     targetMap.forEach((r, bmcCode) => {
-      const readingDate = r.reading_date || date || new Date().toISOString().split('T')[0];
+      const readingDate = r.reading_date || date || getIstDateStr();
       const key = `${bmcCode}_${readingDate}`;
       const mb = masterBmcByCode[bmcCode];
       const bmcId = mb ? mb.id : null;
@@ -8099,7 +8146,7 @@ app.get('/api/qc-worker/macs/readings', requireQcWorker, async (req, res) => {
 
         const lit = v.sample_liters || v.milk_quantity_liters || null;
         const kg = v.milk_quantity_kg || v.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
-        const vDate = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : (date || new Date().toISOString().split('T')[0]);
+        const vDate = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : (date || getIstDateStr());
 
         let isTested = false;
         let diaryObj = { quantity_liters: null, quantity_kg: null, fat: null, snf: null, recorded: false };
@@ -8399,7 +8446,7 @@ app.get('/api/qc-worker/reports-testing', requireQcWorker, async (req, res) => {
       let meta = {};
       try {
         meta = typeof iss.description === 'string' ? JSON.parse(iss.description) : (iss.description || {});
-      } catch (e) {}
+      } catch (e) { }
 
       return {
         id: iss.id,
@@ -8439,7 +8486,7 @@ app.patch('/api/qc-worker/reports-testing/:id/done', requireQcWorker, async (req
     let meta = {};
     try {
       meta = typeof issue.description === 'string' ? JSON.parse(issue.description) : (issue.description || {});
-    } catch (e) {}
+    } catch (e) { }
 
     meta.worker_remarks = remarks;
 
@@ -8623,7 +8670,7 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
       .from('trip_bmc_visits')
       .select('*, trip:trips(id), ftir_tests(*), gerber_tests(*), bmc_issues(*), bmc_ratings(*), qc_test:qc_lab_tests(*)')
       .in('status', ['completed', 'visited']);
-      
+
     if (bmc.id) {
       visitsQuery = visitsQuery.eq('bmc_id', bmc.id);
     }
@@ -8636,7 +8683,7 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
         const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
         const dutyMap = {};
         (dtRecords || []).forEach(dt => dutyMap[dt.id] = (dt.duty_type || 'both').toLowerCase());
-        
+
         finalVisits.forEach(v => {
           v.duty_type = dutyMap[v.trip_id] || 'both';
         });
@@ -8655,9 +8702,9 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
       try {
         const meta = typeof iss.description === 'string' ? JSON.parse(iss.description) : (iss.description || {});
         if (String(meta.bmc_code || '').trim().toLowerCase() === String(bmcCode).trim().toLowerCase()) {
-          bmcIssuesMap[meta.date || iss.created_at?.slice(0,10)] = iss; // In future this should map by Date+Period too
+          bmcIssuesMap[meta.date || iss.created_at?.slice(0, 10)] = iss; // In future this should map by Date+Period too
         }
-      } catch (e) {}
+      } catch (e) { }
     });
 
     // Group records by Date + Period
@@ -8669,11 +8716,11 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
 
       const p = (r.stream || 'both').toLowerCase();
       const key = `${d}_${p}`;
-      
+
       if (!recordsMap[key]) {
         recordsMap[key] = { date: d, period: p.charAt(0).toUpperCase() + p.slice(1), macs: null, spot: null, diary: null };
       }
-      
+
       recordsMap[key].macs = {
         liters: r.liters,
         kg: r.kg,
@@ -8686,7 +8733,7 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
       const d = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : new Date(v.created_at).toISOString().split('T')[0];
       const p = v.duty_type || 'both';
       const key = `${d}_${p}`;
-      
+
       if (!recordsMap[key]) {
         recordsMap[key] = { date: d, period: p.charAt(0).toUpperCase() + p.slice(1), macs: null, spot: null, diary: null };
       }
@@ -8718,7 +8765,7 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
         visited: v.status === 'completed' || v.status === 'visited' || Boolean(v.visit_end_time),
         status: v.status || 'visited'
       };
-      
+
       if (qc && qc.id) {
         recordsMap[key].diary = {
           liters: null,
@@ -8739,8 +8786,8 @@ app.get('/api/qc-agm/bmcs/:bmcCode/details', requireQcAgm, async (req, res) => {
       let diffStr = '-';
       if (item.macs && item.spot && item.macs.fat !== null && item.spot.fat !== null) {
         const fDiff = parseFloat((item.macs.fat - item.spot.fat).toFixed(2));
-        const sDiff = (item.macs.snf !== null && item.spot.snf !== null) 
-          ? parseFloat((item.macs.snf - item.spot.snf).toFixed(2)) 
+        const sDiff = (item.macs.snf !== null && item.spot.snf !== null)
+          ? parseFloat((item.macs.snf - item.spot.snf).toFixed(2))
           : 0;
         const fSign = fDiff > 0 ? `+${fDiff}` : `${fDiff}`;
         const sSign = sDiff > 0 ? `+${sDiff}` : `${sDiff}`;
@@ -8806,7 +8853,7 @@ app.post('/api/qc-agm/deny-reading', requireQcAgm, async (req, res) => {
         bmc_code,
         bmc_name: finalBmcName,
         district: finalDistrict,
-        date: date || new Date().toISOString().split('T')[0],
+        date: date || getIstDateStr(),
         rejected_item: rejected_item || {}
       }),
       severity: 'high',
@@ -8850,7 +8897,7 @@ app.get('/api/qc-agm/lab-issues', requireQcAgm, async (req, res) => {
       let meta = {};
       try {
         meta = typeof iss.description === 'string' ? JSON.parse(iss.description) : (iss.description || {});
-      } catch (e) {}
+      } catch (e) { }
 
       return {
         s_no: index + 1,
@@ -8894,7 +8941,7 @@ app.get('/api/qc-agm/tests', requireQcAgm, async (req, res) => {
       `)
       .in('status', ['completed', 'visited'])
       .order('visit_end_time', { ascending: false });
-      
+
     if (date) {
       const fromIso = new Date(date + 'T00:00:00.000Z').toISOString();
       const toIso = new Date(date + 'T23:59:59.999Z').toISOString();
@@ -8905,7 +8952,7 @@ app.get('/api/qc-agm/tests', requireQcAgm, async (req, res) => {
     if (error) throw error;
 
     let finalVisits = visits || [];
-    
+
     // Inject duty_type from driver_trips to ensure period mapping works
     if (finalVisits.length > 0) {
       const tripIds = [...new Set(finalVisits.map(v => v.trip_id).filter(Boolean))];
@@ -9168,7 +9215,7 @@ app.post('/api/qc-agm/import/excel', requireQcAgm, async (req, res) => {
         bmc_id: matchedBmcId || null,
         bmc_name: r.bmc_name || null,
         sample_ref: r.sample_id || r.sample_ref || `ROW-${idx + 1}`,
-        test_date: r.test_date || new Date().toISOString().split('T')[0],
+        test_date: r.test_date || getIstDateStr(),
         fat: r.fat !== undefined && r.fat !== '' && r.fat !== null ? parseFloat(r.fat) : null,
         snf: r.snf !== undefined && r.snf !== '' && r.snf !== null ? parseFloat(r.snf) : null,
         clr: r.clr !== undefined && r.clr !== '' && r.clr !== null ? parseFloat(r.clr) : null,
@@ -9334,7 +9381,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
       : liveMacsByCode.all;
 
     targetMap.forEach((r, bmcCode) => {
-      const readingDate = r.reading_date || date || new Date(Date.now() + 5.5 * 3600000).toISOString().split('T')[0];
+      const readingDate = r.reading_date || date || getIstDateStr();
       const key = `${bmcCode}_${readingDate}`;
       const mb = masterBmcByCode[bmcCode];
       const bmcId = mb ? mb.id : null;
@@ -9474,7 +9521,7 @@ app.get('/api/qc-agm/macs/readings', requireQcAgm, async (req, res) => {
 
         const lit = v.sample_liters || v.milk_quantity_liters || null;
         const kg = v.milk_quantity_kg || v.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
-        const vDate = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : (date || new Date().toISOString().split('T')[0]);
+        const vDate = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : (date || getIstDateStr());
 
         // Populate diary from QC worker's saved lab test
         const qcTestNoMacs = unpack(v.qc_test);
@@ -9554,7 +9601,7 @@ app.post('/api/qc-agm/macs/import', requireQcAgm, async (req, res) => {
     return res.status(400).json({ error: 'file_name and readings array are required.' });
   }
 
-  const targetDate = import_date || new Date().toISOString().split('T')[0];
+  const targetDate = import_date || getIstDateStr();
 
   try {
     const { data: bmcMaster } = await adminClient.from('bmcs').select('id, name, bmc_code');
@@ -9830,7 +9877,7 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
 
       const p = (r.stream || 'both').toLowerCase();
       if (period !== 'all' && p !== period.toLowerCase()) return;
-      
+
       const key = `${d}_${p}`;
       if (!dailyMap[key]) {
         dailyMap[key] = {
@@ -9843,7 +9890,7 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
       }
 
       const entry = dailyMap[key];
-      
+
       entry.macs.quantity_liters = r.liters;
       entry.macs.quantity_kg = r.kg;
       entry.macs.fat = r.fat;
@@ -9856,7 +9903,7 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
       .from('trip_bmc_visits')
       .select('*, trip:trips(id), ftir_tests(*), gerber_tests(*), qc_test:qc_lab_tests(*)')
       .eq('status', 'completed');
-      
+
     if (bmc.id) {
       visitsQuery = visitsQuery.eq('bmc_id', bmc.id);
     }
@@ -9869,7 +9916,7 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
         const { data: dtRecords } = await adminClient.from('driver_trips').select('id, duty_type').in('id', tripIds);
         const dutyMap = {};
         (dtRecords || []).forEach(dt => dutyMap[dt.id] = (dt.duty_type || 'both').toLowerCase());
-        
+
         finalVisits.forEach(v => {
           v.duty_type = dutyMap[v.trip_id] || 'both';
         });
@@ -9878,13 +9925,13 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
 
     finalVisits.forEach(v => {
       const d = v.visit_end_time ? new Date(v.visit_end_time).toISOString().split('T')[0] : new Date(v.created_at).toISOString().split('T')[0];
-      
+
       if (from_date && d < from_date) return;
       if (to_date && d > to_date) return;
-      
+
       const p = v.duty_type || 'both';
       if (period !== 'all' && p !== period.toLowerCase()) return;
-      
+
       const key = `${d}_${p}`;
       if (!dailyMap[key]) {
         dailyMap[key] = {
@@ -9895,14 +9942,14 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
           diary: { quantity_liters: null, quantity_kg: null, fat: null, snf: null, status: 'pending' }
         };
       }
-      
+
       const entry = dailyMap[key];
       const ftir = (v.ftir_tests && v.ftir_tests[0]) || {};
       const gerber = (v.gerber_tests && v.gerber_tests[0]) || {};
-      
+
       const lit = v.sample_liters || v.milk_quantity_liters || null;
       const kg = v.milk_quantity_kg || v.in_weight || (lit ? parseFloat((lit * 1.03).toFixed(2)) : null);
-      
+
       entry.spot = {
         liters: lit,
         kg: kg,
@@ -9910,7 +9957,7 @@ app.get('/api/pi-agm/bmcs/:bmcCode/daily-comparison', requirePiAgm, async (req, 
         snf: ftir.snf ?? gerber.snf ?? null,
         status: 'completed'
       };
-      
+
       const qc = (v.qc_test && v.qc_test[0]) || null;
       if (qc) {
         entry.diary = {
@@ -10058,7 +10105,7 @@ app.patch('/api/trips/:id/start-worker', requireWorker, async (req, res) => {
         .from('trip_bmc_visits')
         .select('id')
         .eq('trip_id', id);
-      
+
       if (!existingVisits || existingVisits.length === 0) {
         const visitsToInsert = dtRecord.selected_bmcs.map((b, idx) => ({
           trip_id: id,
@@ -10235,9 +10282,9 @@ app.delete('/api/worker/trips/:id', requireWorker, async (req, res) => {
         .select('route, destination, bmc_name')
         .eq('id', id)
         .maybeSingle();
-      
+
       if (dTrip) {
-         tripName = (dTrip.route || dTrip.destination || dTrip.bmc_name || '').trim();
+        tripName = (dTrip.route || dTrip.destination || dTrip.bmc_name || '').trim();
       }
     }
 
@@ -10251,12 +10298,12 @@ app.delete('/api/worker/trips/:id', requireWorker, async (req, res) => {
 
     const { error: tErr } = await adminClient.from('trips').update({ status: 'deleted' }).eq('id', id);
     if (tErr) {
-      await adminClient.from('trips').delete().eq('id', id).catch(() => {});
+      await adminClient.from('trips').delete().eq('id', id).catch(() => { });
     }
 
     const { error: dErr } = await adminClient.from('driver_trips').update({ status: 'deleted' }).eq('id', id);
     if (dErr) {
-      await adminClient.from('driver_trips').delete().eq('id', id).catch(() => {});
+      await adminClient.from('driver_trips').delete().eq('id', id).catch(() => { });
     }
 
     res.json({ success: true, message: `Trip "${tripName}" successfully deleted.` });
@@ -10300,7 +10347,7 @@ app.patch('/api/worker/trips/:id', requireWorker, async (req, res) => {
       const outKmNum = out_km !== undefined && out_km !== '' && out_km !== null ? parseFloat(out_km) : (dTrip.out_km || 0);
       const inKmNum = in_km !== undefined && in_km !== '' && in_km !== null ? parseFloat(in_km) : (dTrip.in_km || 0);
       const outWNum = out_weight !== undefined && out_weight !== '' && out_weight !== null ? parseFloat(out_weight) : (dTrip.out_weight || dTrip.out_tanker_weight || 0);
-      
+
       const hasInWeight = empty_tanker_weight !== undefined && empty_tanker_weight !== '' && empty_tanker_weight !== null;
       const inWNum = hasInWeight ? parseFloat(empty_tanker_weight) : (empty_tanker_weight === null || empty_tanker_weight === '' ? null : dTrip.in_weight);
 
@@ -10495,7 +10542,7 @@ app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
       if (isDone) {
         const outW = t.out_weight !== null && t.out_weight !== undefined ? t.out_weight : t.out_tanker_weight;
         const calc = calcMileage(outW, t.in_weight, t.out_km, t.in_km);
-        
+
         const dist = (calc.kmTravelled > 0 || (t.in_km !== null && t.out_km !== null)) ? calc.kmTravelled : (t.km_travelled !== null && t.km_travelled !== undefined ? Number(t.km_travelled) : null);
         const milkWeight = calc.weightDiff;
         const diesel = calc.dieselConsumption;
@@ -10591,7 +10638,7 @@ const MACS_API_CONFIG = {
 const MACS_STREAM_CONFIG = {
   morning: { session: '1', shift: '1', label: 'Morning' },
   evening: { session: '2', shift: '2', label: 'Evening/Night' },
-  both:    { session: '0', shift: '0', label: 'Both' }
+  both: { session: '0', shift: '0', label: 'Both' }
 };
 
 // Track scheduler state per stream for independent monitoring
@@ -10602,7 +10649,7 @@ const macsSchedulerState = {
   streams: {
     morning: { lastSyncTime: null, lastSyncSuccess: null, isRunning: false },
     evening: { lastSyncTime: null, lastSyncSuccess: null, isRunning: false },
-    both:    { lastSyncTime: null, lastSyncSuccess: null, isRunning: false }
+    both: { lastSyncTime: null, lastSyncSuccess: null, isRunning: false }
   }
 };
 
@@ -10683,7 +10730,7 @@ async function enforceMacsRetention(adminClient) {
       const code = String(row.macs_bmc_code).trim();
       const stream = syncRunStreamMap.get(row.sync_run_id) || 'both';
       if (!code) continue;
-      
+
       const groupKey = `${code}_${stream}`;
       if (!bmcGroups.has(groupKey)) {
         bmcGroups.set(groupKey, []);
@@ -10797,7 +10844,28 @@ async function macsBmcSyncService(options = {}) {
 
   const streamTag = isDaily2355 ? `DAILY_2355_${streamKey.toUpperCase()}` : `STREAM_${streamKey.toUpperCase()}`;
 
-  // 1. Create sync run record
+  // 1. Check for duplicate daily snapshots
+  if (isDaily2355) {
+    try {
+      const { data: existingRuns, error: exErr } = await adminClient
+        .from('macs_api_sync_runs')
+        .select('id')
+        .eq('requested_date', formattedDate)
+        .eq('error_message', streamTag)
+        .eq('status', 'success')
+        .limit(1);
+
+      if (!exErr && existingRuns && existingRuns.length > 0) {
+        console.log(`⏩ MACS API Sync: Daily snapshot ${streamTag} for ${formattedDate} already exists. Skipping duplicate.`);
+        macsSchedulerState.streams[streamKey].isRunning = false;
+        return { success: true, recordsFetched: 0, recordsStored: 0, recordsSkipped: 0, syncRunId: existingRuns[0].id, duplicateSkipped: true };
+      }
+    } catch (e) {
+      console.warn(`⚠️ Error checking for duplicate snapshot ${streamTag}:`, e.message);
+    }
+  }
+
+  // 2. Create sync run record
   let syncRunId = null;
   try {
     const { data: syncRun, error: syncErr } = await adminClient
@@ -10933,7 +11001,7 @@ async function macsBmcSyncService(options = {}) {
     macsSchedulerState.streams[streamKey].lastSyncTime = new Date();
     macsSchedulerState.streams[streamKey].lastSyncSuccess = new Date();
     macsSchedulerState.streams[streamKey].isRunning = false;
-    
+
     console.log(`✅ MACS API Sync [${streamConfig.label}]${isDaily2355 ? ' [DAILY 23:55]' : ''}: Success — ${recordsFetched} fetched, ${recordsStored} stored, ${recordsSkipped} skipped`);
 
     // 8. Enforce rolling retention
@@ -10945,7 +11013,7 @@ async function macsBmcSyncService(options = {}) {
     // 8. Handle errors — mark sync as failed, preserve previous data
     const isTimeout = err.name === 'AbortError' || (err.cause && err.cause.name === 'AbortError');
     const errorMsg = isTimeout
-      ? `Request timed out after ${MACS_API_CONFIG.timeoutMs / 1000}s` 
+      ? `Request timed out after ${MACS_API_CONFIG.timeoutMs / 1000}s`
       : (err.message || String(err));
 
     console.error(`❌ MACS API Sync [${streamConfig.label}]: Failed — ${errorMsg}`);
@@ -10979,7 +11047,7 @@ function startMacsApiScheduler() {
   }
 
   console.log(`⏰ MACS API Scheduler: Starting — will sync every ${MACS_API_CONFIG.syncIntervalMs / 60000} minutes`);
-  
+
   macsSchedulerState.nextSyncTime = new Date(Date.now() + MACS_API_CONFIG.syncIntervalMs);
 
   macsSchedulerState.intervalId = setInterval(async () => {
@@ -11051,38 +11119,51 @@ function scheduleNextDaily2355Sync() {
 
   console.log(`🌙 MACS DAILY SCHEDULER: Next snapshot at ${istDateStr} ${istTimeStr} IST (${next1825UTC.toISOString()} UTC) — in ${(msUntilNext / 60000).toFixed(1)} mins`);
 
-  setTimeout(async () => {
-    // ── Compute the ONE COMMON snapshot date at execution time in IST ──
-    const execNow = new Date();
-    const istExec = new Date(execNow.getTime() + (5.5 * 60 * 60 * 1000));
-    const snapshotDD = String(istExec.getUTCDate()).padStart(2, '0');
-    const snapshotMM = String(istExec.getUTCMonth() + 1).padStart(2, '0');
-    const snapshotYYYY = istExec.getUTCFullYear();
-    const snapshotDate = `${snapshotDD}/${snapshotMM}/${snapshotYYYY}`;
+  setTimeout(() => {
+    const runDaily = async () => {
+      if (macsSchedulerState.isRunning) {
+        console.log('⏳ MACS DAILY SCHEDULER: Live sync in progress. Waiting 30 seconds...');
+        setTimeout(runDaily, 30000);
+        return;
+      }
 
-    const istExecTime = String(istExec.getUTCHours()).padStart(2, '0') + ':' +
-      String(istExec.getUTCMinutes()).padStart(2, '0') + ':' +
-      String(istExec.getUTCSeconds()).padStart(2, '0');
+      macsSchedulerState.isRunning = true;
 
-    console.log('═══════════════════════════════════════════════════════════════');
-    console.log('🌙 DAILY MACS SNAPSHOT START');
-    console.log(`   UTC : ${execNow.toISOString()}`);
-    console.log(`   IST : ${snapshotDate} ${istExecTime}`);
-    console.log(`   Snapshot Date: ${snapshotDate}`);
-    console.log('═══════════════════════════════════════════════════════════════');
+      // ── Compute the ONE COMMON snapshot date at execution time in IST ──
+      const execNow = new Date();
+      const istExec = new Date(execNow.getTime() + (5.5 * 60 * 60 * 1000));
+      const snapshotDD = String(istExec.getUTCDate()).padStart(2, '0');
+      const snapshotMM = String(istExec.getUTCMonth() + 1).padStart(2, '0');
+      const snapshotYYYY = istExec.getUTCFullYear();
+      const snapshotDate = `${snapshotDD}/${snapshotMM}/${snapshotYYYY}`;
 
-    try {
-      // All three streams use the SAME snapshotDate
-      await macsBmcSyncService({ stream: 'morning', isDaily2355: true, snapshotDate });
-      await macsBmcSyncService({ stream: 'evening', isDaily2355: true, snapshotDate });
-      await macsBmcSyncService({ stream: 'both',    isDaily2355: true, snapshotDate });
+      const istExecTime = String(istExec.getUTCHours()).padStart(2, '0') + ':' +
+        String(istExec.getUTCMinutes()).padStart(2, '0') + ':' +
+        String(istExec.getUTCSeconds()).padStart(2, '0');
 
-      console.log(`✅ DAILY MACS SNAPSHOT COMPLETE — All 3 streams saved for ${snapshotDate}`);
-    } catch (err) {
-      console.error('❌ MACS API 23:55 Daily Scheduler error:', err.message);
-    } finally {
-      scheduleNextDaily2355Sync();
-    }
+      console.log('═══════════════════════════════════════════════════════════════');
+      console.log('🌙 DAILY MACS SNAPSHOT START');
+      console.log(`   UTC : ${execNow.toISOString()}`);
+      console.log(`   IST : ${snapshotDate} ${istExecTime}`);
+      console.log(`   Snapshot Date: ${snapshotDate}`);
+      console.log('═══════════════════════════════════════════════════════════════');
+
+      try {
+        // All three streams use the SAME snapshotDate
+        await macsBmcSyncService({ stream: 'morning', isDaily2355: true, snapshotDate });
+        await macsBmcSyncService({ stream: 'evening', isDaily2355: true, snapshotDate });
+        await macsBmcSyncService({ stream: 'both', isDaily2355: true, snapshotDate });
+
+        console.log(`✅ DAILY MACS SNAPSHOT COMPLETE — All 3 streams saved for ${snapshotDate}`);
+      } catch (err) {
+        console.error('❌ MACS API 23:55 Daily Scheduler error:', err.message);
+      } finally {
+        macsSchedulerState.isRunning = false;
+        scheduleNextDaily2355Sync();
+      }
+    };
+
+    runDaily();
   }, msUntilNext);
 }
 
@@ -11332,7 +11413,7 @@ app.get('/api/admin/macs-api/data', requireAdminRole, async (req, res) => {
         .from('macs_api_sync_runs')
         .select('id')
         .ilike('error_message', `%${streamTag}%`);
-      
+
       const runIds = (runs || []).map(r => r.id);
       if (runIds.length > 0) {
         query = query.in('sync_run_id', runIds);
@@ -11473,8 +11554,8 @@ app.delete('/api/admin/macs-api/sync-history/:syncRunId/readings', requireAdminR
       success: true,
       deletedCount: existingCount,
       syncRunId,
-      message: existingCount > 0 
-        ? `Successfully deleted ${existingCount} live MACS readings for this sync.` 
+      message: existingCount > 0
+        ? `Successfully deleted ${existingCount} live MACS readings for this sync.`
         : 'No live MACS records were currently stored for this sync.'
     });
   } catch (err) {

@@ -1,6 +1,6 @@
 // transport-macs.js — Transport Officer MACS Data Overview (QC Manager Table View)
 let allMacsBmcs = [];
-let currentSelectedDate = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+let currentSelectedDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 let currentSelectedPeriod = 'both';
 
 document.addEventListener('DOMContentLoaded', async () => {
