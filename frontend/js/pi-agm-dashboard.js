@@ -386,33 +386,51 @@ function exportToPDF() {
       tankerMap[name] = {
         name,
         hoursMs: 0,
-        distance: tk.distance_km != null ? tk.distance_km : null,
-        diesel: tk.diesel_liters != null ? tk.diesel_liters : null,
-        mileage: tk.mileage != null ? tk.mileage : null
+        distance: 0,
+        diesel: 0,
+        mileage: null
       };
     }
   });
 
   (trips || []).forEach(t => {
-    const tkName = t.tanker_number;
+    const tkName = t.tanker_number || t.vehicle_number;
     if (tkName && tkName !== '-') {
       if (!tankerMap[tkName]) {
-        tankerMap[tkName] = { name: tkName, hoursMs: 0, distance: null, diesel: null, mileage: null };
+        tankerMap[tkName] = { name: tkName, hoursMs: 0, distance: 0, diesel: 0, mileage: null };
       }
       if (t.duration_ms) {
         tankerMap[tkName].hoursMs += t.duration_ms;
       }
+
+      // Aggregate distance covered
+      let dist = 0;
+      if (t.distance_km != null && !isNaN(Number(t.distance_km)) && Number(t.distance_km) > 0) {
+        dist = Number(t.distance_km);
+      } else if (t.in_km != null && t.out_km != null && !isNaN(Number(t.in_km)) && !isNaN(Number(t.out_km)) && Number(t.in_km) >= Number(t.out_km)) {
+        dist = Number(t.in_km) - Number(t.out_km);
+      }
+      if (dist > 0) tankerMap[tkName].distance += dist;
+
+      // Aggregate diesel consumption
+      let dL = 0;
+      const dVal = t.diesel_liters ?? t.diesel_litres ?? t.diesel;
+      if (dVal != null && !isNaN(Number(dVal)) && Number(dVal) > 0) {
+        dL = Number(dVal);
+      } else if (t.out_weight != null && t.in_weight != null && !isNaN(Number(t.out_weight)) && !isNaN(Number(t.in_weight)) && Number(t.out_weight) > Number(t.in_weight)) {
+        const dieselKg = Number(t.out_weight) - Number(t.in_weight);
+        dL = parseFloat((dieselKg / 0.832).toFixed(2));
+      }
+      if (dL > 0) tankerMap[tkName].diesel += dL;
     }
   });
 
   const tankerRows = Object.values(tankerMap).map(tk => {
     const hrs = tk.hoursMs > 0 ? `${(tk.hoursMs / 3600000).toFixed(1)} hrs` : '-';
-    const dist = tk.distance != null ? `${tk.distance} KM` : '-';
-    const diesel = tk.diesel != null ? `${tk.diesel} L` : '-';
+    const dist = tk.distance > 0 ? `${parseFloat(tk.distance.toFixed(1))} KM` : '-';
+    const diesel = tk.diesel > 0 ? `${parseFloat(tk.diesel.toFixed(1))} L` : '-';
     let mileageStr = '-';
-    if (tk.mileage != null) {
-      mileageStr = `${tk.mileage} KM/L`;
-    } else if (tk.distance && tk.diesel) {
+    if (tk.distance > 0 && tk.diesel > 0) {
       mileageStr = `${(tk.distance / tk.diesel).toFixed(1)} KM/L`;
     }
 

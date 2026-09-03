@@ -174,14 +174,11 @@ function renderFleetPersonnel(workers = [], drivers = [], tankers = []) {
   const dBody = document.getElementById('drivers-table-body');
   if (dBody) {
     if (drivers.length === 0) {
-      dBody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">No registered drivers.</td></tr>`;
+      dBody.innerHTML = `<tr><td colspan="1" class="text-center text-muted">No registered drivers.</td></tr>`;
     } else {
       dBody.innerHTML = drivers.map(d => `
         <tr>
           <td><strong>${esc(d.name)}</strong></td>
-          <td>${esc(d.phone || '—')}</td>
-          <td>${esc(d.license_number || '—')}</td>
-          <td><span class="status-badge ${d.is_active ? 'completed' : 'cancelled'}">${d.is_active ? 'Active' : 'Inactive'}</span></td>
         </tr>
       `).join('');
     }

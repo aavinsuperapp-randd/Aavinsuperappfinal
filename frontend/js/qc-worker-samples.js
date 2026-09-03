@@ -8,11 +8,59 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('qc-header-name').textContent = profile.name;
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
+  const btnToday = document.getElementById('btn-quick-today');
+  const btnYesterday = document.getElementById('btn-quick-yesterday');
+  const dateFrom = document.getElementById('filter-from-date');
+  const dateTo = document.getElementById('filter-to-date');
+  const btnDownload = document.getElementById('btn-download-pdf');
+
+  function updateQuickBtns(range) {
+    if(btnToday) {
+      btnToday.style.background = range === 'today' ? '#2563EB' : '#F1F5F9';
+      btnToday.style.color = range === 'today' ? '#FFF' : '#334155';
+    }
+    if(btnYesterday) {
+      btnYesterday.style.background = range === 'yesterday' ? '#2563EB' : '#F1F5F9';
+      btnYesterday.style.color = range === 'yesterday' ? '#FFF' : '#334155';
+    }
+  }
+
+  function setTodayDefault() {
+    const today = new Date();
+    const dStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+    if (dateFrom) dateFrom.value = dStr;
+    if (dateTo) dateTo.value = dStr;
+    updateQuickBtns('today');
+  }
+
+  // Set default to today
+  setTodayDefault();
+
   await loadSamplesQueue();
 
-  // Search & Filter
-  document.getElementById('sample-search-input').addEventListener('input', filterSamples);
-  document.getElementById('sample-status-filter').addEventListener('change', filterSamples);
+  if(btnToday) {
+    btnToday.addEventListener('click', () => {
+      setTodayDefault();
+      filterSamples();
+    });
+  }
+
+  if(btnYesterday) {
+    btnYesterday.addEventListener('click', () => {
+      const yest = new Date();
+      yest.setDate(yest.getDate() - 1);
+      const dStr = yest.getFullYear() + '-' + String(yest.getMonth()+1).padStart(2,'0') + '-' + String(yest.getDate()).padStart(2,'0');
+      if (dateFrom) dateFrom.value = dStr;
+      if (dateTo) dateTo.value = dStr;
+      updateQuickBtns('yesterday');
+      filterSamples();
+    });
+  }
+
+  if(dateFrom) dateFrom.addEventListener('change', () => { updateQuickBtns('custom'); filterSamples(); });
+  if(dateTo) dateTo.addEventListener('change', () => { updateQuickBtns('custom'); filterSamples(); });
+
+  if(btnDownload) btnDownload.addEventListener('click', generatePDF);
 });
 
 let allSamples = [];
@@ -21,7 +69,7 @@ async function loadSamplesQueue() {
   try {
     const res = await apiQcGetSamples();
     allSamples = res.samples || [];
-    renderSamplesTable(allSamples);
+    filterSamples();
   } catch (err) {
     console.error('Error loading samples queue:', err);
     showToast(err.message || 'Failed to load samples queue.', 'error');
@@ -29,33 +77,31 @@ async function loadSamplesQueue() {
 }
 
 function filterSamples() {
-  const q = document.getElementById('sample-search-input').value.toLowerCase().trim();
-  const statusFilter = document.getElementById('sample-status-filter').value;
+  const fDateStr = document.getElementById('filter-from-date') ? document.getElementById('filter-from-date').value : '';
+  const tDateStr = document.getElementById('filter-to-date') ? document.getElementById('filter-to-date').value : '';
+
+  let fDate = fDateStr ? new Date(fDateStr) : null;
+  if(fDate) fDate.setHours(0,0,0,0);
+  let tDate = tDateStr ? new Date(tDateStr) : null;
+  if(tDate) tDate.setHours(23,59,59,999);
 
   const filtered = allSamples.filter(s => {
-    const bmcName = (s.bmc ? s.bmc.name : '').toLowerCase();
-    const bmcLoc = (s.bmc ? s.bmc.location : '').toLowerCase();
-    const workerName = (s.trip && s.trip.worker ? s.trip.worker.name : '').toLowerCase();
-    const sampleId = `smp-${s.id.slice(0, 6)}`.toLowerCase();
-
-    const matchesSearch = !q || bmcName.includes(q) || bmcLoc.includes(q) || workerName.includes(q) || sampleId.includes(q);
-
-    const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
-    let currentStatus = 'pending';
-    if (qcTest) {
-      const isCompleted = qcTest.status === 'submitted' || qcTest.status === 'approved' || (qcTest.fat != null && qcTest.snf != null && String(qcTest.fat).trim() !== '' && String(qcTest.snf).trim() !== '');
-      if (isCompleted) {
-        currentStatus = 'submitted';
+    let matchesDate = true;
+    if (fDate || tDate) {
+      const sTime = s.visit_end_time || s.created_at;
+      if (sTime) {
+        const itemD = new Date(sTime);
+        if (fDate && itemD < fDate) matchesDate = false;
+        if (tDate && itemD > tDate) matchesDate = false;
       } else {
-        currentStatus = qcTest.status;
+        matchesDate = false;
       }
     }
 
-    const matchesStatus = statusFilter === 'all' || currentStatus === statusFilter;
-
-    return matchesSearch && matchesStatus;
+    return matchesDate;
   });
 
+  window._currentFilteredSamples = filtered;
   renderSamplesTable(filtered);
 }
 
@@ -148,4 +194,77 @@ function esc(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function generatePDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('landscape');
+
+  const now = new Date();
+  doc.setFontSize(16);
+  doc.setTextColor(15, 23, 42);
+  doc.text('AAVIN QC Worker — Sample Testing Queue Report', 14, 20);
+  
+  doc.setFontSize(10);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Generated on: ${now.toLocaleString('en-IN')}`, 14, 28);
+  
+  const fDateStr = document.getElementById('filter-from-date') ? document.getElementById('filter-from-date').value : '';
+  const tDateStr = document.getElementById('filter-to-date') ? document.getElementById('filter-to-date').value : '';
+  const statSelect = document.getElementById('sample-status-filter');
+  const statF = statSelect ? statSelect.options[statSelect.selectedIndex].text : 'All Statuses';
+  
+  let dateRangeText = 'All Time';
+  if(fDateStr && tDateStr) dateRangeText = `${fDateStr} to ${tDateStr}`;
+  else if (fDateStr) dateRangeText = `From ${fDateStr}`;
+  else if (tDateStr) dateRangeText = `Until ${tDateStr}`;
+  
+  doc.text(`Date Range: ${dateRangeText}   |   Status: ${statF}`, 14, 34);
+
+  const samples = window._currentFilteredSamples || allSamples;
+
+  const tableData = samples.map((s, idx) => {
+    const sId = `SMP-${s.id.slice(0, 6).toUpperCase()}`;
+    const bmcName = s.bmc ? s.bmc.name : 'Unknown';
+    const cDate = s.visit_end_time ? new Date(s.visit_end_time).toLocaleDateString() : 'N/A';
+    const cTime = s.visit_end_time ? new Date(s.visit_end_time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : 'N/A';
+    const fw = s.trip && s.trip.worker ? s.trip.worker.name : 'Unknown';
+    
+    let bmcSummary = [];
+    const ftir = Array.isArray(s.ftir_tests) ? s.ftir_tests[0] : s.ftir_tests;
+    const gerber = Array.isArray(s.gerber_tests) ? s.gerber_tests[0] : s.gerber_tests;
+    if(ftir) bmcSummary.push(`FTIR (F:${ftir.fat ?? '-'} S:${ftir.snf ?? '-'})`);
+    if(gerber) bmcSummary.push(`Gerber (F:${gerber.fat_percentage ?? '-'} C:${gerber.clr ?? '-'})`);
+    const bmcTestStr = bmcSummary.length > 0 ? bmcSummary.join('\n') : 'No Data';
+
+    const qcTest = Array.isArray(s.qc_test) ? s.qc_test[0] : s.qc_test;
+    let stat = 'Pending';
+    if(qcTest) {
+      if(qcTest.status === 'submitted' || qcTest.status === 'approved' || (qcTest.fat != null && qcTest.fat !== '')) stat = 'Completed';
+      else if(qcTest.status === 'returned') stat = 'Returned';
+      else if(qcTest.status === 'in_progress') stat = 'In Progress';
+    }
+
+    return [
+      idx + 1,
+      sId,
+      bmcName,
+      cDate + '\n' + cTime,
+      fw,
+      bmcTestStr,
+      stat
+    ];
+  });
+
+  doc.autoTable({
+    startY: 42,
+    head: [['#', 'Sample ID', 'BMC Center', 'Collection Date/Time', 'Field Worker', 'Spot Analyzer / Diary', 'QC Status']],
+    body: tableData,
+    theme: 'grid',
+    styles: { fontSize: 8, cellPadding: 3 },
+    headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [248, 250, 252] }
+  });
+
+  doc.save(`QC_Queue_Report_${now.getTime()}.pdf`);
 }

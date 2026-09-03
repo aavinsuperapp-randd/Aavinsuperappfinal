@@ -1521,6 +1521,15 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
         if (!existing.route && (dt.route || dt.destination || dt.bmc_name)) existing.route = dt.route || dt.destination || dt.bmc_name;
         if (dt.assigned_worker_id && !existing.worker_id) existing.worker_id = dt.assigned_worker_id;
         if (dt.duty_type && !existing.duty_type) existing.duty_type = dt.duty_type;
+        if (dt.out_km !== null && dt.out_km !== undefined) existing.out_km = dt.out_km;
+        if (dt.in_km !== null && dt.in_km !== undefined) existing.in_km = dt.in_km;
+        if (dt.out_weight !== null && dt.out_weight !== undefined) existing.out_weight = dt.out_weight;
+        if (dt.out_tanker_weight !== null && dt.out_tanker_weight !== undefined) existing.out_tanker_weight = dt.out_tanker_weight;
+        if (dt.in_weight !== null && dt.in_weight !== undefined) existing.in_weight = dt.in_weight;
+        if (dt.in_empty_weight !== null && dt.in_empty_weight !== undefined) existing.in_empty_weight = dt.in_empty_weight;
+        if (dt.km_travelled !== null && dt.km_travelled !== undefined) existing.km_travelled = dt.km_travelled;
+        if (dt.diesel_litres !== null && dt.diesel_litres !== undefined) existing.diesel_litres = dt.diesel_litres;
+        if (dt.mileage_kml !== null && dt.mileage_kml !== undefined) existing.mileage_kml = dt.mileage_kml;
       } else {
         tripMapById[dt.id] = {
           id: dt.id,
@@ -1535,6 +1544,13 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
           status: dt.status || 'pending',
           created_at: dt.created_at,
           duty_type: dt.duty_type || 'both',
+          out_km: dt.out_km ?? null,
+          in_km: dt.in_km ?? null,
+          out_weight: dt.out_weight ?? dt.out_tanker_weight ?? null,
+          in_weight: dt.in_weight ?? dt.in_empty_weight ?? null,
+          km_travelled: dt.km_travelled ?? null,
+          diesel_litres: dt.diesel_litres ?? null,
+          mileage_kml: dt.mileage_kml ?? null,
           visits: []
         };
       }
@@ -1782,6 +1798,16 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
 
       const visitBmcNames = formattedVisits.map(v => v.bmc_name).join(' → ');
 
+      const outW = t.out_weight !== null && t.out_weight !== undefined ? t.out_weight : (t.out_tanker_weight !== null && t.out_tanker_weight !== undefined ? t.out_tanker_weight : null);
+      const inW = t.in_weight !== null && t.in_weight !== undefined ? t.in_weight : (t.in_empty_weight !== null && t.in_empty_weight !== undefined ? t.in_empty_weight : null);
+      const outKm = t.out_km !== null && t.out_km !== undefined ? t.out_km : null;
+      const inKm = t.in_km !== null && t.in_km !== undefined ? t.in_km : null;
+
+      const calc = calcMileage(outW, inW, outKm, inKm);
+      const distance_km = (calc.kmTravelled > 0 || (inKm !== null && outKm !== null && inKm >= outKm)) ? calc.kmTravelled : (t.km_travelled ? Number(t.km_travelled) : null);
+      const diesel_litres = calc.dieselConsumption !== null ? calc.dieselConsumption : (t.diesel_litres ? Number(t.diesel_litres) : null);
+      const mileage_kml = calc.averageMileage !== null ? calc.averageMileage : (t.mileage_kml ? Number(t.mileage_kml) : null);
+
       return {
         id: t.id,
         trip_name: t.trip_name,
@@ -1808,6 +1834,15 @@ app.get('/api/gm/dashboard-v2', requirePiAgm, async (req, res) => {
         duration_ms,
         duration_formatted: formatDurationMs(duration_ms),
         last_bmc: lastBmc,
+        out_km: outKm,
+        in_km: inKm,
+        out_weight: outW,
+        in_weight: inW,
+        distance_km,
+        diesel_litres,
+        diesel_liters: diesel_litres,
+        mileage_kml,
+        mileage: mileage_kml,
         route: visitBmcNames || t.route_description || t.trip_name || '-',
         visits: formattedVisits
       };

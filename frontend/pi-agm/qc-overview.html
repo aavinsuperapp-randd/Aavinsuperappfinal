@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QC MACS Overview — P&amp;I AGM Portal</title>
+  <meta name="description" content="P&I AGM Portal — AAVIN MACS Readings, quality metrics, cross-comparison, and operational analytics.">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/pi-agm-portal.css">
+  <link rel="stylesheet" href="../css/worker.css">
+  <link rel="stylesheet" href="../css/qc.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    .qc-page-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .qc-date-control-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: white;
+      padding: 8px 16px;
+      border-radius: 10px;
+      border: 1px solid #CBD5E1;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      flex-wrap: wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="admin-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- P&I AGM Sidebar Navigation -->
+    <aside class="admin-sidebar" id="pi-agm-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>P&amp;I AGM Portal</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item"><span>🏠</span> Executive Overview</a>
+        <a href="issues.html" class="admin-nav-item"><span>⚠️</span> Complaints</a>
+        <a href="fleet.html" class="admin-nav-item"><span>👥</span> Fleet &amp; Staff</a>
+        <a href="bmcs.html" class="admin-nav-item"><span>🏭</span> BMC Management</a>
+        <a href="invoices.html" class="admin-nav-item"><span>🧾</span> Invoices</a>
+        <a href="qc-overview.html" class="admin-nav-item active"><span>🔬</span> QC MACS Overview</a>
+        <a href="analysis.html" class="admin-nav-item"><span>📈</span> Deep Analysis</a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:4px;"><span>🚪</span> Logout</button>
+      </nav>
+    </aside>
+
+    <div class="admin-main">
+      <header class="admin-header">
+        <div class="header-left">
+          <button id="sidebar-toggle-btn" class="sidebar-toggle" aria-label="Toggle Navigation Menu" title="Toggle Navigation Menu">⋮</button>
+          <div class="header-greeting">
+            <h2>P&amp;I AGM PORTAL</h2>
+            <p id="dashboard-date-subtitle">Executive Quality &amp; MACS Readings Overview</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-user">
+            <div class="header-user-info">
+              <div class="header-user-name" id="header-pi-agm-name">P&amp;I AGM</div>
+              <div class="header-user-role">Super Admin Command</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-gm-content">
+
+          <!-- Page Top: Title & Controls -->
+          <div class="qc-page-top" style="margin-bottom: 20px;">
+            <div style="margin-bottom: 16px;">
+              <h1 style="font-size:1.8rem; font-weight:800; color:#0F172A; margin:0;">MACS READINGS 📊</h1>
+              <p style="color:#64748B; margin:4px 0 0 0;">Compare Worker MACS readings with QC MACS readings date-wise</p>
+            </div>
+
+            <!-- Modern 3-Row Responsive Control Card -->
+            <div class="macs-controls-card" style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:14px; padding:16px 20px; box-shadow:0 2px 8px rgba(0,0,0,0.04); margin-bottom:20px;">
+              <!-- Row 1: Date Buttons & Sync Now in single row -->
+              <div class="macs-controls-row" style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                  <span style="font-weight:700; color:#334155; font-size:0.88rem;">Date:</span>
+                  <button type="button" id="btn-quick-today" class="btn-qc btn-qc-outline" style="padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer;">Today</button>
+                  <button type="button" id="btn-quick-yesterday" class="btn-qc btn-qc-outline" style="padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer;">Yesterday</button>
+                </div>
+                <button type="button" id="macs-sync-btn" onclick="handleManualSync()" class="btn-qc btn-qc-primary" style="padding:7px 16px; font-weight:700; font-size:0.82rem; border-radius:8px; cursor:pointer; background:linear-gradient(135deg, #2563EB, #1D4ED8); color:#FFFFFF; border:none; display:inline-flex; align-items:center; gap:6px;">🔄 Sync Now</button>
+              </div>
+
+              <!-- Row 2: Route & Date in single row -->
+              <div class="macs-controls-row" style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:140px; display:flex; align-items:center; gap:8px;">
+                  <span style="font-weight:700; color:#334155; font-size:0.85rem; white-space:nowrap;">Route:</span>
+                  <select id="macs-route-filter" class="qc-form-input" style="width:100%; padding:8px 12px; border-radius:8px; font-weight:600; background:#FFFFFF; border:1px solid #CBD5E1; font-size:0.88rem;">
+                    <option value="all">All Routes</option>
+                  </select>
+                </div>
+
+                <div style="flex:1; min-width:140px; display:flex; align-items:center; gap:8px;">
+                  <span style="font-weight:700; color:#334155; font-size:0.85rem; white-space:nowrap;">Date:</span>
+                  <select id="macs-date-select" class="qc-form-input" style="width:100%; padding:8px 12px; border-radius:8px; font-weight:600; background:#FFFFFF; border:1px solid #CBD5E1; font-size:0.88rem;">
+                    <option value="">Loading dates...</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Row 3: Period in single row (neat UI/UX) -->
+              <div class="macs-controls-row" style="display:flex; align-items:center; gap:8px;">
+                <span style="font-weight:700; color:#334155; font-size:0.85rem; white-space:nowrap;">Period:</span>
+                <select id="macs-period-select" class="qc-form-input" style="width:100%; max-width:320px; padding:8px 12px; border-radius:8px; font-weight:600; background:#FFFFFF; border:1px solid #CBD5E1; font-size:0.88rem;">
+                  <option value="both" selected>Both (Morning &amp; Evening)</option>
+                  <option value="morning">Morning</option>
+                  <option value="evening">Evening</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Table 1: Matched MACS BMCs Table -->
+          <div class="qc-section" style="margin-bottom:28px;">
+            <div class="qc-section-header">
+              <div class="qc-section-title">
+                <span>📋</span> Matched MACS Readings &amp; Cross-Comparison
+              </div>
+            </div>
+
+            <div class="qc-table-wrap">
+              <table class="qc-table">
+                <thead>
+                  <tr>
+                    <th>BMC Code</th>
+                    <th>BMC Name</th>
+                    <th>MACS Result</th>
+                    <th>Spot Analyzer</th>
+                    <th>Diary Result</th>
+                    <th>Difference</th>
+                  </tr>
+                </thead>
+                <tbody id="macs-readings-tbody">
+                  <tr>
+                    <td colspan="6" style="text-align:center; padding:20px; color:#64748B;">Select a date to view MACS Readings...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Detail Modal -->
+  <div id="macs-detail-modal" class="modal-overlay hidden" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+    <div class="modal-content" style="background:#fff; border-radius:16px; width:520px; max-width:92vw; padding:24px; box-shadow:0 20px 40px rgba(0,0,0,0.2);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="margin:0; font-size:1.2rem; font-weight:800; color:#0F172A;">MACS Reading Breakdown</h3>
+        <button type="button" onclick="closeDetailModal()" class="btn btn-ghost" style="border:none; background:none; font-size:1.2rem; cursor:pointer; color:#64748B;">✕</button>
+      </div>
+      <div id="macs-detail-content">
+        <!-- Injected by JS -->
+      </div>
+      <div style="text-align:right; margin-top:20px;">
+        <button type="button" onclick="closeDetailModal()" class="btn-qc btn-qc-outline" style="padding:8px 18px;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/qc-agm-api.js"></script>
+  <script src="../js/pi-agm-api.js"></script>
+  <script src="../js/pi-agm-qc-overview.js"></script>
+</body>
+</html>
