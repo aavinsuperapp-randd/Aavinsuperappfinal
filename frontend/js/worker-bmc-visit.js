@@ -464,10 +464,15 @@ function setupSaveButtonListeners() {
         return;
       }
       const text = document.getElementById('bv-report-text')?.value.trim();
-      const priority = document.getElementById('bv-report-priority')?.value.toLowerCase() || 'medium';
+      const priority = document.getElementById('bv-report-priority')?.value.toLowerCase();
 
       if (!text) {
         alert('Please enter report/remarks text.');
+        return;
+      }
+      
+      if (!priority) {
+        alert('Please select a priority.');
         return;
       }
 

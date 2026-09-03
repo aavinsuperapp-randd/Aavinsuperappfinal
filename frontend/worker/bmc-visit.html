@@ -156,9 +156,9 @@
               <textarea id="bv-report-text" class="form-control" rows="3" placeholder="Enter report or observations..." maxlength="1000"></textarea>
             </div>
             <div class="mb-3">
-              <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Priority (Optional)</label>
-              <select id="bv-report-priority" class="form-control">
-                <option value="">Select Priority (Optional)</option>
+              <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #334155;">Priority <span style="color:#EF4444;">*</span></label>
+              <select id="bv-report-priority" class="form-control" required>
+                <option value="" disabled selected>Select Priority</option>
                 <option value="Low">Low</option>
                 <option value="Mid">Mid</option>
                 <option value="High">High</option>

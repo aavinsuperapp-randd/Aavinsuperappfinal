@@ -2,6 +2,8 @@
 
 let currentDuties = [];
 let finishedDuties = [];
+let finishedDutiesCurrentPage = 1;
+const FINISHED_DUTIES_PER_PAGE = 5;
 let selectedTripId = null;
 let activeTripData = null;
 
@@ -162,7 +164,7 @@ async function loadDuties() {
     }
 
     renderDutiesList(currentDuties, 'available-duties-container', 'No Available Duties', 'You have no pending planned duties at this moment.');
-    renderDutiesList(finishedDuties, 'finished-duties-container', 'No Finished Duties', 'You have not completed any duties yet.');
+    renderFinishedDutiesWithPagination();
   } catch (err) {
     console.error('Failed to load duties:', err);
     if (typeof UIStates !== 'undefined') {
@@ -339,6 +341,106 @@ function renderDutiesList(duties, containerId, emptyTitle, emptyDesc) {
     `;
   }).join('');
 }
+
+function renderFinishedDutiesWithPagination() {
+  const containerId = 'finished-duties-container';
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const totalItems = finishedDuties.length;
+  if (totalItems === 0) {
+    renderDutiesList([], containerId, 'No Finished Duties', 'You have not completed any duties yet.');
+    return;
+  }
+
+  const totalPages = Math.ceil(totalItems / FINISHED_DUTIES_PER_PAGE) || 1;
+  if (finishedDutiesCurrentPage < 1) finishedDutiesCurrentPage = 1;
+  if (finishedDutiesCurrentPage > totalPages) finishedDutiesCurrentPage = totalPages;
+
+  const startIdx = (finishedDutiesCurrentPage - 1) * FINISHED_DUTIES_PER_PAGE;
+  const endIdx = startIdx + FINISHED_DUTIES_PER_PAGE;
+  const pageDuties = finishedDuties.slice(startIdx, endIdx);
+
+  // Render 5 items for this page
+  renderDutiesList(pageDuties, containerId, 'No Finished Duties', 'You have not completed any duties yet.');
+
+  const startNum = startIdx + 1;
+  const endNum = Math.min(endIdx, totalItems);
+
+  let paginationHtml = `
+    <div class="finished-pagination-wrapper" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin-top: 20px; padding: 16px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px;">
+      <div style="font-size: 0.85rem; color: #64748B; font-weight: 600; text-align: center;">
+        Showing <strong style="color: #0F172A;">${startNum}–${endNum}</strong> of <strong style="color: #0F172A;">${totalItems}</strong> finished duties
+      </div>
+  `;
+
+  if (totalPages > 1) {
+    paginationHtml += `
+      <div class="finished-pagination-bar" style="display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap;">
+        <button type="button" class="btn-page-nav" ${finishedDutiesCurrentPage === 1 ? 'disabled' : ''} onclick="changeFinishedDutiesPage(${finishedDutiesCurrentPage - 1})" style="padding: 7px 14px; font-weight: 700; font-size: 0.85rem; border: 1px solid #CBD5E1; background: ${finishedDutiesCurrentPage === 1 ? '#F1F5F9' : '#FFFFFF'}; color: ${finishedDutiesCurrentPage === 1 ? '#94A3B8' : '#334155'}; border-radius: 8px; cursor: ${finishedDutiesCurrentPage === 1 ? 'not-allowed' : 'pointer'}; transition: all 0.2s ease;">
+          ‹ Prev
+        </button>
+    `;
+
+    const maxVisibleButtons = 5;
+    let startPage = Math.max(1, finishedDutiesCurrentPage - 2);
+    let endPage = Math.min(totalPages, startPage + maxVisibleButtons - 1);
+    if (endPage - startPage < maxVisibleButtons - 1) {
+      startPage = Math.max(1, endPage - maxVisibleButtons + 1);
+    }
+
+    if (startPage > 1) {
+      paginationHtml += `
+        <button type="button" class="btn-page-num" onclick="changeFinishedDutiesPage(1)" style="min-width: 36px; height: 36px; padding: 0 8px; font-weight: 700; font-size: 0.85rem; border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155; border-radius: 8px; cursor: pointer;">
+          1
+        </button>
+      `;
+      if (startPage > 2) {
+        paginationHtml += `<span style="color:#94A3B8; font-weight:700; padding:0 2px;">…</span>`;
+      }
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      const isActive = i === finishedDutiesCurrentPage;
+      paginationHtml += `
+        <button type="button" class="btn-page-num" onclick="changeFinishedDutiesPage(${i})" style="min-width: 36px; height: 36px; padding: 0 8px; font-weight: 700; font-size: 0.85rem; border: ${isActive ? 'none' : '1px solid #CBD5E1'}; background: ${isActive ? '#2563EB' : '#FFFFFF'}; color: ${isActive ? '#FFFFFF' : '#334155'}; border-radius: 8px; cursor: pointer; box-shadow: ${isActive ? '0 2px 6px rgba(37, 99, 235, 0.3)' : 'none'}; transition: all 0.2s ease;">
+          ${i}
+        </button>
+      `;
+    }
+
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        paginationHtml += `<span style="color:#94A3B8; font-weight:700; padding:0 2px;">…</span>`;
+      }
+      paginationHtml += `
+        <button type="button" class="btn-page-num" onclick="changeFinishedDutiesPage(${totalPages})" style="min-width: 36px; height: 36px; padding: 0 8px; font-weight: 700; font-size: 0.85rem; border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155; border-radius: 8px; cursor: pointer;">
+          ${totalPages}
+        </button>
+      `;
+    }
+
+    paginationHtml += `
+        <button type="button" class="btn-page-nav" ${finishedDutiesCurrentPage === totalPages ? 'disabled' : ''} onclick="changeFinishedDutiesPage(${finishedDutiesCurrentPage + 1})" style="padding: 7px 14px; font-weight: 700; font-size: 0.85rem; border: 1px solid #CBD5E1; background: ${finishedDutiesCurrentPage === totalPages ? '#F1F5F9' : '#FFFFFF'}; color: ${finishedDutiesCurrentPage === totalPages ? '#94A3B8' : '#334155'}; border-radius: 8px; cursor: ${finishedDutiesCurrentPage === totalPages ? 'not-allowed' : 'pointer'}; transition: all 0.2s ease;">
+          Next ›
+        </button>
+      </div>
+    `;
+  }
+
+  paginationHtml += `</div>`;
+
+  container.insertAdjacentHTML('beforeend', paginationHtml);
+}
+
+window.changeFinishedDutiesPage = function(page) {
+  finishedDutiesCurrentPage = page;
+  renderFinishedDutiesWithPagination();
+  const sec = document.getElementById('section-finished');
+  if (sec) {
+    sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+};
 
 function formatOutTime(timeStr) {
   if (!timeStr) return 'Not set';

@@ -1,6 +1,8 @@
 // worker-history.js — Field Worker Portal History Tab
 
 let historyDuties = [];
+let historyCurrentPage = 1;
+const HISTORY_PER_PAGE = 5;
 let editTripId = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -64,99 +66,186 @@ async function loadHistory() {
   try {
     const res = await apiGetAssignedTrips({});
     const trips = res.trips || [];
-
     historyDuties = trips.filter(t => t.status === 'completed');
-
-    if (historyDuties.length === 0) {
-      container.innerHTML = `
-        <div class="text-center text-muted py-5">
-          <div style="font-size: 2.5rem; margin-bottom: 10px;">📜</div>
-          <div style="font-weight: 700; color: #334155; margin-bottom: 4px;">No Finished Duties</div>
-          <div style="font-size: 0.85rem;">No completed duty records found in history.</div>
-        </div>
-      `;
-      return;
-    }
-
-    container.innerHTML = historyDuties.map(t => {
-      const routeName = t.route_description || t.trip_name || 'Completed Duty';
-      const outTimeStr = formatOutTime(t.scheduled_out_time || t.out_time || t.created_at);
-      const endTimeStr = formatOutTime(t.completed_at || t.in_time);
-      const tripNum = t.trip_number || t.id.slice(0, 8).toUpperCase();
-
-      const outKm = parseFloat(t.out_km || 0);
-      const inKm = parseFloat(t.in_km || 0);
-      const distNum = (inKm > 0 && outKm > 0 && inKm >= outKm) ? (inKm - outKm) : (t.km_travelled ? parseFloat(t.km_travelled) : null);
-      const distanceStr = distNum !== null ? distNum.toFixed(2) + ' KM' : '—';
-
-      const outW = parseFloat(t.out_weight || t.out_tanker_weight || 0);
-      const hasInWeight = t.in_weight !== null && t.in_weight !== undefined && t.in_weight !== '' && t.in_weight !== '—';
-      const inW = hasInWeight ? parseFloat(t.in_weight) : null;
-
-      let metricsHtml = `
-        <div style="font-size: 0.83rem; color: #64748B; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 6px;">
-          <span>⏰ Started: <strong style="color: #0F172A;">${esc(outTimeStr)}</strong></span>
-          <span>🏁 Ended: <strong style="color: #0F172A;">${esc(endTimeStr)}</strong></span>
-          <span>🚛 Vehicle: <strong style="color: #0F172A;">${esc(t.tanker_number || '—')}</strong></span>
-          <span>👤 Driver: <strong style="color: #0F172A;">${esc(t.driver_name || '—')}</strong></span>
-        </div>
-      `;
-
-      if (hasInWeight && inW !== null && !isNaN(inW) && outW > 0 && outW > inW) {
-        const dieselKg = parseFloat((outW - inW).toFixed(2));
-        const dieselLiters = parseFloat((dieselKg / 0.832).toFixed(2));
-        const mileageVal = (distNum && distNum > 0 && dieselLiters > 0) ? (distNum / dieselLiters).toFixed(2) : null;
-
-        metricsHtml += `
-          <div style="font-size: 0.82rem; color: #334155; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; background: #F8FAFC; padding: 8px 12px; border-radius: 8px; border: 1px solid #E2E8F0;">
-            <span>📏 Distance: <strong>${distanceStr}</strong></span>
-            <span>⛽ Diesel: <strong>${dieselLiters} L</strong></span>
-            <span>⚡ Mileage: <strong>${mileageVal ? mileageVal + ' KM/L' : '—'}</strong></span>
-          </div>
-        `;
-      } else if (hasInWeight && t.diesel_consumption !== null && t.diesel_consumption !== undefined) {
-        const dieselLiters = parseFloat(t.diesel_consumption).toFixed(2);
-        const mileageVal = t.average_mileage !== null && t.average_mileage !== undefined ? parseFloat(t.average_mileage).toFixed(2) : ((distNum && distNum > 0 && parseFloat(dieselLiters) > 0) ? (distNum / parseFloat(dieselLiters)).toFixed(2) : null);
-
-        metricsHtml += `
-          <div style="font-size: 0.82rem; color: #334155; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; background: #F8FAFC; padding: 8px 12px; border-radius: 8px; border: 1px solid #E2E8F0;">
-            <span>📏 Distance: <strong>${distanceStr}</strong></span>
-            <span>⛽ Diesel: <strong>${dieselLiters} L</strong></span>
-            <span>⚡ Mileage: <strong>${mileageVal ? mileageVal + ' KM/L' : '—'}</strong></span>
-          </div>
-        `;
-      } else {
-        metricsHtml += `
-          <div style="font-size: 0.82rem; color: #334155; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; background: #F8FAFC; padding: 8px 12px; border-radius: 8px; border: 1px solid #E2E8F0;">
-            <span>📏 Distance Travelled: <strong>${distanceStr}</strong></span>
-            <span style="color: #94A3B8; font-size: 0.78rem;">(IN Empty Weight pending — edit to view fuel calculations)</span>
-          </div>
-        `;
-      }
-
-      return `
-        <div class="content-card duty-card" style="display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; margin-bottom: 14px; border-radius: 12px; border: 1px solid #E2E8F0; gap: 16px; flex-wrap: wrap;">
-          <div style="flex: 1; min-width: 220px;">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
-              <span class="badge badge-success">✓ Finished</span>
-              <span style="font-size: 0.78rem; color: #64748B; font-weight: 600;">Trip #${esc(tripNum)}</span>
-            </div>
-            <h3 style="margin: 0 0 4px 0; font-size: 1.05rem; font-weight: 700; color: #0F172A;">${esc(routeName)}</h3>
-            ${metricsHtml}
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <button type="button" class="btn btn-outline" style="padding: 7px 14px; font-weight: 700; font-size: 0.83rem;" onclick="openViewDutyModal('${t.id}')">👁️ VIEW</button>
-            <button type="button" class="btn btn-primary" style="padding: 7px 16px; font-weight: 700; font-size: 0.83rem; background: #4F46E5; border-color: #4F46E5;" onclick="openEditTripModal('${t.id}')">✏️ EDIT</button>
-          </div>
-        </div>
-      `;
-    }).join('');
-
+    renderHistoryWithPagination();
   } catch (err) {
     console.error('Failed to load history:', err);
     container.innerHTML = `<div class="text-center text-muted py-4" style="color:#DC2626;"><div style="font-size:1.8rem; margin-bottom:8px;">⚠️</div><div>${esc(err.message || 'Failed to load history duties.')}</div></div>`;
   }
 }
+
+function renderHistoryWithPagination() {
+  const container = document.getElementById('history-container');
+  if (!container) return;
+
+  const totalItems = historyDuties.length;
+  if (totalItems === 0) {
+    container.innerHTML = `
+      <div class="text-center text-muted py-5">
+        <div style="font-size: 2.5rem; margin-bottom: 10px;">📜</div>
+        <div style="font-weight: 700; color: #334155; margin-bottom: 4px;">No Finished Duties</div>
+        <div style="font-size: 0.85rem;">No completed duty records found in history.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const totalPages = Math.ceil(totalItems / HISTORY_PER_PAGE) || 1;
+  if (historyCurrentPage < 1) historyCurrentPage = 1;
+  if (historyCurrentPage > totalPages) historyCurrentPage = totalPages;
+
+  const startIdx = (historyCurrentPage - 1) * HISTORY_PER_PAGE;
+  const endIdx = startIdx + HISTORY_PER_PAGE;
+  const pageDuties = historyDuties.slice(startIdx, endIdx);
+
+  const startNum = startIdx + 1;
+  const endNum = Math.min(endIdx, totalItems);
+
+  let itemsHtml = pageDuties.map(t => {
+    const routeName = t.route_description || t.trip_name || 'Completed Duty';
+    const outTimeStr = formatOutTime(t.scheduled_out_time || t.out_time || t.created_at);
+    const endTimeStr = formatOutTime(t.completed_at || t.in_time);
+    const tripNum = t.trip_number || t.id.slice(0, 8).toUpperCase();
+
+    const outKm = parseFloat(t.out_km || 0);
+    const inKm = parseFloat(t.in_km || 0);
+    const distNum = (inKm > 0 && outKm > 0 && inKm >= outKm) ? (inKm - outKm) : (t.km_travelled ? parseFloat(t.km_travelled) : null);
+    const distanceStr = distNum !== null ? distNum.toFixed(2) + ' KM' : '—';
+
+    const outW = parseFloat(t.out_weight || t.out_tanker_weight || 0);
+    const hasInWeight = t.in_weight !== null && t.in_weight !== undefined && t.in_weight !== '' && t.in_weight !== '—';
+    const inW = hasInWeight ? parseFloat(t.in_weight) : null;
+
+    let metricsHtml = `
+      <div style="font-size: 0.83rem; color: #64748B; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 6px;">
+        <span>⏰ Started: <strong style="color: #0F172A;">${esc(outTimeStr)}</strong></span>
+        <span>🏁 Ended: <strong style="color: #0F172A;">${esc(endTimeStr)}</strong></span>
+        <span>🚛 Vehicle: <strong style="color: #0F172A;">${esc(t.tanker_number || '—')}</strong></span>
+        <span>👤 Driver: <strong style="color: #0F172A;">${esc(t.driver_name || '—')}</strong></span>
+      </div>
+    `;
+
+    if (hasInWeight && inW !== null && !isNaN(inW) && outW > 0 && outW > inW) {
+      const dieselKg = parseFloat((outW - inW).toFixed(2));
+      const dieselLiters = parseFloat((dieselKg / 0.832).toFixed(2));
+      const mileageVal = (distNum && distNum > 0 && dieselLiters > 0) ? (distNum / dieselLiters).toFixed(2) : null;
+
+      metricsHtml += `
+        <div style="font-size: 0.82rem; color: #334155; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; background: #F8FAFC; padding: 8px 12px; border-radius: 8px; border: 1px solid #E2E8F0;">
+          <span>📏 Distance: <strong>${distanceStr}</strong></span>
+          <span>⛽ Diesel: <strong>${dieselLiters} L</strong></span>
+          <span>⚡ Mileage: <strong>${mileageVal ? mileageVal + ' KM/L' : '—'}</strong></span>
+        </div>
+      `;
+    } else if (hasInWeight && t.diesel_consumption !== null && t.diesel_consumption !== undefined) {
+      const dieselLiters = parseFloat(t.diesel_consumption).toFixed(2);
+      const mileageVal = t.average_mileage !== null && t.average_mileage !== undefined ? parseFloat(t.average_mileage).toFixed(2) : ((distNum && distNum > 0 && parseFloat(dieselLiters) > 0) ? (distNum / parseFloat(dieselLiters)).toFixed(2) : null);
+
+      metricsHtml += `
+        <div style="font-size: 0.82rem; color: #334155; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; background: #F8FAFC; padding: 8px 12px; border-radius: 8px; border: 1px solid #E2E8F0;">
+          <span>📏 Distance: <strong>${distanceStr}</strong></span>
+          <span>⛽ Diesel: <strong>${dieselLiters} L</strong></span>
+          <span>⚡ Mileage: <strong>${mileageVal ? mileageVal + ' KM/L' : '—'}</strong></span>
+        </div>
+      `;
+    } else {
+      metricsHtml += `
+        <div style="font-size: 0.82rem; color: #334155; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; background: #F8FAFC; padding: 8px 12px; border-radius: 8px; border: 1px solid #E2E8F0;">
+          <span>📏 Distance Travelled: <strong>${distanceStr}</strong></span>
+          <span style="color: #94A3B8; font-size: 0.78rem;">(IN Empty Weight pending — edit to view fuel calculations)</span>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="content-card duty-card" style="display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; margin-bottom: 14px; border-radius: 12px; border: 1px solid #E2E8F0; gap: 16px; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 220px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+            <span class="badge badge-success">✓ Finished</span>
+            <span style="font-size: 0.78rem; color: #64748B; font-weight: 600;">Trip #${esc(tripNum)}</span>
+          </div>
+          <h3 style="margin: 0 0 4px 0; font-size: 1.05rem; font-weight: 700; color: #0F172A;">${esc(routeName)}</h3>
+          ${metricsHtml}
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-outline" style="padding: 7px 14px; font-weight: 700; font-size: 0.83rem;" onclick="openViewDutyModal('${t.id}')">👁️ VIEW</button>
+          <button type="button" class="btn btn-primary" style="padding: 7px 14px; font-weight: 700; font-size: 0.83rem; background: #4F46E5; border-color: #4F46E5;" onclick="openEditTripModal('${t.id}')">✏️ EDIT</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  let paginationHtml = `
+    <div class="finished-pagination-wrapper" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin-top: 20px; padding: 16px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px;">
+      <div style="font-size: 0.85rem; color: #64748B; font-weight: 600; text-align: center;">
+        Showing <strong style="color: #0F172A;">${startNum}–${endNum}</strong> of <strong style="color: #0F172A;">${totalItems}</strong> completed duties
+      </div>
+  `;
+
+  if (totalPages > 1) {
+    paginationHtml += `
+      <div class="finished-pagination-bar" style="display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap;">
+        <button type="button" class="btn-page-nav" ${historyCurrentPage === 1 ? 'disabled' : ''} onclick="changeHistoryPage(${historyCurrentPage - 1})" style="padding: 7px 14px; font-weight: 700; font-size: 0.85rem; border: 1px solid #CBD5E1; background: ${historyCurrentPage === 1 ? '#F1F5F9' : '#FFFFFF'}; color: ${historyCurrentPage === 1 ? '#94A3B8' : '#334155'}; border-radius: 8px; cursor: ${historyCurrentPage === 1 ? 'not-allowed' : 'pointer'};">
+          ‹ Prev
+        </button>
+    `;
+
+    const maxVisibleButtons = 5;
+    let startPage = Math.max(1, historyCurrentPage - 2);
+    let endPage = Math.min(totalPages, startPage + maxVisibleButtons - 1);
+    if (endPage - startPage < maxVisibleButtons - 1) {
+      startPage = Math.max(1, endPage - maxVisibleButtons + 1);
+    }
+
+    if (startPage > 1) {
+      paginationHtml += `
+        <button type="button" class="btn-page-num" onclick="changeHistoryPage(1)" style="min-width: 36px; height: 36px; padding: 0 8px; font-weight: 700; font-size: 0.85rem; border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155; border-radius: 8px; cursor: pointer;">
+          1
+        </button>
+      `;
+      if (startPage > 2) {
+        paginationHtml += `<span style="color:#94A3B8; font-weight:700; padding:0 2px;">…</span>`;
+      }
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      const isActive = i === historyCurrentPage;
+      paginationHtml += `
+        <button type="button" class="btn-page-num" onclick="changeHistoryPage(${i})" style="min-width: 36px; height: 36px; padding: 0 8px; font-weight: 700; font-size: 0.85rem; border: ${isActive ? 'none' : '1px solid #CBD5E1'}; background: ${isActive ? '#2563EB' : '#FFFFFF'}; color: ${isActive ? '#FFFFFF' : '#334155'}; border-radius: 8px; cursor: pointer; box-shadow: ${isActive ? '0 2px 6px rgba(37, 99, 235, 0.3)' : 'none'};">
+          ${i}
+        </button>
+      `;
+    }
+
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        paginationHtml += `<span style="color:#94A3B8; font-weight:700; padding:0 2px;">…</span>`;
+      }
+      paginationHtml += `
+        <button type="button" class="btn-page-num" onclick="changeHistoryPage(${totalPages})" style="min-width: 36px; height: 36px; padding: 0 8px; font-weight: 700; font-size: 0.85rem; border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155; border-radius: 8px; cursor: pointer;">
+          ${totalPages}
+        </button>
+      `;
+    }
+
+    paginationHtml += `
+        <button type="button" class="btn-page-nav" ${historyCurrentPage === totalPages ? 'disabled' : ''} onclick="changeHistoryPage(${historyCurrentPage + 1})" style="padding: 7px 14px; font-weight: 700; font-size: 0.85rem; border: 1px solid #CBD5E1; background: ${historyCurrentPage === totalPages ? '#F1F5F9' : '#FFFFFF'}; color: ${historyCurrentPage === totalPages ? '#94A3B8' : '#334155'}; border-radius: 8px; cursor: ${historyCurrentPage === totalPages ? 'not-allowed' : 'pointer'};">
+          Next ›
+        </button>
+      </div>
+    `;
+  }
+
+  paginationHtml += `</div>`;
+
+  container.innerHTML = itemsHtml + paginationHtml;
+}
+
+window.changeHistoryPage = function(page) {
+  historyCurrentPage = page;
+  renderHistoryWithPagination();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
 
 function formatOutTime(timeStr) {
   if (!timeStr) return 'Not set';
