@@ -146,6 +146,7 @@ async function apiGetDriverTrips(filters = {}) {
   const params = new URLSearchParams();
   if (filters.date) params.append('date', filters.date);
   if (filters.status) params.append('status', filters.status);
+  if (filters.dateRange) params.append('dateRange', filters.dateRange);
   
   const url = `/api/transport/driver-trips${params.toString() ? '?' + params.toString() : ''}`;
   return transportFetch(url);

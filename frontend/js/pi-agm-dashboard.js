@@ -912,6 +912,7 @@ window.openTripDetailModal = async function(tripId) {
   // Reset fields to loading state
   if (document.getElementById('pigm-route-name')) document.getElementById('pigm-route-name').textContent = 'Loading...';
   if (document.getElementById('pigm-driver-name')) document.getElementById('pigm-driver-name').textContent = 'Loading...';
+  if (document.getElementById('pigm-spot-analyzer-name')) document.getElementById('pigm-spot-analyzer-name').textContent = 'Loading...';
   if (document.getElementById('pigm-tanker-number')) document.getElementById('pigm-tanker-number').textContent = 'Loading...';
   if (document.getElementById('pigm-duty-date')) document.getElementById('pigm-duty-date').textContent = 'Loading...';
   if (document.getElementById('pigm-out-time')) document.getElementById('pigm-out-time').textContent = 'Loading...';
@@ -959,6 +960,7 @@ window.openTripDetailModal = async function(tripId) {
     // Fill metadata
     if (document.getElementById('pigm-route-name')) document.getElementById('pigm-route-name').textContent = trip.route_description || trip.trip_name || trip.route || 'Planned Duty';
     if (document.getElementById('pigm-driver-name')) document.getElementById('pigm-driver-name').textContent = trip.driver_name || (trip.driver ? trip.driver.name : 'Assigned Driver');
+    if (document.getElementById('pigm-spot-analyzer-name')) document.getElementById('pigm-spot-analyzer-name').textContent = trip.worker_name || (trip.worker ? trip.worker.name : 'Assigned Worker');
     if (document.getElementById('pigm-tanker-number')) document.getElementById('pigm-tanker-number').textContent = trip.tanker_number || (trip.tanker ? trip.tanker.board_number : 'Unassigned');
     
     // Duty Date

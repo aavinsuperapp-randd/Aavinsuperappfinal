@@ -30,7 +30,7 @@ Wait for: `✅ Server is live on http://localhost:5000`
 1. Go to: `http://localhost:5000/register.html`
 2. Select **Driver** role (third card)
 3. Fill details and register
-4. Login as admin to approve: `admin@gmail.com` / `superpass123`
+
 5. Go to Users & Approvals, approve the new account
 6. Login with new account
 

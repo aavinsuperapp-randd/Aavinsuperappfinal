@@ -4,7 +4,7 @@ let allDuties = [];
 let currentFilters = {
   date: '',
   status: '',
-  dateRange: 'all'
+  dateRange: 'today'
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('duty-search-input').addEventListener('input', filterDuties);
 
-  await loadDuties();
+  setDatePreset('today');
 
 
   // Auto-open duty details if id is in URL query parameters

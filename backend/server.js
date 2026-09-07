@@ -2041,14 +2041,43 @@ app.get('/api/gm/analysis', requirePiAgm, async (req, res) => {
   }
 
   try {
-    const { data: trips } = await adminClient
-      .from('trips')
-      .select('*')
-      .gte('created_at', startIso)
-      .lte('created_at', endIso)
-      .order('created_at', { ascending: false });
+    const [tripsRes, driverTripsRes] = await Promise.all([
+      adminClient.from('trips').select('*').gte('created_at', startIso).lte('created_at', endIso).order('created_at', { ascending: false }),
+      adminClient.from('driver_trips').select('*').gte('created_at', startIso).lte('created_at', endIso).order('created_at', { ascending: false })
+    ]);
 
-    const tripList = trips || [];
+    const rawTrips = (tripsRes.data || []).filter(t => t.status !== 'deleted' && t.assignment_status !== 'deleted' && !t.trip_number?.startsWith('QC-LAB') && !t.trip_name?.startsWith('QC Lab'));
+    const rawDriverTrips = (driverTripsRes.data || []).filter(dt => dt.status !== 'deleted' && (dt.assignment_status ? dt.assignment_status !== 'deleted' : true));
+
+    const tripMapById = {};
+    rawTrips.forEach(t => { tripMapById[t.id] = { ...t }; });
+    rawDriverTrips.forEach(dt => {
+      if (tripMapById[dt.id]) {
+        const existing = tripMapById[dt.id];
+        if (!existing.driver_name && dt.driver_name) existing.driver_name = dt.driver_name;
+        if (!existing.tanker_number && (dt.vehicle_number || dt.tanker_number)) existing.tanker_number = dt.vehicle_number || dt.tanker_number;
+        if (!existing.route && (dt.route || dt.destination || dt.bmc_name)) existing.route = dt.route || dt.destination || dt.bmc_name;
+        if (dt.assigned_worker_id && !existing.worker_id) existing.worker_id = dt.assigned_worker_id;
+        if (dt.out_time) existing.out_time = dt.out_time;
+        if (dt.in_time) existing.in_time = dt.in_time;
+      } else {
+        tripMapById[dt.id] = {
+          id: dt.id,
+          trip_name: dt.route || dt.destination || dt.bmc_name || `Duty #${dt.trip_number || dt.id.slice(0, 8)}`,
+          trip_number: dt.trip_number || dt.id.slice(0, 8).toUpperCase(),
+          worker_id: dt.assigned_worker_id || dt.worker_id || null,
+          driver_name: dt.driver_name || null,
+          tanker_number: dt.vehicle_number || dt.tanker_number || null,
+          route: dt.route || dt.destination || dt.bmc_name || null,
+          out_time: dt.scheduled_start_time || dt.created_at,
+          in_time: dt.in_time || null,
+          status: dt.status || 'pending',
+          created_at: dt.created_at
+        };
+      }
+    });
+
+    const tripList = Object.values(tripMapById);
     const tripIds = tripList.map(t => t.id);
 
     let visitList = [];
@@ -5283,6 +5312,7 @@ app.post('/api/transport/driver-trips', requireTransportOfficer, async (req, res
 
     const payload = {
       assigned_driver_id: driverProfile.id,
+      driver_name: driverProfile.name || null,
       assigned_by: profile.id,
       vehicle_id: vehicle_id || null,
       vehicle_number: vehicle_number || null,
@@ -5327,17 +5357,25 @@ app.post('/api/transport/driver-trips', requireTransportOfficer, async (req, res
 // GET /api/transport/driver-trips — List all driver trips (for Transport Officer/GM view)
 app.get('/api/transport/driver-trips', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
-  const { status, driver_id, date } = req.query;
+  const { status, driver_id, date, dateRange } = req.query;
 
   try {
-    let query = adminClient.from('driver_trips').select('*').neq('status', 'deleted').order('created_at', { ascending: false });
+    let query = adminClient.from('driver_trips').select('*').neq('status', 'deleted').order('scheduled_start_time', { ascending: false });
 
     if (status) query = query.eq('status', status);
     if (driver_id) query = query.eq('assigned_driver_id', driver_id);
-    if (date) {
+    
+    if (dateRange === 'this_week') {
+      const s = new Date();
+      s.setDate(s.getDate() - 7);
+      s.setHours(0, 0, 0, 0);
+      const e = new Date();
+      e.setHours(23, 59, 59, 999);
+      query = query.gte('scheduled_start_time', s.toISOString()).lte('scheduled_start_time', e.toISOString());
+    } else if (date) {
       const s = new Date(date); s.setHours(0, 0, 0, 0);
       const e = new Date(date); e.setHours(23, 59, 59, 999);
-      query = query.gte('created_at', s.toISOString()).lte('created_at', e.toISOString());
+      query = query.gte('scheduled_start_time', s.toISOString()).lte('scheduled_start_time', e.toISOString());
     }
 
     const { data: trips, error } = await query.limit(200);
@@ -6653,19 +6691,28 @@ app.get('/api/worker/invoices/:visitId', requireWorker, async (req, res) => {
             selected_bmcs: [],
             out_km: trip.out_km,
             started_at: trip.out_time,
+            assigned_driver_id: trip.driver_id || trip.assigned_driver_id,
             assigned_worker_id: trip.worker_id
           };
         }
       }
 
       // Resolve driver name
-      const driverId = tripData.assigned_driver_id;
+      let driverId = tripData.assigned_driver_id;
+      
+      // If trip comes from 'trips' table, it might have driver_id at root level
+      if (!driverId && visit.trip_id) {
+        const { data: oldTrip } = await adminClient.from('trips').select('driver_id').eq('id', visit.trip_id).maybeSingle();
+        if (oldTrip && oldTrip.driver_id) driverId = oldTrip.driver_id;
+      }
       if (driverId && (!tripData.driver_name || tripData.driver_name === '—' || tripData.driver_name === 'Driver')) {
         const { data: dRec } = await adminClient.from('drivers').select('name').eq('id', driverId).maybeSingle();
         if (dRec && dRec.name) tripData.driver_name = dRec.name;
         else {
-          const { data: pRec } = await adminClient.from('profiles').select('name').eq('id', driverId).maybeSingle();
-          if (pRec && pRec.name) tripData.driver_name = pRec.name;
+          const { data: pRec } = await adminClient.from('profiles').select('name, role').eq('id', driverId).maybeSingle();
+          if (pRec && pRec.name && (pRec.role === 'driver' || pRec.role === 'admin' || pRec.role === 'driver_manager')) {
+            tripData.driver_name = pRec.name;
+          }
         }
       }
 
@@ -6886,19 +6933,26 @@ app.get('/api/gm/invoices/:visitId', requirePiAgm, async (req, res) => {
             selected_bmcs: [],
             out_km: trip.out_km,
             started_at: trip.out_time,
+            assigned_driver_id: trip.driver_id || trip.assigned_driver_id,
             assigned_worker_id: trip.worker_id
           };
         }
       }
 
       // Resolve driver name if missing
-      const driverId = tripData.assigned_driver_id;
+      let driverId = tripData.assigned_driver_id;
+      if (!driverId && visit.trip_id) {
+        const { data: oldTrip } = await adminClient.from('trips').select('driver_id').eq('id', visit.trip_id).maybeSingle();
+        if (oldTrip && oldTrip.driver_id) driverId = oldTrip.driver_id;
+      }
       if (driverId && (!tripData.driver_name || tripData.driver_name === '—' || tripData.driver_name === 'Driver')) {
         const { data: dRec } = await adminClient.from('drivers').select('name').eq('id', driverId).maybeSingle();
         if (dRec && dRec.name) tripData.driver_name = dRec.name;
         else {
-          const { data: pRec } = await adminClient.from('profiles').select('name').eq('id', driverId).maybeSingle();
-          if (pRec && pRec.name) tripData.driver_name = pRec.name;
+          const { data: pRec } = await adminClient.from('profiles').select('name, role').eq('id', driverId).maybeSingle();
+          if (pRec && pRec.name && (pRec.role === 'driver' || pRec.role === 'admin' || pRec.role === 'driver_manager')) {
+            tripData.driver_name = pRec.name;
+          }
         }
       }
 
