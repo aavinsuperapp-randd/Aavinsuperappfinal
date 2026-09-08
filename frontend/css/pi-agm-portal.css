@@ -540,8 +540,25 @@ a.admin-nav-item.active span:first-child {
     justify-content: center;
   }
 }
+
+.fault-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+.fault-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 6px;
+  background: #FEF2F2;
   color: #991B1B;
 }
+
 .item-remarks {
   font-size: 0.82rem;
   color: #374151;

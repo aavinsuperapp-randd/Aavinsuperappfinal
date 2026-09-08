@@ -540,8 +540,25 @@ a.admin-nav-item.active span:first-child {
     justify-content: center;
   }
 }
+
+.fault-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+.fault-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 6px;
+  background: #FEF2F2;
   color: #991B1B;
 }
+
 .item-remarks {
   font-size: 0.82rem;
   color: #374151;
@@ -1885,4 +1902,60 @@ tr.route-header-row:hover td,
 .admin-table tbody tr.route-header-row:hover td {
   background: #1E293B !important;
   color: #FFFFFF !important;
+}
+
+/* ==========================================================================
+   BMC LANGUAGE TOGGLE BUTTON (English / தமிழ்)
+   ========================================================================== */
+.bmc-lang-toggle-btn {
+  display: inline-flex;
+  background: #F1F5F9;
+  border: 1.5px solid #CBD5E1;
+  border-radius: 9999px;
+  padding: 3px;
+  cursor: pointer;
+  user-select: none;
+  align-items: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  gap: 3px;
+  outline: none;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.bmc-lang-toggle-btn .toggle-option {
+  padding: 5px 14px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  line-height: 1.1;
+  display: inline-block;
+  cursor: pointer;
+}
+
+/* English active state (default) */
+.bmc-lang-toggle-btn.lang-en .toggle-option.en {
+  color: #FFFFFF;
+  background: #2563EB;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+}
+.bmc-lang-toggle-btn.lang-en .toggle-option.ta {
+  color: #64748B;
+  background: transparent;
+}
+
+/* Tamil active state */
+.bmc-lang-toggle-btn.lang-ta .toggle-option.ta {
+  color: #FFFFFF;
+  background: #16A34A;
+  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.35);
+}
+.bmc-lang-toggle-btn.lang-ta .toggle-option.en {
+  color: #64748B;
+  background: transparent;
+}
+
+.bmc-lang-toggle-btn:hover {
+  border-color: #94A3B8;
+  transform: translateY(-1px);
 }

@@ -3,6 +3,28 @@
 let vehicleUtilizationChart = null;
 let driverPerformanceChart = null;
 
+let currentBmcLang = window.localStorage.getItem('transport_bmc_lang') || 'en';
+
+function updateBmcLangToggleUI() {
+  const toggleBtn = document.getElementById('nav-bmc-lang-toggle');
+  if (!toggleBtn) return;
+  toggleBtn.classList.remove('lang-en', 'lang-ta');
+  toggleBtn.classList.add(currentBmcLang === 'ta' ? 'lang-ta' : 'lang-en');
+  toggleBtn.setAttribute('aria-pressed', currentBmcLang === 'ta' ? 'true' : 'false');
+}
+
+function setupBmcLanguageToggle() {
+  updateBmcLangToggleUI();
+  const toggleBtn = document.getElementById('nav-bmc-lang-toggle');
+  if (!toggleBtn) return;
+  toggleBtn.onclick = (e) => {
+    e.preventDefault();
+    currentBmcLang = currentBmcLang === 'ta' ? 'en' : 'ta';
+    window.localStorage.setItem('transport_bmc_lang', currentBmcLang);
+    updateBmcLangToggleUI();
+  };
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const profile = await checkAuth('transport_officer');
   if (!profile) return;
@@ -14,6 +36,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Setup sidebar toggle
   setupSidebarToggle();
+  setupBmcLanguageToggle();
 
   // Setup logout
   document.getElementById('logout-btn')?.addEventListener('click', handleLogout);

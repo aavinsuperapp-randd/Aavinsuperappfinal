@@ -1,5 +1,119 @@
 // transport-duty.js — Transport Officer Duty Management
 
+// ==============================================================================
+// BMC TAMIL TRANSLATION DICTIONARY (45 BMCs)
+// ==============================================================================
+const BMC_TAMIL_DICTIONARY = {
+  "Alagiyanallur": "அழகியநல்லூர்",
+  "Ammanmootha patti": "அம்மணமூத்தபட்டி",
+  "Ayyarnarkulam": "அய்யனார்குளம்",
+  "Chinnavagaikulam": "சின்னவாகைக்குளம்",
+  "E pudhupatti": "இ புதுப்பட்டி",
+  "K.K. Kundu": "கே.கே. குண்டு",
+  "Kalloothu": "கல்லூத்து",
+  "Kalyanipatti": "கல்யாணிப்பட்டி",
+  "Karumathur": "கருமாத்தூர்",
+  "Karuvattanai": "கருவட்டாணை",
+  "katta dhevan patti": "கட்ட தேவன்பட்டி",
+  "Kattaarapati": "கட்டாரப்பட்டி",
+  "Koppampatti": "கொப்பம்பட்டி",
+  "Kottakudi": "கொட்டக்குடி",
+  "Kottanathampatty": "கொட்டநத்தம்பட்டி",
+  "Kulasekaran Kottai": "குலசேகரன் கோட்டை",
+  "Kutladampatti": "குட்லாடம்பட்டி",
+  "Mamsapuram": "மாம்சாபுரம்",
+  "Manapatti": "மணப்பட்டி",
+  "Manikampatti": "மணிக்கம்பட்டி",
+  "Manoothu": "மானூத்து",
+  "Mariammal kulam": "மாரியம்மாள் குளம்",
+  "Meenatchimoopanpatti women's": "மீனாட்சிமூப்பன்பட்டி பெண்கள்",
+  "Melathirumanikam": "மேலத்திருமாணிக்கம்",
+  "MuthuramalingamDhevarNagar": "முத்துராமலிங்கம் தேவர் நகர்",
+  "Nattapatty": "நாட்டாப்பட்டி",
+  "Pandirajapuram": "பாண்டிராஜபுரம்",
+  "Paraipatti": "பரைப்பட்டி",
+  "PK patti": "பி.கே. பட்டி",
+  "Ponperumal kovil": "பொன்பெருமாள் கோவில்",
+  "Pudhunagar": "புதுநகர்",
+  "Ramalakshmanapuram": "இராமலட்சுமணபுரம்",
+  "S pudhupatty": "எஸ் புதுப்பட்டி",
+  "Sakkaraipatty": "சக்கரைப்பட்டி",
+  "Sanipatty": "சனிப்பட்டி",
+  "SM ammapati": "எஸ்.எம். அம்மாபட்டி",
+  "T. Krishnapuram": "டி. கிருஷ்ணாபுரம்",
+  "T. Krishnapuram Womens": "டி. கிருஷ்ணாபுரம் பெண்கள்",
+  "Thaniyamangalam": "தனியமங்கலம்",
+  "Thotapanayakanoor": "தோட்டப்பநாயக்கனூர்",
+  "Thumbapatti": "தும்பப்பட்டி",
+  "Usilampatti ,Doddappanaickanur BMC": "உசிலம்பட்டி, டொட்டப்பநாயக்கனூர் BMC",
+  "Uthapanaickanoor": "உத்தப்பநாயக்கனூர்",
+  "Valaithoppu": "வலைத்தோப்பு",
+  "Vandapuli": "வந்தபுளி"
+};
+
+let currentBmcLang = window.localStorage.getItem('transport_bmc_lang') || 'en';
+
+function getBmcTamilName(name) {
+  if (!name) return '';
+  if (BMC_TAMIL_DICTIONARY[name]) return BMC_TAMIL_DICTIONARY[name];
+  const trimmed = name.trim();
+  if (BMC_TAMIL_DICTIONARY[trimmed]) return BMC_TAMIL_DICTIONARY[trimmed];
+  const foundKey = Object.keys(BMC_TAMIL_DICTIONARY).find(k => k.toLowerCase() === trimmed.toLowerCase());
+  return foundKey ? BMC_TAMIL_DICTIONARY[foundKey] : '';
+}
+
+function getBmcDisplayName(name) {
+  if (!name) return '';
+  if (currentBmcLang === 'ta') {
+    const tamil = getBmcTamilName(name);
+    if (tamil) return tamil;
+  }
+  return name;
+}
+
+function updateBmcLangToggleUI() {
+  const toggleBtns = document.querySelectorAll('#nav-bmc-lang-toggle, #modal-bmc-lang-toggle');
+  toggleBtns.forEach(btn => {
+    btn.classList.remove('lang-en', 'lang-ta');
+    btn.classList.add(currentBmcLang === 'ta' ? 'lang-ta' : 'lang-en');
+    btn.setAttribute('aria-pressed', currentBmcLang === 'ta' ? 'true' : 'false');
+  });
+}
+
+function toggleBmcLanguage() {
+  currentBmcLang = currentBmcLang === 'ta' ? 'en' : 'ta';
+  window.localStorage.setItem('transport_bmc_lang', currentBmcLang);
+  updateBmcLangToggleUI();
+
+  // Re-render available BMCs in duty creation modal
+  const searchVal = document.getElementById('ct-bmc-search')?.value.trim() || '';
+  renderAvailableBmcs(searchVal);
+
+  // Re-render selected BMCs list
+  renderSelectedBmcs();
+
+  // If compartment modal is currently open with a BMC
+  if (currentBmcToAssign && document.getElementById('comp-modal-bmc-name')) {
+    document.getElementById('comp-modal-bmc-name').textContent = `Assign ${getBmcDisplayName(currentBmcToAssign.name)} to Compartment`;
+  }
+
+  // If duty details view is currently open
+  if (currentDutyForDeletion && document.getElementById('duty-bmcs-list-container')) {
+    viewDutyDetails(currentDutyForDeletion.id);
+  }
+}
+
+function setupBmcLanguageToggle() {
+  updateBmcLangToggleUI();
+  const toggleBtns = document.querySelectorAll('#nav-bmc-lang-toggle, #modal-bmc-lang-toggle');
+  toggleBtns.forEach(btn => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      toggleBmcLanguage();
+    };
+  });
+}
+
 let allDuties = [];
 let currentFilters = {
   date: '',
@@ -17,6 +131,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   setupSidebarToggle();
+  setupBmcLanguageToggle();
   document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
 
   setupDutyFilters();
@@ -381,9 +496,15 @@ function renderAvailableBmcs(query = '') {
   const bmcContainer = document.getElementById('ct-bmcs-container');
   if (!bmcContainer) return;
 
-  const filtered = bmcsList.filter(b =>
-    !query || (b.name || '').toLowerCase().includes(query.toLowerCase()) || (b.location || '').toLowerCase().includes(query.toLowerCase()) || (b.route_name || b.bmc_routes?.name || '').toLowerCase().includes(query.toLowerCase())
-  );
+  const q = query.toLowerCase();
+  const filtered = bmcsList.filter(b => {
+    if (!query) return true;
+    const nameEn = (b.name || '').toLowerCase();
+    const nameTa = getBmcTamilName(b.name || '').toLowerCase();
+    const loc = (b.location || '').toLowerCase();
+    const rName = (b.bmc_routes?.name || b.route_name || b.route || '').toLowerCase();
+    return nameEn.includes(q) || nameTa.includes(q) || loc.includes(q) || rName.includes(q);
+  });
 
   if (filtered.length === 0) {
     bmcContainer.innerHTML = '<span class="text-muted text-sm" style="padding:8px;">No matching BMCs found</span>';
@@ -412,11 +533,12 @@ function renderAvailableBmcs(query = '') {
       const isSelected = selectedBmcs.some(item => item.bmc_id === b.id);
       const selectedItem = selectedBmcs.find(item => item.bmc_id === b.id);
       const macsQtyStr = (b.macs_quantity_kg !== null && b.macs_quantity_kg !== undefined) ? `${b.macs_quantity_kg} KG` : '-';
+      const displayName = getBmcDisplayName(b.name);
 
       return `
         <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; margin-bottom:6px; border: 1.5px solid ${isSelected ? '#86EFAC' : '#E2E8F0'}; border-radius: 10px; background: ${isSelected ? '#F0FDF4' : '#FFFFFF'}; transition: all 0.2s ease;">
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <strong style="font-size: 0.92rem; color: #0F172A;">🏢 ${b.name}</strong>
+            <strong style="font-size: 0.92rem; color: #0F172A;">🏢 ${displayName}</strong>
             <span style="font-size:0.78rem; font-weight:700; color:${b.macs_quantity_kg ? '#1D4ED8' : '#64748B'}; background:${b.macs_quantity_kg ? '#EFF6FF' : '#F1F5F9'}; padding:3px 8px; border-radius:6px; border:1px solid ${b.macs_quantity_kg ? '#BFDBFE' : '#E2E8F0'};">
               MACS: ${macsQtyStr}
             </span>
@@ -438,7 +560,8 @@ window.promptCompartment = function(bmcId) {
   const bmc = bmcsList.find(b => b.id === bmcId);
   if (!bmc) return;
   currentBmcToAssign = bmc;
-  document.getElementById('comp-modal-bmc-name').textContent = `Assign ${bmc.name} to Compartment`;
+  const displayName = getBmcDisplayName(bmc.name);
+  document.getElementById('comp-modal-bmc-name').textContent = `Assign ${displayName} to Compartment`;
   openModal('compartment-modal');
 };
 
@@ -492,7 +615,7 @@ function renderSelectedBmcs() {
         <div style="display:flex; flex-direction:column; gap:8px;">
           ${compFront.length === 0 ? '<span class="text-xs text-muted" style="padding:4px 0;">No BMC assigned</span>' : compFront.map((item, idx) => `
             <div style="display:flex; justify-content:space-between; align-items:center; background:#FFFFFF; padding:8px 10px; border-radius:8px; border:1px solid #FCA5A5; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-              <span style="font-size:0.83rem; font-weight:700; color:#0F172A;">${idx+1}. ${item.bmc_name} <span style="color:#64748B; font-weight:500; font-size:0.78rem; margin-left:4px;">(${getBmcWeightDisplay(item)})</span></span>
+              <span style="font-size:0.83rem; font-weight:700; color:#0F172A;">${idx+1}. ${getBmcDisplayName(item.bmc_name)} <span style="color:#64748B; font-weight:500; font-size:0.78rem; margin-left:4px;">(${getBmcWeightDisplay(item)})</span></span>
               <button type="button" onclick="removeSelectedBmcByBmcId('${item.bmc_id}')" style="border:none; background:#FEE2E2; color:#DC2626; font-size:0.85rem; width:24px; height:24px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; font-weight:800;" title="Remove">✕</button>
             </div>
           `).join('')}
@@ -508,7 +631,7 @@ function renderSelectedBmcs() {
         <div style="display:flex; flex-direction:column; gap:8px;">
           ${compMid.length === 0 ? '<span class="text-xs text-muted" style="padding:4px 0;">No BMC assigned</span>' : compMid.map((item, idx) => `
             <div style="display:flex; justify-content:space-between; align-items:center; background:#FFFFFF; padding:8px 10px; border-radius:8px; border:1px solid #FCD34D; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-              <span style="font-size:0.83rem; font-weight:700; color:#0F172A;">${idx+1}. ${item.bmc_name} <span style="color:#64748B; font-weight:500; font-size:0.78rem; margin-left:4px;">(${getBmcWeightDisplay(item)})</span></span>
+              <span style="font-size:0.83rem; font-weight:700; color:#0F172A;">${idx+1}. ${getBmcDisplayName(item.bmc_name)} <span style="color:#64748B; font-weight:500; font-size:0.78rem; margin-left:4px;">(${getBmcWeightDisplay(item)})</span></span>
               <button type="button" onclick="removeSelectedBmcByBmcId('${item.bmc_id}')" style="border:none; background:#FEF3C7; color:#B45309; font-size:0.85rem; width:24px; height:24px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; font-weight:800;" title="Remove">✕</button>
             </div>
           `).join('')}
@@ -524,7 +647,7 @@ function renderSelectedBmcs() {
         <div style="display:flex; flex-direction:column; gap:8px;">
           ${compBack.length === 0 ? '<span class="text-xs text-muted" style="padding:4px 0;">No BMC assigned</span>' : compBack.map((item, idx) => `
             <div style="display:flex; justify-content:space-between; align-items:center; background:#FFFFFF; padding:8px 10px; border-radius:8px; border:1px solid #93C5FD; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-              <span style="font-size:0.83rem; font-weight:700; color:#0F172A;">${idx+1}. ${item.bmc_name} <span style="color:#64748B; font-weight:500; font-size:0.78rem; margin-left:4px;">(${getBmcWeightDisplay(item)})</span></span>
+              <span style="font-size:0.83rem; font-weight:700; color:#0F172A;">${idx+1}. ${getBmcDisplayName(item.bmc_name)} <span style="color:#64748B; font-weight:500; font-size:0.78rem; margin-left:4px;">(${getBmcWeightDisplay(item)})</span></span>
               <button type="button" onclick="removeSelectedBmcByBmcId('${item.bmc_id}')" style="border:none; background:#DBEAFE; color:#1E40AF; font-size:0.85rem; width:24px; height:24px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; font-weight:800;" title="Remove">✕</button>
             </div>
           `).join('')}
@@ -754,11 +877,12 @@ async function viewDutyDetails(dutyId) {
         const name = rawName.replace(/^BMC\s*[-–]?\s*/i, '');
         const comp = b.compartment || 'Front';
         const compBadge = comp === 'Front' ? 'badge-danger' : comp === 'Mid' ? 'badge-warning' : 'badge-info';
+        const displayName = getBmcDisplayName(name);
         return `
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
             <div style="display: flex; align-items: center; gap: 10px;">
               <span style="font-weight: 800; color: #2563EB; font-size: 0.95rem; width: 24px;">${idx + 1}.</span>
-              <span style="font-weight: 700; color: #0F172A; font-size: 0.92rem;">🏢 BMC ${name}</span>
+              <span style="font-weight: 700; color: #0F172A; font-size: 0.92rem;">🏢 BMC ${displayName}</span>
             </div>
             <span class="badge ${compBadge}" style="font-size: 0.78rem; font-weight: 700;">${comp} Compartment</span>
           </div>

@@ -40,7 +40,12 @@
             <p>View duties assigned by P&I Head</p>
           </div>
         </div>
-        <div class="header-right">
+        <div class="header-right" style="display:flex; align-items:center; gap:12px;">
+          <!-- BMC Language Toggle (English / தமிழ்) on Nav Bar -->
+          <button type="button" id="nav-bmc-lang-toggle" class="bmc-lang-toggle-btn lang-en" title="English / தமிழ்">
+            <span class="toggle-option en">English</span>
+            <span class="toggle-option ta">தமிழ்</span>
+          </button>
         </div>
       </header>
 
@@ -351,7 +356,14 @@
             <h4 class="step-title">
               📌 Step 1: Select Date, Period & BMC List <span style="color:#EF4444;">*</span>
             </h4>
-            <span class="badge badge-blue" id="ct-selected-count" style="font-size:0.8rem; padding:4px 12px; font-weight:700;">0 BMCs selected</span>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <!-- Synced In-Modal Language Toggle -->
+              <button type="button" id="modal-bmc-lang-toggle" class="bmc-lang-toggle-btn lang-en" title="English / தமிழ்">
+                <span class="toggle-option en">English</span>
+                <span class="toggle-option ta">தமிழ்</span>
+              </button>
+              <span class="badge badge-blue" id="ct-selected-count" style="font-size:0.8rem; padding:4px 12px; font-weight:700;">0 BMCs selected</span>
+            </div>
           </div>
 
           <!-- Date and Period Selector for MACS Data -->
