@@ -4000,6 +4000,25 @@ app.get('/api/transport/dashboard', requireTransportOfficer, async (req, res) =>
   }
 });
 
+// ─── GET /api/transport/fleet ─────────────────────────────────────────────
+app.get('/api/transport/fleet', requireTransportOfficer, async (req, res) => {
+  const { adminClient } = req;
+  try {
+    const [drivers, tankers] = await Promise.all([
+      getUnifiedDrivers(adminClient),
+      adminClient.from('tankers').select('*').order('board_number')
+    ]);
+    res.json({
+      workers: [], // Returning empty array to avoid undefined errors in frontend if needed
+      drivers: drivers || [],
+      tankers: tankers.data || []
+    });
+  } catch (err) {
+    console.error('Transport fleet error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch fleet data' });
+  }
+});
+
 // ─── TRANSPORT DRIVER ENDPOINTS ───────────────────────────────────────────────
 app.get('/api/transport/drivers', requireTransportOfficer, async (req, res) => {
   const { adminClient } = req;
@@ -5312,7 +5331,6 @@ app.post('/api/transport/driver-trips', requireTransportOfficer, async (req, res
 
     const payload = {
       assigned_driver_id: driverProfile.id,
-      driver_name: driverProfile.name || null,
       assigned_by: profile.id,
       vehicle_id: vehicle_id || null,
       vehicle_number: vehicle_number || null,
@@ -10431,7 +10449,7 @@ async function workerAnalysisHandler(req, res) {
 app.get('/api/worker/analysis', requireWorker, workerAnalysisHandler);
 
 // GET /api/pi-agm/mileage — P&I Mileage Dashboard Endpoint
-app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
+const mileageHandler = async (req, res) => {
   const { adminClient } = req;
   const { status_filter = 'all', from_date, to_date, driver_id = 'all', vehicle_id = 'all', search } = req.query;
 
@@ -10563,7 +10581,10 @@ app.get('/api/pi-agm/mileage', requirePiAgm, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+};
+
+app.get('/api/pi-agm/mileage', requirePiAgm, mileageHandler);
+app.get('/api/transport/mileage', requireTransportOfficer, mileageHandler);
 
 // ─── MACS API AUTOMATIC BMC FETCH — 3-STREAM ARCHITECTURE ────────────────────
 // Fetches BMC data from MACS API every 45 minutes across 3 independent streams:

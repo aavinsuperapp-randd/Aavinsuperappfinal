@@ -41,6 +41,13 @@ async function apiGetTransportDashboard() {
 }
 
 /**
+ * Get Fleet Data (Workers, Drivers, Tankers)
+ */
+async function apiGetTransportFleet() {
+  return transportFetch('/api/transport/fleet');
+}
+
+/**
  * Get All Drivers (uses unified drivers list from profiles)
  */
 async function apiGetDrivers() {
