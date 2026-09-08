@@ -19,7 +19,17 @@ function setupBmcLanguageToggle() {
   if (!toggleBtn) return;
   toggleBtn.onclick = (e) => {
     e.preventDefault();
-    currentBmcLang = currentBmcLang === 'ta' ? 'en' : 'ta';
+    const taSpan = e.target.closest('.toggle-option.ta');
+    const enSpan = e.target.closest('.toggle-option.en');
+    if (taSpan) {
+      if (currentBmcLang === 'ta') return;
+      currentBmcLang = 'ta';
+    } else if (enSpan) {
+      if (currentBmcLang === 'en') return;
+      currentBmcLang = 'en';
+    } else {
+      currentBmcLang = currentBmcLang === 'ta' ? 'en' : 'ta';
+    }
     window.localStorage.setItem('transport_bmc_lang', currentBmcLang);
     updateBmcLangToggleUI();
   };

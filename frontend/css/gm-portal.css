@@ -1912,24 +1912,29 @@ tr.route-header-row:hover td,
   background: #F1F5F9;
   border: 1.5px solid #CBD5E1;
   border-radius: 9999px;
-  padding: 3px;
+  padding: 2px;
   cursor: pointer;
   user-select: none;
   align-items: center;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  gap: 3px;
+  gap: 2px;
   outline: none;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  flex-shrink: 0;
 }
 
 .bmc-lang-toggle-btn .toggle-option {
-  padding: 5px 14px;
-  font-size: 0.82rem;
+  padding: 3px 8px;
+  min-width: 22px;
+  font-size: 0.8rem;
   font-weight: 700;
   border-radius: 9999px;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  line-height: 1.1;
-  display: inline-block;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   cursor: pointer;
 }
 

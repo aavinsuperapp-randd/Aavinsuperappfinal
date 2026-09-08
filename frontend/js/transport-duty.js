@@ -80,8 +80,13 @@ function updateBmcLangToggleUI() {
   });
 }
 
-function toggleBmcLanguage() {
-  currentBmcLang = currentBmcLang === 'ta' ? 'en' : 'ta';
+function toggleBmcLanguage(targetLang) {
+  if (targetLang) {
+    if (currentBmcLang === targetLang) return;
+    currentBmcLang = targetLang;
+  } else {
+    currentBmcLang = currentBmcLang === 'ta' ? 'en' : 'ta';
+  }
   window.localStorage.setItem('transport_bmc_lang', currentBmcLang);
   updateBmcLangToggleUI();
 
@@ -109,7 +114,15 @@ function setupBmcLanguageToggle() {
   toggleBtns.forEach(btn => {
     btn.onclick = (e) => {
       e.preventDefault();
-      toggleBmcLanguage();
+      const taSpan = e.target.closest('.toggle-option.ta');
+      const enSpan = e.target.closest('.toggle-option.en');
+      if (taSpan) {
+        toggleBmcLanguage('ta');
+      } else if (enSpan) {
+        toggleBmcLanguage('en');
+      } else {
+        toggleBmcLanguage();
+      }
     };
   });
 }
