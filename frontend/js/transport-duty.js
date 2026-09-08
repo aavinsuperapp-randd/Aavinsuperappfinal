@@ -71,6 +71,55 @@ function getBmcDisplayName(name) {
   return name;
 }
 
+// ==============================================================================
+// BMC ROUTE NAME MAPPING & TAMIL TRANSLATIONS
+// ==============================================================================
+const ROUTE_NAME_MAP = {
+  'usliampatti': 'Usilampatti',
+  'usilampatti': 'Usilampatti',
+  'vadipatti': 'Vadipatti',
+  'vadipattii': 'Vadipatti',
+  'sellampatti': 'Sellampatti',
+  'thirumangalam': 'Thirumangalam',
+  'melur': 'Melur'
+};
+
+const ROUTE_TAMIL_MAP = {
+  'usliampatti': 'உசிலம்பட்டி',
+  'usilampatti': 'உசிலம்பட்டி',
+  'vadipatti': 'வாடிப்பட்டி',
+  'vadipattii': 'வாடிப்பட்டி',
+  'sellampatti': 'செல்லம்பட்டி',
+  'thirumangalam': 'திருமங்கலம்',
+  'melur': 'மேலூர்'
+};
+
+function getBmcRouteKey(b) {
+  let r = b.route_name || b.bmc_routes?.name || b.route || '';
+  if (!r) {
+    const loc = ((b.location || '') + ' ' + (b.name || '')).toLowerCase();
+    if (loc.includes('usilampatti') || loc.includes('usliampatti')) r = 'usliampatti';
+    else if (loc.includes('vadipatti')) r = 'vadipatti';
+    else if (loc.includes('melur')) r = 'melur';
+    else if (loc.includes('thirumangalam')) r = 'Thirumangalam';
+    else if (loc.includes('sellampatti')) r = 'Sellampatti';
+    else r = 'Unassigned Route';
+  }
+  return r;
+}
+
+function getRouteDisplayName(routeName) {
+  if (!routeName || routeName.toLowerCase() === 'unassigned route') return 'Unassigned Route';
+  const key = routeName.toLowerCase().trim();
+  if (currentBmcLang === 'ta') {
+    if (ROUTE_TAMIL_MAP[key]) return ROUTE_TAMIL_MAP[key];
+  }
+  if (ROUTE_NAME_MAP[key]) return ROUTE_NAME_MAP[key];
+  return routeName.charAt(0).toUpperCase() + routeName.slice(1);
+}
+
+let activeRouteTab = '';
+
 function updateBmcLangToggleUI() {
   const toggleBtns = document.querySelectorAll('#nav-bmc-lang-toggle, #modal-bmc-lang-toggle');
   toggleBtns.forEach(btn => {
@@ -354,6 +403,7 @@ async function setupCreateTripModal() {
         return;
       }
       isBmcSelectionSaved = true;
+      suggestRouteName();
       unlockStep2();
       showToast(`✅ ${selectedBmcs.length} BMC details saved & confirmed! Step 2 is now unlocked.`, 'success');
     });
@@ -505,65 +555,201 @@ function unlockStep2() {
   }
 }
 
+function renderRouteTabs(groups) {
+  const tabsContainer = document.getElementById('ct-route-tabs');
+  if (!tabsContainer) return;
+
+  const routeKeys = Object.keys(groups);
+  if (routeKeys.length === 0) {
+    tabsContainer.innerHTML = '';
+    return;
+  }
+
+  // Default to the first route if activeRouteTab is not set, was 'ALL', or is not in groups
+  if (!activeRouteTab || activeRouteTab === 'ALL' || !groups[activeRouteTab]) {
+    activeRouteTab = routeKeys[0];
+  }
+
+  let tabsHtml = '';
+  routeKeys.forEach(rKey => {
+    const count = groups[rKey].length;
+    const rDisplay = getRouteDisplayName(rKey);
+    const isActive = activeRouteTab.toLowerCase() === rKey.toLowerCase();
+    tabsHtml += `
+      <button type="button" class="route-tab-pill ${isActive ? 'active' : ''}" onclick="selectRouteTab('${rKey.replace(/'/g, "\\'")}')">
+        ${rDisplay} (${count})
+      </button>
+    `;
+  });
+
+  tabsContainer.innerHTML = tabsHtml;
+}
+
+window.selectRouteTab = function(rKey) {
+  activeRouteTab = rKey;
+  renderAvailableBmcs(document.getElementById('ct-bmc-search')?.value.trim() || '');
+};
+
+function suggestRouteName() {
+  const routeInput = document.getElementById('ct-route');
+  if (!routeInput || routeInput.value.trim()) return;
+  if (selectedBmcs.length === 0) return;
+
+  const routeCounts = {};
+  selectedBmcs.forEach(item => {
+    const fullBmc = bmcsList.find(b => b.id === item.bmc_id);
+    if (fullBmc) {
+      const rKey = getBmcRouteKey(fullBmc);
+      const rDisp = getRouteDisplayName(rKey);
+      if (rDisp && rDisp !== 'Unassigned Route') {
+        routeCounts[rDisp] = (routeCounts[rDisp] || 0) + 1;
+      }
+    }
+  });
+
+  const bestRoute = Object.keys(routeCounts).sort((a, b) => routeCounts[b] - routeCounts[a])[0];
+  if (bestRoute) {
+    routeInput.value = `${bestRoute} Route`;
+  }
+}
+
 function renderAvailableBmcs(query = '') {
   const bmcContainer = document.getElementById('ct-bmcs-container');
   if (!bmcContainer) return;
 
   const q = query.toLowerCase();
+
+  // First, group all BMCs in master list by route to generate tabs
+  const allGroups = {};
+  bmcsList.forEach(b => {
+    const rKey = getBmcRouteKey(b);
+    if (!allGroups[rKey]) allGroups[rKey] = [];
+    allGroups[rKey].push(b);
+  });
+
+  // Render the tabs for quick route filtering
+  renderRouteTabs(allGroups);
+
+  // Filter BMCs by search query and active tab
   const filtered = bmcsList.filter(b => {
-    if (!query) return true;
+    const rKey = getBmcRouteKey(b);
+    if (activeRouteTab !== 'ALL' && rKey.toLowerCase() !== activeRouteTab.toLowerCase()) {
+      return false;
+    }
+    if (!q) return true;
     const nameEn = (b.name || '').toLowerCase();
     const nameTa = getBmcTamilName(b.name || '').toLowerCase();
     const loc = (b.location || '').toLowerCase();
-    const rName = (b.bmc_routes?.name || b.route_name || b.route || '').toLowerCase();
-    return nameEn.includes(q) || nameTa.includes(q) || loc.includes(q) || rName.includes(q);
+    const rName = (rKey || '').toLowerCase();
+    const rDisp = (getRouteDisplayName(rKey) || '').toLowerCase();
+    return nameEn.includes(q) || nameTa.includes(q) || loc.includes(q) || rName.includes(q) || rDisp.includes(q);
   });
 
   if (filtered.length === 0) {
-    bmcContainer.innerHTML = '<span class="text-muted text-sm" style="padding:8px;">No matching BMCs found</span>';
+    bmcContainer.innerHTML = `
+      <div style="padding: 28px 16px; text-align: center; color: #64748B;">
+        <div style="font-size: 1.8rem; margin-bottom: 8px;">🔍</div>
+        <div style="font-weight: 700; color: #334155; margin-bottom: 4px;">No BMCs Found</div>
+        <div style="font-size: 0.83rem;">Try selecting a different route tab or changing your search term.</div>
+      </div>
+    `;
     return;
   }
 
-  // Group by Route Name
-  const groups = {};
+  // Group filtered BMCs by route
+  const filteredGroups = {};
   filtered.forEach(b => {
-    const rName = b.bmc_routes?.name || b.route_name || b.route || 'Unassigned Route';
-    if (!groups[rName]) groups[rName] = [];
-    groups[rName].push(b);
+    const rKey = getBmcRouteKey(b);
+    if (!filteredGroups[rKey]) filteredGroups[rKey] = [];
+    filteredGroups[rKey].push(b);
   });
 
   let html = '';
-  Object.keys(groups).forEach((rName, gIdx) => {
-    const gList = groups[rName];
+  Object.keys(filteredGroups).forEach((rKey) => {
+    const gList = filteredGroups[rKey];
+    const rDisplay = getRouteDisplayName(rKey);
+
+    // Sum up milk quantity for this route
+    const routeTotalKg = gList.reduce((sum, b) => sum + (Number(b.macs_quantity_kg) || 0), 0);
+    const milkText = routeTotalKg > 0 ? `${routeTotalKg.toLocaleString()} KG` : '—';
+
     html += `
-      <div style="margin-top:${gIdx === 0 ? '0' : '14px'}; margin-bottom:6px; padding:6px 12px; background:linear-gradient(135deg, #1e293b, #334155); border-radius:8px; font-size:0.85rem; font-weight:800; color:#FFFFFF; display:flex; justify-space-between; align-items:center;">
-        <span style="display:flex; align-items:center; gap:6px;">🛣️ Route: ${rName}</span>
-        <span style="font-size:0.75rem; color:#FFFFFF; background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:12px; margin-left:auto;">${gList.length} BMC${gList.length !== 1 ? 's' : ''}</span>
-      </div>
+      <div class="route-table-card">
+        <div class="route-table-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <strong style="font-size: 0.95rem; letter-spacing: 0.02em;">Route: ${rDisplay}</strong>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 0.76rem; font-weight: 700; background: rgba(255,255,255,0.18); padding: 3px 10px; border-radius: 12px;">
+              ${gList.length} BMC${gList.length !== 1 ? 's' : ''}
+            </span>
+            <span style="font-size: 0.76rem; font-weight: 700; background: rgba(37,99,235,0.45); color: #FFFFFF; padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.25);">
+              🥛 Milk: ${milkText}
+            </span>
+          </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table class="route-table-content">
+            <thead>
+              <tr>
+                <th style="width: 36px; text-align: center;">#</th>
+                <th>BMC Name</th>
+                <th>Location / Area</th>
+                <th style="text-align: right;">MACS Milk (KG)</th>
+                <th style="text-align: center; width: 150px;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
     `;
 
-    html += gList.map(b => {
+    html += gList.map((b, rowIdx) => {
       const isSelected = selectedBmcs.some(item => item.bmc_id === b.id);
       const selectedItem = selectedBmcs.find(item => item.bmc_id === b.id);
-      const macsQtyStr = (b.macs_quantity_kg !== null && b.macs_quantity_kg !== undefined) ? `${b.macs_quantity_kg} KG` : '-';
+      const macsQtyStr = (b.macs_quantity_kg !== null && b.macs_quantity_kg !== undefined)
+        ? `${Number(b.macs_quantity_kg).toLocaleString()} KG`
+        : '—';
       const displayName = getBmcDisplayName(b.name);
 
       return `
-        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; margin-bottom:6px; border: 1.5px solid ${isSelected ? '#86EFAC' : '#E2E8F0'}; border-radius: 10px; background: ${isSelected ? '#F0FDF4' : '#FFFFFF'}; transition: all 0.2s ease;">
-          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <strong style="font-size: 0.92rem; color: #0F172A;">🏢 ${displayName}</strong>
-            <span style="font-size:0.78rem; font-weight:700; color:${b.macs_quantity_kg ? '#1D4ED8' : '#64748B'}; background:${b.macs_quantity_kg ? '#EFF6FF' : '#F1F5F9'}; padding:3px 8px; border-radius:6px; border:1px solid ${b.macs_quantity_kg ? '#BFDBFE' : '#E2E8F0'};">
-              MACS: ${macsQtyStr}
-            </span>
-            ${b.location ? `<span style="font-size: 0.8rem; color: #64748B;">(${b.location})</span>` : ''}
-          </div>
-          ${isSelected
-            ? `<span class="badge badge-success" style="font-size: 0.78rem; padding:5px 10px; font-weight:700;">✓ Added (${selectedItem.compartment})</span>`
-            : `<button type="button" class="btn btn-outline btn-sm" onclick="promptCompartment('${b.id}')" style="padding: 6px 14px; font-weight: 700; border-radius:8px; border-color:#2563EB; color:#2563EB; background:#F0F7FF;">➕ Add</button>`
-          }
-        </div>
+        <tr class="${isSelected ? 'row-selected' : ''}">
+          <td style="text-align: center; font-weight: 600; color: #64748B;">${rowIdx + 1}</td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 7px;">
+              <span style="font-size: 0.95rem;">🏢</span>
+              <strong style="color: #0F172A; font-size: 0.9rem;">${displayName}</strong>
+            </div>
+          </td>
+          <td style="color: #475569; font-size: 0.83rem;">
+            ${b.location || '—'}
+          </td>
+          <td style="text-align: right; font-weight: 700; color: ${b.macs_quantity_kg ? '#1D4ED8' : '#94A3B8'};">
+            ${macsQtyStr}
+          </td>
+          <td style="text-align: center;">
+            ${isSelected ? `
+              <div style="display: inline-flex; align-items: center; gap: 6px; justify-content: center;">
+                <span class="badge badge-success" style="font-size: 0.76rem; padding: 4px 9px; font-weight: 700; background: #16A34A; color: #FFFFFF; border-radius: 6px;">
+                  ✓ ${selectedItem.compartment}
+                </span>
+                <button type="button" onclick="removeSelectedBmcByBmcId('${b.id}')" title="Remove BMC" style="color: #DC2626; padding: 3px 6px; font-size: 0.82rem; font-weight: 800; border: 1px solid #FECACA; background: #FEF2F2; border-radius: 6px; cursor: pointer; line-height: 1;">✕</button>
+              </div>
+            ` : `
+              <button type="button" class="btn btn-outline btn-sm" onclick="promptCompartment('${b.id}')" style="padding: 4px 14px; font-size: 0.8rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #2563EB; color: #2563EB; background: #EFF6FF; cursor: pointer; transition: all 0.15s ease;">
+                ➕ Add
+              </button>
+            `}
+          </td>
+        </tr>
       `;
     }).join('');
+
+    html += `
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
   });
 
   bmcContainer.innerHTML = html;

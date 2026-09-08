@@ -110,8 +110,8 @@
   <!-- Custom Responsive & Professional UI Styles for Assign Duty Modal -->
   <style>
     .assign-duty-modal-content {
-      max-width: 840px !important;
-      width: 94% !important;
+      max-width: 940px !important;
+      width: 95% !important;
       max-height: 90vh !important;
       padding: 28px 32px !important;
       border-radius: 20px !important;
@@ -229,9 +229,8 @@
     }
     .textarea-styled {
       width: 100%;
-      padding: 12px 14px;
-      font-size: 0.9rem;
-      font-weight: 500;
+      padding: 10px 14px;
+      font-size: 0.88rem;
       color: #0F172A;
       background: #FFFFFF;
       border: 1.5px solid #CBD5E1;
@@ -252,15 +251,15 @@
       cursor: not-allowed;
     }
     .bmc-list-scrollbox {
-      max-height: 180px;
+      max-height: 420px;
       overflow-y: auto;
       border: 1.5px solid #E2E8F0;
-      border-radius: 12px;
-      padding: 10px;
-      background: #FFFFFF;
+      border-radius: 14px;
+      padding: 12px;
+      background: #F8FAFC;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 14px;
     }
     .bmc-list-scrollbox::-webkit-scrollbar {
       width: 6px;
@@ -268,6 +267,105 @@
     .bmc-list-scrollbox::-webkit-scrollbar-thumb {
       background: #CBD5E1;
       border-radius: 4px;
+    }
+    .route-filter-tabs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+      margin-bottom: 12px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .route-filter-tabs::-webkit-scrollbar {
+      height: 4px;
+    }
+    .route-filter-tabs::-webkit-scrollbar-thumb {
+      background: #CBD5E1;
+      border-radius: 4px;
+    }
+    .route-tab-pill {
+      white-space: nowrap;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1.5px solid #CBD5E1;
+      background: #FFFFFF;
+      color: #475569;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .route-tab-pill:hover {
+      border-color: #2563EB;
+      color: #2563EB;
+      background: #EFF6FF;
+      transform: translateY(-1px);
+    }
+    .route-tab-pill.active {
+      background: #2563EB;
+      border-color: #2563EB;
+      color: #FFFFFF;
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+    }
+    .route-table-card {
+      background: #FFFFFF;
+      border: 1.5px solid #CBD5E1;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      transition: box-shadow 0.2s ease;
+    }
+    .route-table-card:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
+    }
+    .route-table-header {
+      background: linear-gradient(135deg, #1E293B, #334155);
+      color: #FFFFFF;
+      padding: 10px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .route-table-content {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+    }
+    .route-table-content th {
+      background: #F8FAFC;
+      color: #475569;
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 9px 12px;
+      border-bottom: 1.5px solid #E2E8F0;
+      text-align: left;
+    }
+    .route-table-content td {
+      padding: 9px 12px;
+      border-bottom: 1px solid #F1F5F9;
+      color: #334155;
+      vertical-align: middle;
+    }
+    .route-table-content tr:last-child td {
+      border-bottom: none;
+    }
+    .route-table-content tbody tr:hover {
+      background: #F8FAFC;
+    }
+    .route-table-content tr.row-selected {
+      background: #F0FDF4 !important;
+    }
+    .route-table-content tr.row-selected td {
+      border-bottom-color: #BBF7D0;
     }
     .form-grid-2col {
       display: grid;
@@ -387,6 +485,9 @@
             <input type="text" id="ct-bmc-search" class="input-styled" placeholder="Type BMC name or location...">
           </div>
 
+          <!-- Quick Route Filter Tabs (All / Usilampatti / Thirumangalam / Sellampatti / Vadipatti / Melur) -->
+          <div id="ct-route-tabs" class="route-filter-tabs"></div>
+
           <div id="ct-bmcs-container" class="bmc-list-scrollbox">
             <span class="text-muted text-sm" style="padding:8px;">Loading available BMCs...</span>
           </div>
@@ -446,7 +547,7 @@
           </div>
 
           <div class="form-group-custom" style="margin-bottom: 16px;">
-            <label class="input-label-styled">🛣️ Route Name <span style="color:#EF4444;">*</span></label>
+            <label class="input-label-styled">Route Name <span style="color:#EF4444;">*</span></label>
             <input type="text" id="ct-route" class="input-styled" placeholder="E.g., Madurai Route / Highway A1" required disabled>
           </div>
 
