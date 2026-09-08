@@ -5691,7 +5691,7 @@ app.get('/api/transport/bmcs-list', requireTransportOfficer, async (req, res) =>
   try {
     const { data: bmcs, error } = await adminClient
       .from('bmcs')
-      .select('id, name, location, is_active, total_capacity, bmc_code, route_id, bmc_routes(id, name)')
+      .select('id, name, location, is_active, total_capacity, bmc_code')
       .eq('is_active', true)
       .order('name');
     if (error) throw error;
@@ -5718,8 +5718,6 @@ app.get('/api/transport/bmcs-list', requireTransportOfficer, async (req, res) =>
 
       return {
         ...b,
-        route_id: b.route_id || b.bmc_routes?.id || null,
-        route_name: b.bmc_routes?.name || null,
         macs_quantity_today: totalLiters,
         macs_quantity_kg: totalKg
       };
@@ -5738,7 +5736,7 @@ app.get('/api/transport/macs-summary', requireTransportOfficer, async (req, res)
   try {
     const { data: bmcs, error } = await adminClient
       .from('bmcs')
-      .select('id, name, bmc_code, location, is_active, total_capacity, route_id, bmc_routes(id, name)')
+      .select('id, name, bmc_code, location, is_active, total_capacity')
       .eq('is_active', true)
       .order('name');
     if (error) throw error;
@@ -5785,8 +5783,6 @@ app.get('/api/transport/macs-summary', requireTransportOfficer, async (req, res)
         bmc_code: b.bmc_code || '-',
         bmc_name: b.name,
         location: b.location || '',
-        route_id: b.route_id || b.bmc_routes?.id || null,
-        route_name: b.bmc_routes?.name || null,
         date: dateStr,
         batch: displayBatch,
         capacity_kg: kg,
