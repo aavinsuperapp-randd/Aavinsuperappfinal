@@ -11587,6 +11587,842 @@ app.delete('/api/admin/macs-api/data', requireAdminRole, async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── SOCIETY DATA MODULE ────────────────────────────────────────────────────────
+// Fetches society-level data from MACS API for 45 BMCs across 5 routes.
+// Extracts FAT, Liter, SNF from each society record.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Society BMC Configuration ──────────────────────────────────────────────────
+
+const SOCIETY_MACS_API_URL = 'https://aavinapi.macsit.net/api/SocietyData/GetSoceityDataByBmcCode';
+const SOCIETY_MACS_TIMEOUT_MS = 60000; // 60 seconds per request
+const SOCIETY_BATCH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes between batches
+const SOCIETY_MAX_RETRIES = 2; // Max retry attempts per failed BMC
+
+// All 45 BMC codes in ascending numeric order
+const SOCIETY_BMC_CODES = [
+  18, 19, 31, 32, 33, 35, 36, 37, 38, 39, 41,
+  801, 802, 803, 804, 805, 806, 807, 809, 813,
+  814, 815, 816, 817, 818, 819, 820, 821, 824, 825,
+  826, 827, 828, 829, 830, 831, 832, 834, 835, 836,
+  837, 838, 839, 840, 841
+];
+
+// BMC → Route mapping
+const SOCIETY_BMC_ROUTE_MAP = {
+  18: 'usilampatti', 36: 'usilampatti', 37: 'usilampatti', 38: 'usilampatti',
+  39: 'usilampatti', 41: 'usilampatti', 807: 'usilampatti', 814: 'usilampatti',
+  815: 'usilampatti', 817: 'usilampatti', 820: 'usilampatti', 825: 'usilampatti',
+
+  19: 'sellampatti', 801: 'sellampatti', 805: 'sellampatti', 813: 'sellampatti',
+  831: 'sellampatti', 832: 'sellampatti', 838: 'sellampatti', 839: 'sellampatti',
+  840: 'sellampatti', 841: 'sellampatti',
+
+  31: 'thirumangalam', 32: 'thirumangalam', 33: 'thirumangalam', 35: 'thirumangalam',
+  802: 'thirumangalam', 803: 'thirumangalam', 804: 'thirumangalam', 806: 'thirumangalam',
+  819: 'thirumangalam', 835: 'thirumangalam', 836: 'thirumangalam', 837: 'thirumangalam',
+
+  809: 'vadipatti', 816: 'vadipatti', 821: 'vadipatti',
+  828: 'vadipatti', 829: 'vadipatti', 830: 'vadipatti',
+
+  818: 'melur', 824: 'melur', 826: 'melur', 827: 'melur', 834: 'melur'
+};
+
+// Session config for morning/evening
+const SOCIETY_SESSION_CONFIG = {
+  morning: { session: 1, shift: 1 },
+  evening: { session: 2, shift: 2 }
+};
+
+// Pre-computed batch definitions (9 batches × 5 BMCs each)
+const SOCIETY_BATCHES = [];
+for (let i = 0; i < SOCIETY_BMC_CODES.length; i += 5) {
+  SOCIETY_BATCHES.push(SOCIETY_BMC_CODES.slice(i, i + 5));
+}
+
+/**
+ * Get the route name for a BMC code
+ */
+function getSocietyRoute(bmcCode) {
+  return SOCIETY_BMC_ROUTE_MAP[bmcCode] || 'unknown';
+}
+
+/**
+ * Get current IST date in DD/MM/YYYY format
+ */
+function getIstDateFormatted() {
+  const now = new Date();
+  const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const dd = String(istNow.getUTCDate()).padStart(2, '0');
+  const mm = String(istNow.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = istNow.getUTCFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+/**
+ * Get current IST date in YYYY-MM-DD format
+ */
+function getIstDateISO() {
+  const now = new Date();
+  const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  return istNow.toISOString().split('T')[0];
+}
+
+// ─── MACS Payload Builder ───────────────────────────────────────────────────────
+
+/**
+ * Build the MACS request payload for a specific BMC code and session.
+ * @param {number} bmcCode - The BMC code
+ * @param {string} dateStr - Date in DD/MM/YYYY format
+ * @param {string} sessionKey - 'morning' or 'evening'
+ * @returns {object} The payload object
+ */
+function buildSocietyPayload(bmcCode, dateStr, sessionKey) {
+  const config = SOCIETY_SESSION_CONFIG[sessionKey];
+  return {
+    bmcCode: bmcCode,
+    cCode: bmcCode,
+    firstDate: dateStr,
+    reportType: '',
+    sCode: 0,
+    secondDate: dateStr,
+    session: config.session,
+    shift: config.shift,
+    uCode: 2
+  };
+}
+
+// ─── MACS Client ────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch society data from MACS API for a single BMC code.
+ * @param {number} bmcCode - The BMC code to fetch
+ * @param {string} dateStr - Date in DD/MM/YYYY format
+ * @param {string} sessionKey - 'morning' or 'evening'
+ * @returns {Promise<{success: boolean, data?: any, error?: string}>}
+ */
+async function fetchSocietyDataForBmc(bmcCode, dateStr, sessionKey) {
+  const payload = buildSocietyPayload(bmcCode, dateStr, sessionKey);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SOCIETY_MACS_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(SOCIETY_MACS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    const result = await response.json();
+
+    // Validate MACS response structure
+    if (result.statusCode !== undefined && result.statusCode !== 200) {
+      return { success: false, error: `MACS statusCode: ${result.statusCode}, message: ${result.message || 'Unknown'}` };
+    }
+
+    return { success: true, data: result };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const isTimeout = err.name === 'AbortError';
+    return {
+      success: false,
+      error: isTimeout ? `Request timed out after ${SOCIETY_MACS_TIMEOUT_MS / 1000}s` : (err.message || String(err))
+    };
+  }
+}
+
+// ─── MACS Response Parser ───────────────────────────────────────────────────────
+
+/**
+ * Parse the raw MACS society response and extract FAT, Liter, SNF.
+ * 
+ * IMPORTANT: The field mapping below is based on the expected MACS response structure.
+ * If the real response uses different field names, update the mapping constants below.
+ * The raw response is preserved in raw_data for debugging.
+ *
+ * @param {object} rawResponse - The raw MACS API response
+ * @param {number} bmcCode - The BMC code this response belongs to
+ * @returns {Array<{society_code, society_name, fat, liter, snf, raw_data}>}
+ */
+function parseSocietyResponse(rawResponse, bmcCode) {
+  const societies = [];
+
+  // Determine where society records live in the response
+  let records = null;
+  if (rawResponse && Array.isArray(rawResponse.data)) {
+    records = rawResponse.data;
+  } else if (rawResponse && Array.isArray(rawResponse)) {
+    records = rawResponse;
+  } else if (rawResponse && rawResponse.result && Array.isArray(rawResponse.result)) {
+    records = rawResponse.result;
+  }
+
+  if (!records || records.length === 0) {
+    // Log the raw response structure for first-time debugging
+    console.log(`📋 Society Parser [BMC ${bmcCode}]: No records found. Raw response keys: ${rawResponse ? Object.keys(rawResponse).join(', ') : 'null'}`);
+    return societies;
+  }
+
+  for (const record of records) {
+    // Skip TOTAL/summary rows
+    const name = (record.name || record.societyName || record.sName || '').trim().toUpperCase();
+    if (name === 'TOTAL' || name === '') continue;
+
+    // ─── FIELD MAPPING ─────────────────────────────────────
+    // Update these mappings based on the actual MACS response.
+    // The parser tries multiple common field name patterns.
+    
+    const societyCode = record.code || record.sCode || record.societyCode || record.soCode || record.scode || '';
+    const societyName = record.name || record.societyName || record.sName || record.sname || '';
+
+    // FAT extraction — try common field patterns
+    const fat = parseNumericField(record, ['fat', 'faT1', 'faT2', 'fatValue', 'Fat', 'FAT']);
+
+    // LITER extraction — liT1 is the correct society-level liter field (lit is always 0)
+    const liter = parseNumericField(record, ['liT1', 'liT2', 'liter', 'literValue', 'Lit', 'LIT', 'Liter', 'lit']);
+
+    // SNF extraction
+    const snf = parseNumericField(record, ['snf', 'snF1', 'snF2', 'snfValue', 'Snf', 'SNF']);
+
+    societies.push({
+      society_code: String(societyCode).trim(),
+      society_name: String(societyName).trim(),
+      fat: fat,
+      liter: liter,
+      snf: snf,
+      raw_data: record
+    });
+  }
+
+  // Log first successful parse for field verification
+  if (societies.length > 0 && records.length > 0) {
+    const sampleKeys = Object.keys(records[0]).join(', ');
+    console.log(`📋 Society Parser [BMC ${bmcCode}]: Parsed ${societies.length} societies. Sample fields: ${sampleKeys}`);
+  }
+
+  return societies;
+}
+
+/**
+ * Helper: Extract a numeric value from a record trying multiple field names.
+ */
+function parseNumericField(record, fieldNames) {
+  for (const field of fieldNames) {
+    if (record[field] !== undefined && record[field] !== null) {
+      const val = Number(record[field]);
+      if (!isNaN(val)) return val;
+    }
+  }
+  return null;
+}
+
+// ─── Society Fetch Job State (In-Memory) ────────────────────────────────────────
+
+const societyFetchJobState = {
+  isRunning: false,
+  jobId: null,
+  session: null,
+  dateStr: null,
+  dateISO: null,
+  totalBatches: SOCIETY_BATCHES.length,
+  currentBatch: 0,
+  status: 'idle', // idle, running, completed, failed
+  batchResults: [], // Array of batch result objects
+  bmcResults: {}, // Per-BMC status: { bmcCode: { status, error, societyCount } }
+  startedAt: null,
+  completedAt: null,
+  batchTimers: [] // Timer references for cleanup
+};
+
+/**
+ * Reset the in-memory job state
+ */
+function resetSocietyJobState() {
+  // Clear any pending batch timers
+  societyFetchJobState.batchTimers.forEach(t => clearTimeout(t));
+  societyFetchJobState.isRunning = false;
+  societyFetchJobState.jobId = null;
+  societyFetchJobState.session = null;
+  societyFetchJobState.dateStr = null;
+  societyFetchJobState.dateISO = null;
+  societyFetchJobState.currentBatch = 0;
+  societyFetchJobState.status = 'idle';
+  societyFetchJobState.batchResults = [];
+  societyFetchJobState.bmcResults = {};
+  societyFetchJobState.startedAt = null;
+  societyFetchJobState.completedAt = null;
+  societyFetchJobState.batchTimers = [];
+}
+
+// ─── Fetch Job Engine ───────────────────────────────────────────────────────────
+
+/**
+ * Execute a single batch of BMC fetches (5 concurrent requests).
+ * @param {number} batchIndex - 0-based batch index
+ * @param {string} dateStr - Date in DD/MM/YYYY format
+ * @param {string} sessionKey - 'morning' or 'evening'
+ * @param {object} adminClient - Supabase admin client
+ * @param {string} jobId - Database job ID
+ * @returns {Promise<{batchNum, bmcCodes, results, startTime, endTime}>}
+ */
+async function executeSocietyBatch(batchIndex, dateStr, sessionKey, adminClient, jobId) {
+  const bmcCodes = SOCIETY_BATCHES[batchIndex];
+  const batchNum = batchIndex + 1;
+  const startTime = new Date().toISOString();
+
+  console.log(`🔄 Society Fetch: Batch ${batchNum}/${SOCIETY_BATCHES.length} — BMCs: ${bmcCodes.join(', ')}`);
+
+  // Update job state
+  societyFetchJobState.currentBatch = batchNum;
+
+  // Mark BMCs as fetching
+  bmcCodes.forEach(code => {
+    societyFetchJobState.bmcResults[code] = { status: 'fetching', error: null, societyCount: 0 };
+  });
+
+  // Execute all 5 BMC requests concurrently
+  const fetchPromises = bmcCodes.map(async (bmcCode) => {
+    let lastError = null;
+    let attempts = 0;
+
+    // Retry loop
+    while (attempts <= SOCIETY_MAX_RETRIES) {
+      attempts++;
+      const result = await fetchSocietyDataForBmc(bmcCode, dateStr, sessionKey);
+
+      if (result.success) {
+        // Parse the response
+        const parsedSocieties = parseSocietyResponse(result.data, bmcCode);
+        const route = getSocietyRoute(bmcCode);
+
+        // Store in database
+        if (parsedSocieties.length > 0) {
+          const insertRows = parsedSocieties.map(s => ({
+            fetch_date: societyFetchJobState.dateISO,
+            session: sessionKey,
+            bmc_code: bmcCode,
+            route: route,
+            society_code: s.society_code,
+            society_name: s.society_name,
+            fat: s.fat,
+            liter: s.liter,
+            snf: s.snf,
+            raw_data: s.raw_data
+          }));
+
+          const { error: insertErr } = await adminClient
+            .from('society_data')
+            .insert(insertRows);
+
+          if (insertErr) {
+            console.error(`❌ Society Fetch [BMC ${bmcCode}]: DB insert error: ${insertErr.message}`);
+            societyFetchJobState.bmcResults[bmcCode] = {
+              status: 'failed',
+              error: `DB insert failed: ${insertErr.message}`,
+              societyCount: 0
+            };
+            return { bmcCode, success: false, error: insertErr.message, societies: 0 };
+          }
+        }
+
+        societyFetchJobState.bmcResults[bmcCode] = {
+          status: 'completed',
+          error: null,
+          societyCount: parsedSocieties.length
+        };
+
+        console.log(`✅ Society Fetch [BMC ${bmcCode}]: ${parsedSocieties.length} societies stored`);
+        return { bmcCode, success: true, error: null, societies: parsedSocieties.length };
+      }
+
+      lastError = result.error;
+      if (attempts <= SOCIETY_MAX_RETRIES) {
+        console.log(`🔁 Society Fetch [BMC ${bmcCode}]: Retry ${attempts}/${SOCIETY_MAX_RETRIES}...`);
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2s wait between retries
+      }
+    }
+
+    // All retries exhausted
+    console.error(`❌ Society Fetch [BMC ${bmcCode}]: Failed after ${attempts} attempts — ${lastError}`);
+    societyFetchJobState.bmcResults[bmcCode] = {
+      status: 'failed',
+      error: lastError,
+      societyCount: 0
+    };
+    return { bmcCode, success: false, error: lastError, societies: 0 };
+  });
+
+  const results = await Promise.all(fetchPromises);
+  const endTime = new Date().toISOString();
+
+  const batchResult = {
+    batchNum,
+    bmcCodes,
+    results,
+    startTime,
+    endTime,
+    successCount: results.filter(r => r.success).length,
+    failCount: results.filter(r => !r.success).length
+  };
+
+  societyFetchJobState.batchResults.push(batchResult);
+
+  // Update job record in database
+  try {
+    await adminClient
+      .from('society_fetch_jobs')
+      .update({
+        current_batch: batchNum,
+        batch_details: societyFetchJobState.batchResults.map(b => ({
+          batchNum: b.batchNum,
+          bmcCodes: b.bmcCodes,
+          startTime: b.startTime,
+          endTime: b.endTime,
+          successCount: b.successCount,
+          failCount: b.failCount,
+          results: b.results.map(r => ({ bmcCode: r.bmcCode, success: r.success, error: r.error, societies: r.societies }))
+        }))
+      })
+      .eq('id', jobId);
+  } catch (err) {
+    console.error(`❌ Society Fetch: Failed to update job record: ${err.message}`);
+  }
+
+  console.log(`✅ Society Fetch: Batch ${batchNum} complete — ${batchResult.successCount} OK, ${batchResult.failCount} failed`);
+  return batchResult;
+}
+
+/**
+ * Execute the full 45-BMC society data fetch job.
+ * This is the FETCH ENGINE — separated from the trigger mechanism.
+ * Both manual START NOW and future automatic scheduling should call this function.
+ *
+ * @param {string} sessionKey - 'morning' or 'evening'
+ * @param {string|null} dateOverride - Optional date override in DD/MM/YYYY format
+ * @param {object} adminClient - Supabase admin client
+ * @returns {Promise<{success: boolean, jobId: string}>}
+ */
+async function executeSocietyFetchJob(sessionKey, dateOverride, adminClient) {
+  if (societyFetchJobState.isRunning) {
+    return { success: false, error: 'A society data fetch job is already in progress.' };
+  }
+
+  const dateStr = dateOverride || getIstDateFormatted();
+  const dateISO = dateOverride ? convertMacsDateToISO(dateOverride) : getIstDateISO();
+
+  // Reset state
+  resetSocietyJobState();
+  societyFetchJobState.isRunning = true;
+  societyFetchJobState.session = sessionKey;
+  societyFetchJobState.dateStr = dateStr;
+  societyFetchJobState.dateISO = dateISO;
+  societyFetchJobState.status = 'running';
+  societyFetchJobState.startedAt = new Date().toISOString();
+
+  // Clear previous data for this date + session
+  try {
+    const { error: clearErr } = await adminClient
+      .from('society_data')
+      .delete()
+      .eq('fetch_date', dateISO)
+      .eq('session', sessionKey);
+
+    if (clearErr) {
+      console.warn(`⚠️ Society Fetch: Failed to clear old data: ${clearErr.message}`);
+    }
+  } catch (err) {
+    console.warn(`⚠️ Society Fetch: Exception clearing old data: ${err.message}`);
+  }
+
+  // Create job record in database
+  let jobId = null;
+  try {
+    const { data: jobRecord, error: jobErr } = await adminClient
+      .from('society_fetch_jobs')
+      .insert({
+        job_date: dateISO,
+        session: sessionKey,
+        status: 'running',
+        total_batches: SOCIETY_BATCHES.length,
+        current_batch: 0,
+        batch_details: [],
+        started_at: societyFetchJobState.startedAt
+      })
+      .select('id')
+      .single();
+
+    if (jobErr) throw jobErr;
+    jobId = jobRecord.id;
+    societyFetchJobState.jobId = jobId;
+  } catch (err) {
+    console.error(`❌ Society Fetch: Failed to create job record: ${err.message}`);
+    resetSocietyJobState();
+    return { success: false, error: `Failed to create job record: ${err.message}` };
+  }
+
+  console.log(`🚀 Society Fetch Job Started: ${sessionKey} session, date: ${dateStr}, jobId: ${jobId}`);
+
+  // Execute batches with 5-minute intervals
+  // Batch 1 starts immediately, subsequent batches are scheduled with setTimeout
+  const executeBatchSequence = async () => {
+    try {
+      for (let i = 0; i < SOCIETY_BATCHES.length; i++) {
+        if (!societyFetchJobState.isRunning) {
+          console.log('⚠️ Society Fetch: Job was cancelled');
+          break;
+        }
+
+        // Execute the batch
+        await executeSocietyBatch(i, dateStr, sessionKey, adminClient, jobId);
+
+        // Wait 5 minutes before next batch (except after the last one)
+        if (i < SOCIETY_BATCHES.length - 1 && societyFetchJobState.isRunning) {
+          console.log(`⏳ Society Fetch: Waiting 5 minutes before Batch ${i + 2}...`);
+          await new Promise((resolve) => {
+            const timer = setTimeout(resolve, SOCIETY_BATCH_INTERVAL_MS);
+            societyFetchJobState.batchTimers.push(timer);
+          });
+        }
+      }
+
+      // Job completed (only if not stopped by admin)
+      if (societyFetchJobState.status === 'stopped') {
+        // Already handled by the stop endpoint — don't overwrite
+        console.log(`🛑 Society Fetch Job Stopped by admin after Batch ${societyFetchJobState.currentBatch}`);
+        return;
+      }
+
+      societyFetchJobState.status = 'completed';
+      societyFetchJobState.completedAt = new Date().toISOString();
+      societyFetchJobState.isRunning = false;
+
+      // Update job record
+      try {
+        await adminClient
+          .from('society_fetch_jobs')
+          .update({
+            status: 'completed',
+            completed_at: societyFetchJobState.completedAt,
+            current_batch: SOCIETY_BATCHES.length,
+            batch_details: societyFetchJobState.batchResults.map(b => ({
+              batchNum: b.batchNum,
+              bmcCodes: b.bmcCodes,
+              startTime: b.startTime,
+              endTime: b.endTime,
+              successCount: b.successCount,
+              failCount: b.failCount,
+              results: b.results.map(r => ({ bmcCode: r.bmcCode, success: r.success, error: r.error, societies: r.societies }))
+            }))
+          })
+          .eq('id', jobId);
+      } catch (err) {
+        console.error(`❌ Society Fetch: Failed to update completed job: ${err.message}`);
+      }
+
+      const totalSocieties = Object.values(societyFetchJobState.bmcResults).reduce((sum, r) => sum + r.societyCount, 0);
+      const failedBmcs = Object.entries(societyFetchJobState.bmcResults).filter(([, r]) => r.status === 'failed').length;
+      console.log(`🏁 Society Fetch Job Complete: ${totalSocieties} societies, ${failedBmcs} failed BMCs, duration: ~${Math.round((Date.now() - new Date(societyFetchJobState.startedAt).getTime()) / 60000)} min`);
+
+    } catch (err) {
+      console.error(`❌ Society Fetch: Unexpected job error: ${err.message}`);
+      societyFetchJobState.status = 'failed';
+      societyFetchJobState.isRunning = false;
+      societyFetchJobState.completedAt = new Date().toISOString();
+
+      try {
+        await adminClient
+          .from('society_fetch_jobs')
+          .update({ status: 'failed', completed_at: societyFetchJobState.completedAt })
+          .eq('id', jobId);
+      } catch (e) {
+        console.error(`❌ Society Fetch: Failed to update failed job: ${e.message}`);
+      }
+    }
+  };
+
+  // Start the batch sequence asynchronously (non-blocking)
+  executeBatchSequence();
+
+  return { success: true, jobId, message: `Society data fetch started for ${sessionKey} session, date: ${dateStr}` };
+}
+
+// ─── Society Data API Endpoints ─────────────────────────────────────────────────
+
+/**
+ * POST /api/admin/society-data/fetch/start
+ * Start a new society data fetch job.
+ * Body: { session: 'morning' | 'evening' }
+ */
+app.post('/api/admin/society-data/fetch/start', requireAdminRole, async (req, res) => {
+  const { session: sessionKey } = req.body;
+
+  // Validate session
+  if (!sessionKey || !['morning', 'evening'].includes(sessionKey)) {
+    return res.status(400).json({ error: 'Invalid session. Must be "morning" or "evening".' });
+  }
+
+  // Check for active job
+  if (societyFetchJobState.isRunning) {
+    return res.status(409).json({
+      error: 'Society data fetch is already in progress.',
+      currentBatch: societyFetchJobState.currentBatch,
+      totalBatches: societyFetchJobState.totalBatches,
+      status: societyFetchJobState.status
+    });
+  }
+
+  const { adminClient } = req;
+
+  try {
+    const result = await executeSocietyFetchJob(sessionKey, null, adminClient);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        jobId: result.jobId,
+        message: result.message,
+        totalBmcs: SOCIETY_BMC_CODES.length,
+        totalBatches: SOCIETY_BATCHES.length,
+        estimatedDuration: '~45 minutes'
+      });
+    } else {
+      res.status(500).json({ success: false, error: result.error });
+    }
+  } catch (err) {
+    console.error('❌ Society Fetch Start Error:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to start society data fetch.' });
+  }
+});
+
+/**
+ * POST /api/admin/society-data/fetch/stop
+ * Stop the currently running society data fetch job.
+ * Preserves all data from already-completed batches.
+ */
+app.post('/api/admin/society-data/fetch/stop', requireAdminRole, async (req, res) => {
+  if (!societyFetchJobState.isRunning) {
+    return res.status(400).json({ error: 'No society data fetch job is currently running.' });
+  }
+
+  const jobId = societyFetchJobState.jobId;
+  const stoppedAfterBatch = societyFetchJobState.currentBatch;
+
+  // 1. Clear all pending batch timers to prevent future batches
+  societyFetchJobState.batchTimers.forEach(t => clearTimeout(t));
+  societyFetchJobState.batchTimers = [];
+
+  // 2. Set state to stopped — the batch loop checks isRunning and will break
+  societyFetchJobState.isRunning = false;
+  societyFetchJobState.status = 'stopped';
+  societyFetchJobState.completedAt = new Date().toISOString();
+
+  console.log(`🛑 Society Fetch: STOPPED by admin after Batch ${stoppedAfterBatch}`);
+
+  // 3. Update job record in database
+  const { adminClient } = req;
+  if (jobId && adminClient) {
+    try {
+      await adminClient
+        .from('society_fetch_jobs')
+        .update({
+          status: 'stopped',
+          completed_at: societyFetchJobState.completedAt,
+          current_batch: stoppedAfterBatch,
+          batch_details: societyFetchJobState.batchResults.map(b => ({
+            batchNum: b.batchNum,
+            bmcCodes: b.bmcCodes,
+            startTime: b.startTime,
+            endTime: b.endTime,
+            successCount: b.successCount,
+            failCount: b.failCount,
+            results: b.results.map(r => ({ bmcCode: r.bmcCode, success: r.success, error: r.error, societies: r.societies }))
+          }))
+        })
+        .eq('id', jobId);
+    } catch (err) {
+      console.error(`❌ Society Fetch Stop: Failed to update job record: ${err.message}`);
+    }
+  }
+
+  res.json({
+    success: true,
+    message: `Society data fetch stopped after Batch ${stoppedAfterBatch}.`,
+    stoppedAfterBatch,
+    completedBatches: societyFetchJobState.batchResults.length
+  });
+});
+
+/**
+ * GET /api/admin/society-data/fetch/status
+ * Returns the current fetch job status and per-BMC progress.
+ */
+app.get('/api/admin/society-data/fetch/status', requireAdminRole, async (req, res) => {
+  const state = societyFetchJobState;
+
+  // Determine next batch info
+  let nextBatchInfo = null;
+  if (state.isRunning && state.currentBatch < state.totalBatches) {
+    const nextBatchIdx = state.currentBatch; // 0-indexed
+    if (nextBatchIdx < SOCIETY_BATCHES.length) {
+      nextBatchInfo = {
+        batchNum: nextBatchIdx + 1,
+        bmcCodes: SOCIETY_BATCHES[nextBatchIdx]
+      };
+    }
+  }
+
+  res.json({
+    isRunning: state.isRunning,
+    status: state.status,
+    session: state.session,
+    dateStr: state.dateStr,
+    jobId: state.jobId,
+    currentBatch: state.currentBatch,
+    totalBatches: state.totalBatches,
+    startedAt: state.startedAt,
+    completedAt: state.completedAt,
+    nextBatch: nextBatchInfo,
+    bmcResults: state.bmcResults,
+    batchResults: state.batchResults.map(b => ({
+      batchNum: b.batchNum,
+      bmcCodes: b.bmcCodes,
+      startTime: b.startTime,
+      endTime: b.endTime,
+      successCount: b.successCount,
+      failCount: b.failCount
+    }))
+  });
+});
+
+/**
+ * GET /api/admin/society-data/fetch/history
+ * Returns today's fetch job history (current-day only).
+ */
+app.get('/api/admin/society-data/fetch/history', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const todayISO = getIstDateISO();
+
+  try {
+    const { data: jobs, error } = await adminClient
+      .from('society_fetch_jobs')
+      .select('*')
+      .eq('job_date', todayISO)
+      .order('started_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Also clear old-day jobs (cleanup)
+    adminClient
+      .from('society_fetch_jobs')
+      .delete()
+      .lt('job_date', todayISO)
+      .then(() => {})
+      .catch(e => console.warn(`⚠️ Society history cleanup: ${e.message}`));
+
+    res.json({
+      success: true,
+      date: todayISO,
+      jobs: (jobs || []).map(j => ({
+        id: j.id,
+        session: j.session,
+        status: j.status,
+        totalBatches: j.total_batches,
+        currentBatch: j.current_batch,
+        batchDetails: j.batch_details || [],
+        startedAt: j.started_at,
+        completedAt: j.completed_at
+      }))
+    });
+  } catch (err) {
+    console.error('❌ Society Fetch History Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/admin/society-data
+ * Returns paginated society data with filters.
+ * Query params: route, session, page, limit
+ */
+app.get('/api/admin/society-data', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const route = req.query.route || 'all';
+  const sessionFilter = req.query.session || null;
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
+  const offset = (page - 1) * limit;
+
+  const todayISO = getIstDateISO();
+
+  try {
+    // Clear previous days' data automatically
+    adminClient
+      .from('society_data')
+      .delete()
+      .lt('fetch_date', todayISO)
+      .then(() => {})
+      .catch(e => console.warn(`⚠️ Society data cleanup: ${e.message}`));
+
+    // Build query
+    let query = adminClient
+      .from('society_data')
+      .select('*', { count: 'exact' })
+      .eq('fetch_date', todayISO);
+
+    if (sessionFilter && ['morning', 'evening'].includes(sessionFilter)) {
+      query = query.eq('session', sessionFilter);
+    }
+
+    if (route && route !== 'all') {
+      query = query.eq('route', route.toLowerCase());
+    }
+
+    const { data, count, error } = await query
+      .order('bmc_code', { ascending: true })
+      .order('society_code', { ascending: true })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data: (data || []).map(d => ({
+        id: d.id,
+        bmc_code: d.bmc_code,
+        route: d.route,
+        session: d.session,
+        society_code: d.society_code,
+        society_name: d.society_name,
+        fat: d.fat,
+        liter: d.liter,
+        snf: d.snf,
+        fetch_date: d.fetch_date
+      })),
+      total: count || 0,
+      page,
+      limit,
+      totalPages: Math.ceil((count || 0) / limit),
+      filters: { route, session: sessionFilter, date: todayISO }
+    });
+  } catch (err) {
+    console.error('❌ Society Data Query Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── END SOCIETY DATA MODULE ────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
 // API 404 Fallback — ensures API routes return JSON, never HTML index.html
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: `API route ${req.originalUrl} not found.` });

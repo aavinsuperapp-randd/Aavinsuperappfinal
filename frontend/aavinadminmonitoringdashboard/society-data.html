@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Society Data — AAVIN Admin</title>
+  <meta name="description" content="AAVIN Admin Society Data management — fetch and view society-level milk quality data (FAT, Liter, SNF) from MACS API across 45 BMCs.">
+  <link rel="stylesheet" href="../css/global.css">
+  <link rel="stylesheet" href="../css/admin.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    /* ─── Society Data Page Styles ─────────────────────────────── */
+    .society-section { margin-bottom: 28px; }
+    .society-section-title {
+      font-size: 1.1rem; font-weight: 800; color: #0F172A;
+      margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+    }
+
+    /* Session Toggle */
+    .session-toggle-group {
+      display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .session-toggle-btn {
+      padding: 10px 22px; font-size: 0.85rem; font-weight: 700;
+      border: 2px solid #E2E8F0; border-radius: 10px;
+      background: #FFFFFF; color: #64748B; cursor: pointer;
+      transition: all 0.2s ease; display: flex; align-items: center; gap: 6px;
+    }
+    .session-toggle-btn:hover { border-color: #94A3B8; color: #1E293B; }
+    .session-toggle-btn.active {
+      border-color: #2563EB; background: #EFF6FF; color: #1D4ED8;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
+    }
+
+    /* Route Filter Pills */
+    .route-filter-group {
+      display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px;
+    }
+    .route-filter-btn {
+      padding: 7px 16px; font-size: 0.78rem; font-weight: 600;
+      border: 1px solid #E2E8F0; border-radius: 20px;
+      background: #FFFFFF; color: #64748B; cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .route-filter-btn:hover { border-color: #94A3B8; color: #1E293B; }
+    .route-filter-btn.active {
+      border-color: #059669; background: #ECFDF5; color: #047857;
+      font-weight: 700;
+    }
+
+    /* Start Now Card */
+    .start-card {
+      background: linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 100%);
+      border: 1px solid #BAE6FD; border-radius: 14px;
+      padding: 24px; margin-bottom: 24px;
+    }
+    .start-card-title {
+      font-size: 1.05rem; font-weight: 800; color: #0C4A6E; margin-bottom: 6px;
+    }
+    .start-card-desc {
+      font-size: 0.82rem; color: #0369A1; margin-bottom: 16px; line-height: 1.5;
+    }
+    .btn-start-now {
+      padding: 12px 28px; font-size: 0.9rem; font-weight: 700;
+      background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+      color: #FFFFFF; border: none; border-radius: 10px;
+      cursor: pointer; transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-start-now:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+    }
+    .btn-start-now:disabled {
+      opacity: 0.5; cursor: not-allowed; transform: none;
+    }
+    .btn-stop-now {
+      padding: 12px 28px; font-size: 0.9rem; font-weight: 700;
+      background: linear-gradient(135deg, #DC2626 0%, #B91C1C 100%);
+      color: #FFFFFF; border: none; border-radius: 10px;
+      cursor: pointer; transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(220, 38, 38, 0.3);
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-stop-now:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4);
+    }
+
+    /* Progress Panel */
+    .progress-panel {
+      background: #FFFFFF; border: 1px solid #E2E8F0;
+      border-radius: 14px; padding: 20px; margin-bottom: 24px;
+    }
+    .progress-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px; flex-wrap: wrap; gap: 8px;
+    }
+    .progress-title {
+      font-size: 0.95rem; font-weight: 800; color: #0F172A;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .progress-bar-container {
+      width: 100%; height: 10px; background: #F1F5F9;
+      border-radius: 10px; margin-bottom: 14px; overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%; background: linear-gradient(90deg, #2563EB 0%, #059669 100%);
+      border-radius: 10px; transition: width 0.5s ease;
+    }
+    .batch-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 10px;
+    }
+    .batch-item {
+      background: #F8FAFC; border: 1px solid #E2E8F0;
+      border-radius: 10px; padding: 12px; font-size: 0.8rem;
+    }
+    .batch-item-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .batch-item-label { font-weight: 700; color: #1E293B; }
+    .batch-item-status { font-size: 0.72rem; font-weight: 600; }
+    .batch-item-status.completed { color: #059669; }
+    .batch-item-status.failed { color: #DC2626; }
+    .batch-item-status.fetching { color: #D97706; }
+    .batch-item-status.waiting { color: #64748B; }
+    .bmc-status-list {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;
+    }
+    .bmc-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 600;
+    }
+    .bmc-chip.ok { background: #DCFCE7; color: #15803D; }
+    .bmc-chip.fail { background: #FEE2E2; color: #991B1B; }
+    .bmc-chip.pending { background: #F3F4F6; color: #6B7280; }
+    .bmc-chip.fetching { background: #FEF3C7; color: #92400E; }
+
+    /* Society Table */
+    .society-table-card {
+      background: #FFFFFF; border: 1px solid #E2E8F0;
+      border-radius: 14px; overflow: hidden;
+    }
+    .society-table-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px; border-bottom: 1px solid #E2E8F0; flex-wrap: wrap; gap: 8px;
+    }
+    .society-table-title { font-size: 0.95rem; font-weight: 700; color: #0F172A; }
+    .society-table-count { font-size: 0.78rem; color: #64748B; }
+    .society-table {
+      width: 100%; border-collapse: collapse; text-align: left;
+    }
+    .society-table th {
+      background: #F8FAFC; padding: 12px 16px; font-size: 0.72rem;
+      font-weight: 700; color: #64748B; text-transform: uppercase;
+      letter-spacing: 0.5px; border-bottom: 1px solid #E2E8F0;
+    }
+    .society-table td {
+      padding: 14px 16px; font-size: 0.82rem; color: #334155;
+      border-bottom: 1px solid #F1F5F9; vertical-align: middle;
+    }
+    .society-table tr:last-child td { border-bottom: none; }
+    .society-table tr:hover td { background: #F8FAFC; }
+    .quality-value {
+      font-weight: 700; font-size: 0.85rem;
+      padding: 4px 10px; border-radius: 6px; display: inline-block;
+    }
+    .quality-fat { background: #FEF3C7; color: #92400E; }
+    .quality-liter { background: #DBEAFE; color: #1E40AF; }
+    .quality-snf { background: #DCFCE7; color: #166534; }
+    .route-badge {
+      font-size: 0.7rem; font-weight: 600; padding: 3px 8px;
+      border-radius: 4px; text-transform: capitalize;
+    }
+    .route-badge.usilampatti { background: #EDE9FE; color: #6D28D9; }
+    .route-badge.sellampatti { background: #FCE7F3; color: #BE185D; }
+    .route-badge.thirumangalam { background: #FEF3C7; color: #92400E; }
+    .route-badge.vadipatti { background: #CCFBF1; color: #0F766E; }
+    .route-badge.melur { background: #DBEAFE; color: #1E40AF; }
+
+    /* Pagination */
+    .pagination-bar {
+      display: flex; align-items: center; justify-content: center;
+      gap: 4px; padding: 16px 20px; flex-wrap: wrap;
+    }
+    .page-btn {
+      padding: 8px 14px; font-size: 0.8rem; font-weight: 600;
+      border: 1px solid #E2E8F0; border-radius: 8px;
+      background: #FFFFFF; color: #64748B; cursor: pointer;
+      transition: all 0.15s ease; min-width: 38px; text-align: center;
+    }
+    .page-btn:hover:not(:disabled) { border-color: #94A3B8; color: #1E293B; }
+    .page-btn.active {
+      background: #2563EB; color: #FFFFFF; border-color: #2563EB;
+    }
+    .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* History Section */
+    .history-panel {
+      background: #FFFFFF; border: 1px solid #E2E8F0;
+      border-radius: 14px; padding: 20px; margin-bottom: 24px;
+    }
+    .history-item {
+      background: #F8FAFC; border: 1px solid #E2E8F0;
+      border-radius: 10px; padding: 14px; margin-bottom: 10px;
+    }
+    .history-item:last-child { margin-bottom: 0; }
+    .history-item-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px; flex-wrap: wrap; gap: 6px;
+    }
+    .history-time { font-weight: 700; font-size: 0.85rem; color: #1E293B; }
+    .history-status-badge {
+      font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 6px;
+    }
+    .history-status-badge.completed { background: #DCFCE7; color: #15803D; }
+    .history-status-badge.running { background: #FEF3C7; color: #92400E; }
+    .history-status-badge.stopped { background: #FEE2E2; color: #991B1B; }
+    .history-status-badge.failed { background: #FEE2E2; color: #991B1B; }
+
+    /* Confirmation Modal */
+    .confirm-modal-overlay {
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.68);
+      backdrop-filter: blur(4px); z-index: 9999;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .confirm-modal-box {
+      background: #FFFFFF; border-radius: 16px;
+      max-width: 480px; width: 100%; padding: 28px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+      animation: modalFadeIn 0.2s ease-out;
+    }
+    @keyframes modalFadeIn {
+      from { opacity: 0; transform: scale(0.96); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .confirm-input {
+      width: 100%; padding: 12px 16px; font-size: 1rem;
+      border: 2px solid #E2E8F0; border-radius: 10px;
+      font-family: 'Outfit', sans-serif; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 2px;
+      text-align: center; transition: border-color 0.2s;
+    }
+    .confirm-input:focus { outline: none; border-color: #2563EB; }
+
+    /* Empty State */
+    .empty-state-box {
+      text-align: center; padding: 48px 24px; color: #94A3B8;
+    }
+    .empty-state-box .icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .empty-state-box .title {
+      font-size: 1rem; font-weight: 700; color: #64748B; margin-bottom: 6px;
+    }
+    .empty-state-box .desc { font-size: 0.82rem; color: #94A3B8; }
+
+    /* Mobile Cards (for small screens) */
+    .society-mobile-cards { display: none; }
+    .society-mobile-card {
+      background: #FFFFFF; border: 1px solid #E2E8F0;
+      border-radius: 12px; padding: 16px; margin-bottom: 10px;
+    }
+    .society-mobile-card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .society-mobile-card-name { font-weight: 700; font-size: 0.9rem; color: #0F172A; }
+    .society-mobile-card-values {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+    }
+    .society-mobile-card-val {
+      text-align: center; padding: 8px; border-radius: 8px;
+    }
+    .society-mobile-card-val .label {
+      font-size: 0.65rem; font-weight: 600; color: #64748B;
+      text-transform: uppercase; margin-bottom: 2px;
+    }
+    .society-mobile-card-val .value {
+      font-size: 1rem; font-weight: 800;
+    }
+
+    @media (max-width: 640px) {
+      .society-table-wrap { display: none; }
+      .society-mobile-cards { display: block; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient Background Canvas -->
+  <div class="bg-ambient-canvas">
+    <div class="blob blob-blue-1"></div>
+    <div class="blob blob-green-1"></div>
+  </div>
+
+  <div class="admin-shell">
+    <!-- Sidebar Navigation -->
+    <aside class="admin-sidebar">
+      <div class="admin-sidebar-logo">
+        <img src="/assets/aavin-logo.png" alt="AAVIN Logo">
+        <span>AAVIN Admin</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="dashboard.html" class="admin-nav-item">
+          <span>📊</span> Dashboard Home
+        </a>
+        <a href="verification.html" class="admin-nav-item">
+          <span>📋</span> Users & Approvals
+        </a>
+        <a href="bmc.html" class="admin-nav-item">
+          <span>🏭</span> BMC Management
+        </a>
+        <a href="macs-api.html" class="admin-nav-item">
+          <span>🔗</span> MACS API
+        </a>
+        <a href="society-data.html" class="admin-nav-item active">
+          <span>🏘️</span> Society Data
+        </a>
+        <button id="logout-btn" class="admin-nav-item logout-btn" style="margin-top:4px;">
+          <span>🚪</span> Logout
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="admin-main">
+      <header class="admin-header">
+        <button id="sidebar-toggle-btn" class="sidebar-toggle" aria-label="Toggle Navigation Menu" title="Toggle Navigation Menu">⋮</button>
+        <div class="admin-header-title">Society Data — MACS Integration</div>
+        <div class="admin-user-profile">
+          <div class="admin-user-name">Administrator</div>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <div id="main-admin-content" class="hidden">
+
+          <!-- Page Title -->
+          <div style="margin-bottom: 20px;">
+            <h1 style="font-size: 1.35rem; margin:0; font-weight:800; color:#0F172A;">🏘️ Society Data</h1>
+            <p class="text-muted" style="font-size: 0.82rem; margin-top: 4px;">
+              Fetch and view society-level milk quality data (FAT, Liter, SNF) from MACS API across 45 BMCs and 680+ societies.
+            </p>
+          </div>
+
+          <!-- Session Toggle -->
+          <div class="society-section">
+            <div class="society-section-title">⏰ Select Session</div>
+            <div class="session-toggle-group">
+              <button class="session-toggle-btn active" data-session="morning" id="session-btn-morning">
+                ☀️ Morning
+              </button>
+              <button class="session-toggle-btn" data-session="evening" id="session-btn-evening">
+                🌙 Evening
+              </button>
+            </div>
+          </div>
+
+          <!-- Start Now Card -->
+          <div class="start-card" id="start-card">
+            <div class="start-card-title">🚀 Start MACS Society Data Fetch</div>
+            <div class="start-card-desc">
+              Fetch society-level data from 45 BMCs in 9 batches (5 BMCs every 5 minutes). The process takes approximately 45 minutes to complete.
+            </div>
+            <button class="btn-start-now" id="btn-start-now">
+              ▶ START NOW
+            </button>
+            <button class="btn-stop-now hidden" id="btn-stop-now">
+              ⏹ STOP
+            </button>
+            <span id="start-status-text" style="margin-left: 12px; font-size: 0.8rem; font-weight: 600; color: #64748B;"></span>
+          </div>
+
+          <!-- Fetch Progress Panel -->
+          <div class="progress-panel hidden" id="progress-panel">
+            <div class="progress-header">
+              <div class="progress-title">
+                <span id="progress-icon">⏳</span>
+                <span id="progress-label">Fetching...</span>
+              </div>
+              <div style="font-size: 0.8rem; font-weight: 700; color: #2563EB;" id="progress-batch-text">
+                Batch 0 / 9
+              </div>
+            </div>
+            <div class="progress-bar-container">
+              <div class="progress-bar-fill" id="progress-bar" style="width: 0%;"></div>
+            </div>
+            <div class="batch-grid" id="batch-grid"></div>
+          </div>
+
+          <!-- Route Filters + Table -->
+          <div class="society-section">
+            <div class="society-section-title">📊 Society Data Table</div>
+
+            <div class="route-filter-group" id="route-filters">
+              <button class="route-filter-btn active" data-route="all">All Routes</button>
+              <button class="route-filter-btn" data-route="usilampatti">Usilampatti</button>
+              <button class="route-filter-btn" data-route="sellampatti">Sellampatti</button>
+              <button class="route-filter-btn" data-route="thirumangalam">Thirumangalam</button>
+              <button class="route-filter-btn" data-route="vadipatti">Vadipatti</button>
+              <button class="route-filter-btn" data-route="melur">Melur</button>
+            </div>
+
+            <div class="society-table-card" id="society-table-card">
+              <div class="society-table-header">
+                <div class="society-table-title" id="table-title">Society Records</div>
+                <div class="society-table-count" id="table-count"></div>
+              </div>
+
+              <!-- Desktop Table -->
+              <div class="table-responsive society-table-wrap">
+                <table class="society-table" id="society-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>BMC Code</th>
+                      <th>Route</th>
+                      <th>Society Code</th>
+                      <th>Society Name</th>
+                      <th>FAT</th>
+                      <th>Liter</th>
+                      <th>SNF</th>
+                    </tr>
+                  </thead>
+                  <tbody id="society-table-body">
+                    <tr>
+                      <td colspan="8">
+                        <div class="empty-state-box">
+                          <div class="icon">📭</div>
+                          <div class="title">No Society Data Available</div>
+                          <div class="desc">Start a fetch job to load today's society data from MACS API.</div>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Mobile Cards -->
+              <div class="society-mobile-cards" id="society-mobile-cards"></div>
+
+              <!-- Pagination -->
+              <div class="pagination-bar" id="pagination-bar"></div>
+            </div>
+          </div>
+
+          <!-- Fetch History -->
+          <div class="society-section">
+            <div class="society-section-title">📜 Today's Fetch History</div>
+            <div class="history-panel" id="history-panel">
+              <div class="empty-state-box" id="history-empty">
+                <div class="icon">📭</div>
+                <div class="title">No Fetch History</div>
+                <div class="desc">No society data fetch jobs have been executed today.</div>
+              </div>
+              <div id="history-list"></div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- START CONFIRMATION MODAL -->
+  <div id="start-confirm-modal" class="confirm-modal-overlay hidden">
+    <div class="confirm-modal-box">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h3 style="margin:0; font-weight:800; color:#1E40AF; font-size: 1.1rem;">🚀 Confirm Society Data Fetch</h3>
+        <button id="modal-close-btn" class="btn btn-ghost" style="font-size:1.2rem; padding:4px 8px;">✕</button>
+      </div>
+
+      <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 10px; padding: 14px; margin-bottom: 16px;">
+        <div style="font-weight: 700; color: #1E40AF; font-size: 0.9rem;">
+          Start today's MACS society data fetch?
+        </div>
+        <div style="font-size: 0.8rem; color: #3B82F6; margin-top: 6px; line-height: 1.5;">
+          Session: <strong id="modal-session-label">Morning</strong><br>
+          This will fetch data from 45 BMCs in 9 batches (~45 minutes).
+        </div>
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <label style="font-size: 0.8rem; font-weight: 700; color: #374151; display: block; margin-bottom: 6px;">
+          Type <span style="color:#2563EB; font-family:monospace; background:#DBEAFE; padding:2px 6px; border-radius:4px;">START</span> to confirm:
+        </label>
+        <input type="text" id="start-confirm-input" class="confirm-input" placeholder="Type START..." autocomplete="off">
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button id="modal-cancel-btn" class="btn btn-outline btn-sm">Cancel</button>
+        <button id="modal-confirm-btn" class="btn btn-blue btn-sm" disabled>
+          ✅ Confirm & Start
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/supabase.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/admin.js"></script>
+  <script src="../js/admin-society-data.js"></script>
+</body>
+</html>
