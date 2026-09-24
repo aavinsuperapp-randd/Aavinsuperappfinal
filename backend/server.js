@@ -11964,7 +11964,7 @@ async function sendWhatsAppForBatch(batchResults, dateStr, sessionKey, batchNum,
 
 const SOCIETY_MACS_API_URL = 'https://aavinapi.macsit.net/api/SocietyData/GetSoceityDataByBmcCode';
 const SOCIETY_MACS_TIMEOUT_MS = 60000; // 60 seconds per request
-const SOCIETY_BATCH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes between batches
+const SOCIETY_BATCH_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes between batches
 const SOCIETY_MAX_RETRIES = 2; // Max retry attempts per failed BMC
 
 // All 45 BMC codes in ascending numeric order
@@ -12446,7 +12446,7 @@ async function executeSocietyFetchJob(sessionKey, dateOverride, adminClient) {
 
   console.log(`🚀 Society Fetch Job Started: ${sessionKey} session, date: ${dateStr}, jobId: ${jobId}`);
 
-  // Execute batches with 5-minute intervals
+  // Execute batches with 3-minute intervals
   // Batch 1 starts immediately, subsequent batches are scheduled with setTimeout
   const executeBatchSequence = async () => {
     try {
@@ -12459,9 +12459,9 @@ async function executeSocietyFetchJob(sessionKey, dateOverride, adminClient) {
         // Execute the batch
         await executeSocietyBatch(i, dateStr, sessionKey, adminClient, jobId);
 
-        // Wait 5 minutes before next batch (except after the last one)
+        // Wait 3 minutes before next batch (except after the last one)
         if (i < SOCIETY_BATCHES.length - 1 && societyFetchJobState.isRunning) {
-          console.log(`⏳ Society Fetch: Waiting 5 minutes before Batch ${i + 2}...`);
+          console.log(`⏳ Society Fetch: Waiting 3 minutes before Batch ${i + 2}...`);
           await new Promise((resolve) => {
             const timer = setTimeout(resolve, SOCIETY_BATCH_INTERVAL_MS);
             societyFetchJobState.batchTimers.push(timer);

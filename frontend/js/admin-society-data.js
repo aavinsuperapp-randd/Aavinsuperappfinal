@@ -248,9 +248,9 @@ function startBatchCountdown(lastBatchEndTime) {
   // Clear any existing countdown first to prevent duplicates
   clearBatchCountdown();
 
-  // Calculate the target time: lastBatchEndTime + 5 minutes
+  // Calculate the target time: lastBatchEndTime + 3 minutes
   const endMs = new Date(lastBatchEndTime).getTime();
-  const targetMs = endMs + (5 * 60 * 1000); // 5-minute interval
+  const targetMs = endMs + (3 * 60 * 1000); // 3-minute interval
   societyCountdownTargetTime = targetMs;
 
   // Tick every second
@@ -408,7 +408,7 @@ function renderProgress(status) {
       const lastBatch = status.batchResults[status.batchResults.length - 1];
       if (lastBatch && lastBatch.endTime) {
         const endMs = new Date(lastBatch.endTime).getTime();
-        const targetMs = endMs + (5 * 60 * 1000);
+        const targetMs = endMs + (3 * 60 * 1000);
         const remainMs = targetMs - Date.now();
 
         if (remainMs > 0) {
