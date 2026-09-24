@@ -11588,6 +11588,373 @@ app.delete('/api/admin/macs-api/data', requireAdminRole, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ─── ASKEVA WHATSAPP SERVICE ────────────────────────────────────────────────────
+// Reusable service for sending WhatsApp messages via AskEVA API.
+// Used by the Society Data fetch flow to notify societies after each batch.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ASKEVA_API_URL = 'https://backend.askeva.io/v1/message/send-message';
+const ASKEVA_TIMEOUT_MS = 30000; // 30 seconds per request
+
+/**
+ * Normalize a phone number to include India country code (91).
+ * @param {string} number - Raw phone number (e.g., '8190069040' or '918190069040')
+ * @returns {string} Normalized number with country code (e.g., '918190069040')
+ */
+function normalizePhoneNumber(number) {
+  if (!number) return '';
+  const cleaned = String(number).replace(/[\s\-\+\(\)]/g, '');
+  // Already has 91 prefix and is 12 digits
+  if (/^91\d{10}$/.test(cleaned)) return cleaned;
+  // 10-digit Indian mobile number
+  if (/^\d{10}$/.test(cleaned)) return '91' + cleaned;
+  // Return as-is if it doesn't match expected patterns
+  return cleaned;
+}
+
+/**
+ * Build the AskEVA template payload for the aavin_madurai template.
+ * Template variables MUST be in this exact order:
+ * 1. societyname, 2. date, 3. session, 4. societycode, 5. liter, 6. fat, 7. snf
+ *
+ * @param {string} recipientNumber - Normalized phone number with country code
+ * @param {object} data - { societyName, date, session, societyCode, liter, fat, snf }
+ * @returns {object} The complete AskEVA API request body
+ */
+function buildAskEvaTemplatePayload(recipientNumber, data) {
+  const sessionVal = String(data.session || '').toLowerCase();
+  const whatsappSession =
+    sessionVal === "morning"
+      ? "காலை"
+      : sessionVal === "evening"
+        ? "மாலை"
+        : String(data.session || '');
+
+  return {
+    to: recipientNumber,
+    type: 'template',
+    template: {
+      language: {
+        policy: 'deterministic',
+        code: 'ta'
+      },
+      name: 'aavin_madurai',
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: String(data.societyName || '') },
+            { type: 'text', text: String(data.date || '') },
+            { type: 'text', text: whatsappSession },
+            { type: 'text', text: String(data.societyCode || '') },
+            { type: 'text', text: String(data.liter || '') },
+            { type: 'text', text: String(data.fat || '') },
+            { type: 'text', text: String(data.snf || '') }
+          ]
+        }
+      ]
+    }
+  };
+}
+
+/**
+ * Validate that all required WhatsApp message fields are present and non-empty.
+ * @param {object} data - { recipientNumber, societyName, date, session, societyCode, liter, fat, snf }
+ * @returns {string|null} Error message if validation fails, null if valid
+ */
+function validateWhatsAppData(data) {
+  const required = [
+    { key: 'recipientNumber', label: 'Recipient Number' },
+    { key: 'societyName', label: 'Society Name' },
+    { key: 'date', label: 'Date' },
+    { key: 'session', label: 'Session' },
+    { key: 'societyCode', label: 'Society Code' },
+    { key: 'liter', label: 'Liter' },
+    { key: 'fat', label: 'FAT' },
+    { key: 'snf', label: 'SNF' }
+  ];
+
+  for (const field of required) {
+    const val = data[field.key];
+    if (val === undefined || val === null || String(val).trim() === '') {
+      return `Missing required field: ${field.label}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Send a WhatsApp message via AskEVA API.
+ *
+ * @param {object} params
+ * @param {string} params.recipientNumber - Phone number (will be normalized)
+ * @param {string} params.societyName - Society name for template
+ * @param {string} params.date - Collection date in DD-MM-YYYY format
+ * @param {string} params.session - 'Morning' or 'Evening'
+ * @param {string} params.societyCode - Society code
+ * @param {string|number} params.liter - Milk quantity (liT1)
+ * @param {string|number} params.fat - FAT percentage (faT1)
+ * @param {string|number} params.snf - SNF percentage (snF1)
+ * @returns {Promise<{success: boolean, response?: object, error?: string, httpStatus?: number}>}
+ */
+async function sendWhatsAppMessage(params) {
+  const token = process.env.ASKEVA_TOKEN;
+  if (!token || token === 'YOUR_ASKEVA_TOKEN_HERE') {
+    return { success: false, error: 'AskEVA token not configured' };
+  }
+
+  // Validate all required fields
+  const validationError = validateWhatsAppData(params);
+  if (validationError) {
+    return { success: false, error: validationError };
+  }
+
+  const normalizedNumber = normalizePhoneNumber(params.recipientNumber);
+  if (!normalizedNumber) {
+    return { success: false, error: 'Invalid recipient phone number' };
+  }
+
+  const payload = buildAskEvaTemplatePayload(normalizedNumber, {
+    societyName: params.societyName,
+    date: params.date,
+    session: params.session,
+    societyCode: params.societyCode,
+    liter: params.liter,
+    fat: params.fat,
+    snf: params.snf
+  });
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ASKEVA_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${ASKEVA_API_URL}?token=${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    const responseBody = await response.json().catch(() => null);
+
+    if (response.ok) {
+      return { success: true, response: responseBody, httpStatus: response.status };
+    } else {
+      return {
+        success: false,
+        error: `AskEVA API returned HTTP ${response.status}`,
+        response: responseBody,
+        httpStatus: response.status
+      };
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const isTimeout = err.name === 'AbortError';
+    return {
+      success: false,
+      error: isTimeout ? `AskEVA request timed out after ${ASKEVA_TIMEOUT_MS / 1000}s` : (err.message || String(err))
+    };
+  }
+}
+
+/**
+ * Log a WhatsApp send attempt to the whatsapp_send_logs table.
+ * @param {object} adminClient - Supabase admin client
+ * @param {object} logData - Log record fields
+ */
+async function logWhatsAppSend(adminClient, logData) {
+  if (!adminClient) return;
+  try {
+    await adminClient.from('whatsapp_send_logs').insert({
+      society_code: logData.societyCode || null,
+      society_name: logData.societyName || null,
+      bmc_code: logData.bmcCode || null,
+      session: logData.session || null,
+      collection_date: logData.collectionDate || null,
+      recipient_number: logData.recipientNumber || null,
+      status: logData.status || 'FAILED',
+      askeva_response: logData.askevaResponse || null,
+      error_message: logData.errorMessage || null,
+      batch_number: logData.batchNumber || null
+    });
+  } catch (err) {
+    console.error(`❌ WhatsApp Log: Failed to save send log: ${err.message}`);
+  }
+}
+
+/**
+ * Send WhatsApp messages for all societies in a completed batch.
+ * Called after each batch's society data is saved to Supabase.
+ *
+ * @param {Array} batchResults - Array of { bmcCode, success, societies: parsedSocieties[] }
+ * @param {string} dateStr - Fetch date in DD/MM/YYYY format
+ * @param {string} sessionKey - 'morning' or 'evening'
+ * @param {number} batchNum - Batch number (1-9)
+ * @param {object} adminClient - Supabase admin client
+ */
+async function sendWhatsAppForBatch(batchResults, dateStr, sessionKey, batchNum, adminClient) {
+  const token = process.env.ASKEVA_TOKEN;
+  if (!token || token === 'YOUR_ASKEVA_TOKEN_HERE') {
+    console.log('⏭️ WhatsApp: Skipping — AskEVA token not configured');
+    return;
+  }
+
+  // Convert date from DD/MM/YYYY to DD-MM-YYYY for the WhatsApp template
+  const whatsappDate = dateStr.replace(/\//g, '-');
+
+  // Map session key to display value
+  const sessionDisplay = sessionKey === 'morning' ? 'Morning' : 'Evening';
+
+  // ─── Collect all society codes from this batch ─────────────────────────────
+  const allSocietyCodes = [];
+  for (const bmcResult of batchResults) {
+    if (!bmcResult.success || !bmcResult.parsedSocieties || bmcResult.parsedSocieties.length === 0) continue;
+    for (const society of bmcResult.parsedSocieties) {
+      const code = String(society.society_code || '').trim();
+      if (code) allSocietyCodes.push(code);
+    }
+  }
+
+  if (allSocietyCodes.length === 0) return;
+
+  // ─── Batch-lookup: query society_contacts for all codes at once ────────────
+  const contactMap = new Map(); // societyCode (string) → whatsapp_number (string)
+  try {
+    const { data: contacts, error: contactErr } = await adminClient
+      .from('society_contacts')
+      .select('society_code, whatsapp_number')
+      .in('society_code', allSocietyCodes);
+
+    if (contactErr) {
+      console.error(`❌ WhatsApp Batch ${batchNum}: Failed to query society_contacts: ${contactErr.message}`);
+      // Continue — individual societies will be logged as MISSING_NUMBER below
+    } else if (contacts && contacts.length > 0) {
+      for (const c of contacts) {
+        contactMap.set(String(c.society_code).trim(), String(c.whatsapp_number).trim());
+      }
+    }
+    console.log(`📱 WhatsApp Batch ${batchNum}: Found ${contactMap.size}/${allSocietyCodes.length} society contact mappings`);
+  } catch (err) {
+    console.error(`❌ WhatsApp Batch ${batchNum}: Exception querying society_contacts: ${err.message}`);
+  }
+
+  // ─── Send WhatsApp messages per society ────────────────────────────────────
+  let sentCount = 0;
+  let failCount = 0;
+
+  for (const bmcResult of batchResults) {
+    if (!bmcResult.success || !bmcResult.parsedSocieties || bmcResult.parsedSocieties.length === 0) continue;
+
+    for (const society of bmcResult.parsedSocieties) {
+      const societyCode = String(society.society_code || '').trim();
+
+      // ── Look up this society's WhatsApp number ───────────────────────────
+      const rawNumber = contactMap.get(societyCode);
+      if (!rawNumber) {
+        // Missing mapping — log and skip, do NOT use any fallback number
+        failCount++;
+        console.warn(`⚠️ WhatsApp [Society ${societyCode}]: No WhatsApp mapping found in society_contacts — skipping`);
+        await logWhatsAppSend(adminClient, {
+          societyCode: societyCode,
+          societyName: society.society_name,
+          bmcCode: bmcResult.bmcCode,
+          session: sessionKey,
+          collectionDate: whatsappDate,
+          recipientNumber: null,
+          status: 'FAILED',
+          askevaResponse: null,
+          errorMessage: 'MISSING_NUMBER: No WhatsApp mapping found in society_contacts',
+          batchNumber: batchNum
+        });
+        continue;
+      }
+
+      const recipientNumber = normalizePhoneNumber(rawNumber);
+      if (!recipientNumber || recipientNumber.length < 10) {
+        // Invalid number after normalization
+        failCount++;
+        console.warn(`⚠️ WhatsApp [Society ${societyCode}]: Invalid phone number after normalization: "${rawNumber}" — skipping`);
+        await logWhatsAppSend(adminClient, {
+          societyCode: societyCode,
+          societyName: society.society_name,
+          bmcCode: bmcResult.bmcCode,
+          session: sessionKey,
+          collectionDate: whatsappDate,
+          recipientNumber: rawNumber,
+          status: 'FAILED',
+          askevaResponse: null,
+          errorMessage: `INVALID_NUMBER: Normalized to "${recipientNumber}" from "${rawNumber}"`,
+          batchNumber: batchNum
+        });
+        continue;
+      }
+
+      // ── Send the message to this society's mapped number ─────────────────
+      try {
+        const result = await sendWhatsAppMessage({
+          recipientNumber: recipientNumber,
+          societyName: society.society_name,
+          date: whatsappDate,
+          session: sessionDisplay,
+          societyCode: society.society_code,
+          liter: society.liter,
+          fat: society.fat,
+          snf: society.snf
+        });
+
+        // Log the result with the actual mapped number
+        await logWhatsAppSend(adminClient, {
+          societyCode: society.society_code,
+          societyName: society.society_name,
+          bmcCode: bmcResult.bmcCode,
+          session: sessionKey,
+          collectionDate: whatsappDate,
+          recipientNumber: recipientNumber,
+          status: result.success ? 'SUCCESS' : 'FAILED',
+          askevaResponse: result.response || null,
+          errorMessage: result.error || null,
+          batchNumber: batchNum
+        });
+
+        if (result.success) {
+          sentCount++;
+        } else {
+          failCount++;
+          console.warn(`⚠️ WhatsApp [Society ${society.society_code}]: ${result.error}`);
+        }
+      } catch (err) {
+        failCount++;
+        console.error(`❌ WhatsApp [Society ${society.society_code}]: Unexpected error: ${err.message}`);
+
+        // Still log the failure with the actual mapped number
+        await logWhatsAppSend(adminClient, {
+          societyCode: society.society_code,
+          societyName: society.society_name,
+          bmcCode: bmcResult.bmcCode,
+          session: sessionKey,
+          collectionDate: whatsappDate,
+          recipientNumber: recipientNumber,
+          status: 'FAILED',
+          askevaResponse: null,
+          errorMessage: err.message || 'Unexpected error',
+          batchNumber: batchNum
+        });
+      }
+    }
+  }
+
+  if (sentCount > 0 || failCount > 0) {
+    console.log(`📱 WhatsApp Batch ${batchNum}: ${sentCount} sent, ${failCount} failed`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── END ASKEVA WHATSAPP SERVICE ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ─── SOCIETY DATA MODULE ────────────────────────────────────────────────────────
 // Fetches society-level data from MACS API for 45 BMCs across 5 routes.
 // Extracts FAT, Liter, SNF from each society record.
@@ -11941,7 +12308,7 @@ async function executeSocietyBatch(batchIndex, dateStr, sessionKey, adminClient,
         };
 
         console.log(`✅ Society Fetch [BMC ${bmcCode}]: ${parsedSocieties.length} societies stored`);
-        return { bmcCode, success: true, error: null, societies: parsedSocieties.length };
+        return { bmcCode, success: true, error: null, societies: parsedSocieties.length, parsedSocieties };
       }
 
       lastError = result.error;
@@ -11998,6 +12365,14 @@ async function executeSocietyBatch(batchIndex, dateStr, sessionKey, adminClient,
   }
 
   console.log(`✅ Society Fetch: Batch ${batchNum} complete — ${batchResult.successCount} OK, ${batchResult.failCount} failed`);
+
+  // ─── Send WhatsApp messages for this batch's societies ────────────────────
+  try {
+    await sendWhatsAppForBatch(results, dateStr, sessionKey, batchNum, adminClient);
+  } catch (waErr) {
+    console.error(`❌ WhatsApp Batch ${batchNum}: Unexpected error (MACS batch unaffected): ${waErr.message}`);
+  }
+
   return batchResult;
 }
 
@@ -12421,6 +12796,129 @@ app.get('/api/admin/society-data', requireAdminRole, async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ─── END SOCIETY DATA MODULE ────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── WHATSAPP MONITORING ENDPOINTS ──────────────────────────────────────────────
+// Admin API endpoints for viewing WhatsApp send logs and summary statistics.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/admin/whatsapp/summary
+ * Returns WhatsApp send statistics for today: total, success, failed counts,
+ * current session info, recent batch, and last send time.
+ */
+app.get('/api/admin/whatsapp/summary', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const todayISO = getIstDateISO();
+  // Convert to DD-MM-YYYY for matching collection_date
+  const parts = todayISO.split('-');
+  const todayDash = `${parts[2]}-${parts[1]}-${parts[0]}`;
+
+  try {
+    // Total attempts today
+    const { count: totalAttempts } = await adminClient
+      .from('whatsapp_send_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('collection_date', todayDash);
+
+    // Successful sends today
+    const { count: successCount } = await adminClient
+      .from('whatsapp_send_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('collection_date', todayDash)
+      .eq('status', 'SUCCESS');
+
+    // Failed sends today
+    const { count: failedCount } = await adminClient
+      .from('whatsapp_send_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('collection_date', todayDash)
+      .eq('status', 'FAILED');
+
+    // Latest send record for last send time and recent batch
+    const { data: latestLog } = await adminClient
+      .from('whatsapp_send_logs')
+      .select('session, batch_number, created_at')
+      .eq('collection_date', todayDash)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Current society fetch job info
+    const jobState = societyFetchJobState;
+
+    res.json({
+      success: true,
+      date: todayDash,
+      totalAttempts: totalAttempts || 0,
+      successCount: successCount || 0,
+      failedCount: failedCount || 0,
+      currentSession: jobState.isRunning ? jobState.session : (latestLog ? latestLog.session : null),
+      recentBatch: latestLog ? latestLog.batch_number : null,
+      lastSendTime: latestLog ? latestLog.created_at : null,
+      fetchJobRunning: jobState.isRunning,
+      fetchJobCurrentBatch: jobState.isRunning ? jobState.currentBatch : null,
+      fetchJobTotalBatches: jobState.totalBatches
+    });
+  } catch (err) {
+    console.error('❌ WhatsApp Summary Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/admin/whatsapp/logs
+ * Returns paginated WhatsApp send logs for today, newest first.
+ * Query params: page (default 1), limit (default 50)
+ */
+app.get('/api/admin/whatsapp/logs', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const todayISO = getIstDateISO();
+  const parts = todayISO.split('-');
+  const todayDash = `${parts[2]}-${parts[1]}-${parts[0]}`;
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
+  const offset = (page - 1) * limit;
+
+  try {
+    const { data, count, error } = await adminClient
+      .from('whatsapp_send_logs')
+      .select('*', { count: 'exact' })
+      .eq('collection_date', todayDash)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      logs: (data || []).map(d => ({
+        id: d.id,
+        society_code: d.society_code,
+        society_name: d.society_name,
+        bmc_code: d.bmc_code,
+        session: d.session,
+        collection_date: d.collection_date,
+        recipient_number: d.recipient_number,
+        status: d.status,
+        error_message: d.error_message,
+        batch_number: d.batch_number,
+        created_at: d.created_at
+      })),
+      total: count || 0,
+      page,
+      limit,
+      totalPages: Math.ceil((count || 0) / limit)
+    });
+  } catch (err) {
+    console.error('❌ WhatsApp Logs Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── END WHATSAPP MONITORING ENDPOINTS ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // API 404 Fallback — ensures API routes return JSON, never HTML index.html
