@@ -12921,6 +12921,237 @@ app.get('/api/admin/whatsapp/logs', requireAdminRole, async (req, res) => {
 // ─── END WHATSAPP MONITORING ENDPOINTS ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── WHATSAPP HISTORY DASHBOARD ENDPOINTS (READ-ONLY) ───────────────────────────
+// These endpoints power the Admin WhatsApp History Dashboard.
+// They ONLY read from existing tables — they never trigger fetches, sends, or
+// modify any data. Completely isolated from the production execution flow.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/admin/whatsapp/history
+ * Returns paginated list of society fetch jobs, optionally filtered by session.
+ * Query params: session ('morning'|'evening'), page (default 1), limit (default 10)
+ */
+app.get('/api/admin/whatsapp/history', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const sessionFilter = req.query.session;
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
+  const offset = (page - 1) * limit;
+
+  try {
+    let query = adminClient
+      .from('society_fetch_jobs')
+      .select('*', { count: 'exact' });
+
+    if (sessionFilter && ['morning', 'evening'].includes(sessionFilter)) {
+      query = query.eq('session', sessionFilter);
+    }
+
+    const { data: jobs, count, error } = await query
+      .order('started_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      jobs: (jobs || []).map(j => ({
+        id: j.id,
+        jobDate: j.job_date,
+        session: j.session,
+        status: j.status,
+        totalBatches: j.total_batches,
+        currentBatch: j.current_batch,
+        startedAt: j.started_at,
+        completedAt: j.completed_at
+      })),
+      total: count || 0,
+      page,
+      limit,
+      totalPages: Math.ceil((count || 0) / limit)
+    });
+  } catch (err) {
+    console.error('❌ WhatsApp History List Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/admin/whatsapp/history/:jobId
+ * Returns detail for a single fetch job, including WhatsApp send summary stats.
+ * Stats are computed by querying whatsapp_send_logs for the matching
+ * collection_date + session.
+ */
+app.get('/api/admin/whatsapp/history/:jobId', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const { jobId } = req.params;
+
+  try {
+    // 1. Fetch the job record
+    const { data: job, error: jobErr } = await adminClient
+      .from('society_fetch_jobs')
+      .select('*')
+      .eq('id', jobId)
+      .maybeSingle();
+
+    if (jobErr) throw jobErr;
+    if (!job) return res.status(404).json({ success: false, error: 'Job not found.' });
+
+    // 2. Convert job_date (YYYY-MM-DD) to DD-MM-YYYY for matching whatsapp_send_logs.collection_date
+    const dateParts = (job.job_date || '').split('-');
+    const collectionDateDash = dateParts.length === 3
+      ? `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`
+      : job.job_date;
+
+    // 3. Query WhatsApp send log summary stats for this job's date + session
+    const { count: totalLogs } = await adminClient
+      .from('whatsapp_send_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('collection_date', collectionDateDash)
+      .eq('session', job.session);
+
+    const { count: successCount } = await adminClient
+      .from('whatsapp_send_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('collection_date', collectionDateDash)
+      .eq('session', job.session)
+      .eq('status', 'SUCCESS');
+
+    const { count: failedCount } = await adminClient
+      .from('whatsapp_send_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('collection_date', collectionDateDash)
+      .eq('session', job.session)
+      .eq('status', 'FAILED');
+
+    // 4. Count missing-number failures specifically
+    const { count: missingNumberCount } = await adminClient
+      .from('whatsapp_send_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('collection_date', collectionDateDash)
+      .eq('session', job.session)
+      .eq('status', 'FAILED')
+      .like('error_message', 'MISSING_NUMBER%');
+
+    // 5. Count invalid-number failures specifically
+    const { count: invalidNumberCount } = await adminClient
+      .from('whatsapp_send_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('collection_date', collectionDateDash)
+      .eq('session', job.session)
+      .eq('status', 'FAILED')
+      .like('error_message', 'INVALID_NUMBER%');
+
+    // Send failures = total failed - missing - invalid (i.e., AskEVA API errors)
+    const sendFailures = Math.max(0, (failedCount || 0) - (missingNumberCount || 0) - (invalidNumberCount || 0));
+
+    res.json({
+      success: true,
+      job: {
+        id: job.id,
+        jobDate: job.job_date,
+        session: job.session,
+        status: job.status,
+        totalBatches: job.total_batches,
+        currentBatch: job.current_batch,
+        batchDetails: job.batch_details || [],
+        startedAt: job.started_at,
+        completedAt: job.completed_at
+      },
+      whatsappSummary: {
+        totalLogs: totalLogs || 0,
+        successCount: successCount || 0,
+        failedCount: failedCount || 0,
+        missingNumberCount: missingNumberCount || 0,
+        invalidNumberCount: invalidNumberCount || 0,
+        sendFailures: sendFailures
+      }
+    });
+  } catch (err) {
+    console.error('❌ WhatsApp History Detail Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/admin/whatsapp/history/:jobId/logs
+ * Returns paginated WhatsApp send logs for a specific job (matched by date + session).
+ * Query params: page (default 1), limit (default 10), status (optional filter)
+ */
+app.get('/api/admin/whatsapp/history/:jobId/logs', requireAdminRole, async (req, res) => {
+  const { adminClient } = req;
+  const { jobId } = req.params;
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
+  const offset = (page - 1) * limit;
+  const statusFilter = req.query.status;
+
+  try {
+    // 1. Fetch the job to get date + session
+    const { data: job, error: jobErr } = await adminClient
+      .from('society_fetch_jobs')
+      .select('job_date, session')
+      .eq('id', jobId)
+      .maybeSingle();
+
+    if (jobErr) throw jobErr;
+    if (!job) return res.status(404).json({ success: false, error: 'Job not found.' });
+
+    // 2. Convert job_date to DD-MM-YYYY
+    const dateParts = (job.job_date || '').split('-');
+    const collectionDateDash = dateParts.length === 3
+      ? `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`
+      : job.job_date;
+
+    // 3. Query logs for this date + session
+    let query = adminClient
+      .from('whatsapp_send_logs')
+      .select('*', { count: 'exact' })
+      .eq('collection_date', collectionDateDash)
+      .eq('session', job.session);
+
+    if (statusFilter && ['SUCCESS', 'FAILED'].includes(statusFilter)) {
+      query = query.eq('status', statusFilter);
+    }
+
+    const { data, count, error } = await query
+      .order('created_at', { ascending: true })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      logs: (data || []).map(d => ({
+        id: d.id,
+        societyCode: d.society_code,
+        societyName: d.society_name,
+        bmcCode: d.bmc_code,
+        session: d.session,
+        collectionDate: d.collection_date,
+        recipientNumber: d.recipient_number,
+        status: d.status,
+        errorMessage: d.error_message,
+        batchNumber: d.batch_number,
+        createdAt: d.created_at
+      })),
+      total: count || 0,
+      page,
+      limit,
+      totalPages: Math.ceil((count || 0) / limit)
+    });
+  } catch (err) {
+    console.error('❌ WhatsApp History Logs Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── END WHATSAPP HISTORY DASHBOARD ENDPOINTS ───────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
 // API 404 Fallback — ensures API routes return JSON, never HTML index.html
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: `API route ${req.originalUrl} not found.` });

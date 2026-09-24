@@ -3,76 +3,193 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WhatsApp Monitoring — AAVIN Admin</title>
-  <meta name="description" content="AAVIN Admin WhatsApp Monitoring — view AskEVA WhatsApp message send status, success/failure counts, and recent activity for society notifications.">
+  <title>WhatsApp History — AAVIN Admin</title>
+  <meta name="description" content="AAVIN Admin WhatsApp History Dashboard — inspect historical society fetch runs, WhatsApp send results, success/failure breakdowns, and per-society details.">
   <link rel="stylesheet" href="../css/global.css">
   <link rel="stylesheet" href="../css/admin.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    /* ─── WhatsApp Monitoring Styles ─────────────────────────────── */
-    .wa-summary-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 14px;
-      margin-bottom: 28px;
+    /* ─── WhatsApp History Dashboard Styles ─────────────────────────── */
+
+    .wh-page-title {
+      font-size: 1.35rem;
+      font-weight: 900;
+      color: #0F172A;
+      margin: 0 0 20px 0;
+      letter-spacing: -0.3px;
     }
-    .wa-summary-card {
+
+    /* ─── Session Toggle ─────────────────────────────── */
+    .wh-session-toggle {
+      display: flex;
+      gap: 0;
+      margin-bottom: 24px;
+      background: #F1F5F9;
+      border-radius: 12px;
+      padding: 4px;
+      width: fit-content;
+    }
+    .wh-session-btn {
+      padding: 10px 28px;
+      border: none;
+      background: transparent;
+      color: #64748B;
+      font-size: 0.88rem;
+      font-weight: 700;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0.2px;
+    }
+    .wh-session-btn:hover {
+      color: #334155;
+      background: rgba(255,255,255,0.5);
+    }
+    .wh-session-btn.active {
+      background: #FFFFFF;
+      color: #1D4ED8;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    /* ─── Job List ─────────────────────────────── */
+    .wh-job-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .wh-job-card {
       background: #FFFFFF;
       border: 1px solid #E2E8F0;
       border-radius: 12px;
-      padding: 16px;
-      transition: box-shadow 0.2s;
+      padding: 16px 20px;
+      cursor: pointer;
+      transition: all 0.18s;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
     }
-    .wa-summary-card:hover {
-      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    .wh-job-card:hover {
+      border-color: #93C5FD;
+      box-shadow: 0 4px 16px rgba(59,130,246,0.08);
+      transform: translateY(-1px);
     }
-    .wa-summary-card.highlight-success {
-      border-left: 4px solid #16A34A;
+    .wh-job-card.active {
+      border-color: #3B82F6;
+      background: #EFF6FF;
+      box-shadow: 0 4px 16px rgba(59,130,246,0.12);
     }
-    .wa-summary-card.highlight-failed {
-      border-left: 4px solid #DC2626;
+    .wh-job-card-left {
+      flex: 1;
+      min-width: 0;
     }
-    .wa-summary-card.highlight-total {
-      border-left: 4px solid #2563EB;
-    }
-    .wa-summary-card.highlight-info {
-      border-left: 4px solid #7C3AED;
-    }
-    .wa-status-label {
-      font-size: 0.72rem;
-      font-weight: 700;
-      color: #64748B;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 6px;
-    }
-    .wa-status-value {
-      font-size: 1.15rem;
+    .wh-job-date {
+      font-size: 1rem;
       font-weight: 800;
       color: #0F172A;
-      word-break: break-word;
+      margin-bottom: 4px;
     }
-    .wa-status-value.success { color: #16A34A; }
-    .wa-status-value.error { color: #DC2626; }
-    .wa-status-value.info { color: #2563EB; }
-    .wa-status-value.muted { color: #94A3B8; font-weight: 600; font-size: 0.95rem; }
+    .wh-job-meta {
+      font-size: 0.78rem;
+      color: #64748B;
+      font-weight: 600;
+    }
+    .wh-job-meta span {
+      margin-right: 12px;
+    }
+    .wh-job-status {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      white-space: nowrap;
+    }
+    .wh-job-status.completed { background: #DCFCE7; color: #166534; }
+    .wh-job-status.running { background: #DBEAFE; color: #1E40AF; }
+    .wh-job-status.stopped { background: #FEE2E2; color: #991B1B; }
+    .wh-job-status.failed { background: #FEF3C7; color: #92400E; }
 
-    .wa-section-header {
+    /* ─── Empty / Loading States ─────────────────────────────── */
+    .wh-empty-state {
+      text-align: center;
+      padding: 48px 20px;
+      color: #94A3B8;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+    .wh-empty-state .icon {
+      font-size: 2.2rem;
+      margin-bottom: 12px;
+    }
+    .wh-loading {
+      text-align: center;
+      padding: 40px 20px;
+      color: #64748B;
+      font-weight: 600;
+      font-size: 0.88rem;
+    }
+
+    /* ─── Pagination ─────────────────────────────── */
+    .wh-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .wh-page-btn {
+      padding: 6px 12px;
+      border: 1px solid #E2E8F0;
+      background: #FFFFFF;
+      color: #334155;
+      font-size: 0.8rem;
+      font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .wh-page-btn:hover:not(:disabled) {
+      background: #F1F5F9;
+      border-color: #94A3B8;
+    }
+    .wh-page-btn.active {
+      background: #1D4ED8;
+      color: #FFFFFF;
+      border-color: #1D4ED8;
+    }
+    .wh-page-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* ─── Detail Panel ─────────────────────────────── */
+    .wh-detail-panel {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 14px;
+      padding: 24px;
+      margin-top: 24px;
+    }
+    .wh-detail-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 12px;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
-    .wa-section-title {
+    .wh-detail-title {
       font-size: 1.1rem;
       font-weight: 800;
       color: #0F172A;
       margin: 0;
     }
-
-    .wa-refresh-btn {
+    .wh-back-btn {
       padding: 6px 14px;
       background: #FFFFFF;
       color: #334155;
@@ -86,23 +203,92 @@
       gap: 6px;
       transition: all 0.15s;
     }
-    .wa-refresh-btn:hover {
+    .wh-back-btn:hover {
       background: #F1F5F9;
       border-color: #94A3B8;
     }
 
-    .wa-table-wrapper {
-      overflow-x: auto;
+    /* ─── Summary Cards ─────────────────────────────── */
+    .wh-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .wh-summary-card {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+    }
+    .wh-summary-card .label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #64748B;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .wh-summary-card .value {
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: #0F172A;
+    }
+    .wh-summary-card .value.success { color: #16A34A; }
+    .wh-summary-card .value.error { color: #DC2626; }
+    .wh-summary-card .value.warning { color: #D97706; }
+    .wh-summary-card .value.info { color: #2563EB; }
+
+    .wh-summary-card.border-success { border-left: 4px solid #16A34A; }
+    .wh-summary-card.border-error { border-left: 4px solid #DC2626; }
+    .wh-summary-card.border-warning { border-left: 4px solid #D97706; }
+    .wh-summary-card.border-info { border-left: 4px solid #2563EB; }
+    .wh-summary-card.border-purple { border-left: 4px solid #7C3AED; }
+
+    /* ─── Status filter pills ─────────────────────────────── */
+    .wh-filter-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .wh-filter-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #64748B;
+    }
+    .wh-filter-pill {
+      padding: 5px 12px;
+      border: 1px solid #E2E8F0;
       background: #FFFFFF;
+      color: #475569;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .wh-filter-pill:hover { background: #F1F5F9; }
+    .wh-filter-pill.active {
+      background: #1D4ED8;
+      color: #FFFFFF;
+      border-color: #1D4ED8;
+    }
+
+    /* ─── Detail Table ─────────────────────────────── */
+    .wh-table-wrapper {
+      overflow-x: auto;
       border: 1px solid #E2E8F0;
       border-radius: 12px;
     }
-    .wa-table {
+    .wh-table {
       width: 100%;
       border-collapse: collapse;
       font-size: 0.82rem;
     }
-    .wa-table thead th {
+    .wh-table thead th {
       background: #F8FAFC;
       color: #475569;
       font-weight: 700;
@@ -114,20 +300,19 @@
       white-space: nowrap;
       text-align: left;
     }
-    .wa-table tbody td {
-      padding: 8px 12px;
+    .wh-table tbody td {
+      padding: 9px 12px;
       border-bottom: 1px solid #F1F5F9;
       color: #334155;
       white-space: nowrap;
     }
-    .wa-table tbody tr:hover {
+    .wh-table tbody tr:hover {
       background: #F8FAFC;
     }
-    .wa-table tbody tr:last-child td {
+    .wh-table tbody tr:last-child td {
       border-bottom: none;
     }
-
-    .wa-badge {
+    .wh-badge {
       display: inline-block;
       padding: 3px 8px;
       border-radius: 6px;
@@ -135,35 +320,29 @@
       font-weight: 700;
       text-transform: uppercase;
     }
-    .wa-badge.success { background: #DCFCE7; color: #166534; }
-    .wa-badge.failed { background: #FEE2E2; color: #991B1B; }
-
-    .wa-error-text {
+    .wh-badge.success { background: #DCFCE7; color: #166534; }
+    .wh-badge.failed { background: #FEE2E2; color: #991B1B; }
+    .wh-error-text {
       color: #DC2626;
-      font-size: 0.75rem;
+      font-size: 0.73rem;
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
       cursor: help;
     }
-
-    #wa-page-info {
+    .wh-page-info {
       font-size: 0.8rem;
       color: #64748B;
       font-weight: 600;
-      margin-top: 10px;
       text-align: center;
+      margin-top: 8px;
     }
 
-    .wa-info-bar {
-      background: #EFF6FF;
-      border: 1px solid #BFDBFE;
-      border-radius: 10px;
-      padding: 10px 14px;
-      font-size: 0.82rem;
-      color: #1E40AF;
-      font-weight: 600;
-      margin-bottom: 20px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    @media (max-width: 768px) {
+      .wh-session-toggle { width: 100%; }
+      .wh-session-btn { flex: 1; text-align: center; padding: 10px 12px; }
+      .wh-job-card { flex-direction: column; align-items: flex-start; }
+      .wh-summary-grid { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
 </head>
@@ -211,7 +390,7 @@
     <div class="admin-main">
       <header class="admin-header">
         <button id="sidebar-toggle-btn" class="sidebar-toggle" aria-label="Toggle Navigation Menu" title="Toggle Navigation Menu">⋮</button>
-        <div class="admin-header-title">WhatsApp Monitoring — AskEVA Integration</div>
+        <div class="admin-header-title">WhatsApp History — AskEVA Integration</div>
         <div class="admin-user-profile">
           <div class="admin-user-name">Administrator</div>
         </div>
@@ -220,78 +399,69 @@
       <main class="admin-content">
         <div id="main-admin-content" class="hidden">
 
-          <!-- Info Bar -->
-          <div class="wa-info-bar">
-            <span>📱</span>
-            WhatsApp messages are sent automatically as part of the Society Data fetch process. Start a fetch from the
-            <a href="society-data.html" style="color:#1D4ED8; text-decoration:underline; font-weight:700;">Society Data</a> page.
+          <h1 class="wh-page-title">📱 WhatsApp History</h1>
+
+          <!-- Session Toggle -->
+          <div class="wh-session-toggle">
+            <button class="wh-session-btn active" data-session="morning" onclick="switchSession('morning')">☀️ Morning</button>
+            <button class="wh-session-btn" data-session="evening" onclick="switchSession('evening')">🌙 Evening</button>
           </div>
 
-          <!-- Summary Cards -->
-          <div class="wa-section-header">
-            <h2 class="wa-section-title">💬 WhatsApp Send Summary (Today)</h2>
-            <button class="wa-refresh-btn" onclick="handleRefreshWhatsApp()">
-              🔄 Refresh
-            </button>
+          <!-- Job List View -->
+          <div id="wh-list-view">
+            <div id="wh-job-list" class="wh-job-list">
+              <div class="wh-loading">Loading history...</div>
+            </div>
+            <div id="wh-list-pagination" class="wh-pagination"></div>
           </div>
 
-          <div class="wa-summary-grid">
-            <div class="wa-summary-card highlight-total">
-              <div class="wa-status-label">Total Attempts</div>
-              <div class="wa-status-value" id="wa-total-attempts">—</div>
-            </div>
-            <div class="wa-summary-card highlight-success">
-              <div class="wa-status-label">Successful</div>
-              <div class="wa-status-value success" id="wa-success-count">—</div>
-            </div>
-            <div class="wa-summary-card highlight-failed">
-              <div class="wa-status-label">Failed</div>
-              <div class="wa-status-value" id="wa-failed-count">—</div>
-            </div>
-            <div class="wa-summary-card highlight-info">
-              <div class="wa-status-label">Current Session</div>
-              <div class="wa-status-value" id="wa-current-session">—</div>
-            </div>
-            <div class="wa-summary-card">
-              <div class="wa-status-label">Recent Batch</div>
-              <div class="wa-status-value" id="wa-recent-batch">—</div>
-            </div>
-            <div class="wa-summary-card">
-              <div class="wa-status-label">Last Send Time</div>
-              <div class="wa-status-value" id="wa-last-send-time">—</div>
+          <!-- Detail View (hidden by default) -->
+          <div id="wh-detail-view" style="display:none;">
+            <div class="wh-detail-panel">
+              <div class="wh-detail-header">
+                <h2 class="wh-detail-title" id="wh-detail-title">Job Detail</h2>
+                <button class="wh-back-btn" onclick="closeDetail()">← Back to List</button>
+              </div>
+
+              <!-- Job Info Bar -->
+              <div id="wh-detail-info" style="margin-bottom:20px; font-size:0.85rem; color:#475569; font-weight:600;"></div>
+
+              <!-- Summary Cards -->
+              <div class="wh-summary-grid" id="wh-detail-summary"></div>
+
+              <!-- Status Filter -->
+              <div class="wh-filter-row">
+                <span class="wh-filter-label">Filter:</span>
+                <button class="wh-filter-pill active" data-filter="" onclick="filterDetailLogs('')">All</button>
+                <button class="wh-filter-pill" data-filter="SUCCESS" onclick="filterDetailLogs('SUCCESS')">✅ Success</button>
+                <button class="wh-filter-pill" data-filter="FAILED" onclick="filterDetailLogs('FAILED')">❌ Failed</button>
+              </div>
+
+              <!-- Detail Table -->
+              <div class="wh-table-wrapper">
+                <table class="wh-table" id="wh-detail-table">
+                  <thead>
+                    <tr>
+                      <th>S.No</th>
+                      <th>Society Code</th>
+                      <th>Society Name</th>
+                      <th>BMC</th>
+                      <th>Batch</th>
+                      <th>WhatsApp #</th>
+                      <th>Status</th>
+                      <th>Error / Details</th>
+                      <th>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody id="wh-detail-tbody">
+                    <tr><td colspan="9" class="wh-loading">Loading...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="wh-page-info" id="wh-detail-page-info"></div>
+              <div id="wh-detail-pagination" class="wh-pagination"></div>
             </div>
           </div>
-
-          <!-- Recent Activity Table -->
-          <div class="wa-section-header" style="margin-top:28px;">
-            <div>
-              <h2 class="wa-section-title">📋 Recent Activity</h2>
-              <p class="text-muted text-xs" style="margin-top:2px;">WhatsApp messages sent during today's society data fetch batches.</p>
-            </div>
-          </div>
-
-          <div class="wa-table-wrapper">
-            <table class="wa-table" id="wa-activity-table">
-              <thead>
-                <tr>
-                  <th>Society</th>
-                  <th>BMC</th>
-                  <th>Session</th>
-                  <th>Batch</th>
-                  <th>Status</th>
-                  <th>Time</th>
-                  <th>Error / Details</th>
-                </tr>
-              </thead>
-              <tbody id="wa-activity-tbody">
-                <tr>
-                  <td colspan="7" style="text-align:center; color:#94A3B8; padding:32px; font-weight:600;">Loading WhatsApp activity...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div id="wa-page-info"></div>
 
         </div>
       </main>
