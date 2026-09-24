@@ -11613,7 +11613,7 @@ function normalizePhoneNumber(number) {
 }
 
 /**
- * Build the AskEVA template payload for the aavin_madurai template.
+ * Build the AskEVA template payload for the aavinmaduraitamil template.
  * Template variables MUST be in this exact order:
  * 1. societyname, 2. date, 3. session, 4. societycode, 5. liter, 6. fat, 7. snf
  *
@@ -11638,7 +11638,7 @@ function buildAskEvaTemplatePayload(recipientNumber, data) {
         policy: 'deterministic',
         code: 'ta'
       },
-      name: 'aavin_madurai',
+      name: 'aavinmaduraitamil',
       components: [
         {
           type: 'body',
