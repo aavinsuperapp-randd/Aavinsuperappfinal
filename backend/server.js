@@ -12535,14 +12535,30 @@ async function executeSocietyFetchJob(sessionKey, dateOverride, adminClient) {
 /**
  * POST /api/admin/society-data/fetch/start
  * Start a new society data fetch job.
- * Body: { session: 'morning' | 'evening' }
+ * Body: { session: 'morning' | 'evening', fetchDate?: 'DD/MM/YYYY' }
  */
 app.post('/api/admin/society-data/fetch/start', requireAdminRole, async (req, res) => {
-  const { session: sessionKey } = req.body;
+  const { session: sessionKey, fetchDate } = req.body;
 
   // Validate session
   if (!sessionKey || !['morning', 'evening'].includes(sessionKey)) {
     return res.status(400).json({ error: 'Invalid session. Must be "morning" or "evening".' });
+  }
+
+  // Validate fetchDate if provided (must be DD/MM/YYYY)
+  let dateOverride = null;
+  if (fetchDate) {
+    const dateStr = String(fetchDate).trim();
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+      return res.status(400).json({ error: 'Invalid fetchDate format. Must be DD/MM/YYYY.' });
+    }
+    // Basic date validity check
+    const [dd, mm, yyyy] = dateStr.split('/').map(Number);
+    const testDate = new Date(yyyy, mm - 1, dd);
+    if (testDate.getDate() !== dd || testDate.getMonth() !== mm - 1 || testDate.getFullYear() !== yyyy) {
+      return res.status(400).json({ error: 'Invalid date value. Please provide a valid date in DD/MM/YYYY format.' });
+    }
+    dateOverride = dateStr;
   }
 
   // Check for active job
@@ -12558,7 +12574,7 @@ app.post('/api/admin/society-data/fetch/start', requireAdminRole, async (req, re
   const { adminClient } = req;
 
   try {
-    const result = await executeSocietyFetchJob(sessionKey, null, adminClient);
+    const result = await executeSocietyFetchJob(sessionKey, dateOverride, adminClient);
 
     if (result.success) {
       res.json({
@@ -12737,6 +12753,7 @@ app.get('/api/admin/society-data', requireAdminRole, async (req, res) => {
   const offset = (page - 1) * limit;
 
   const todayISO = getIstDateISO();
+  const targetDateISO = req.query.fetchDate || todayISO;
 
   try {
     // Clear previous days' data automatically
@@ -12751,7 +12768,7 @@ app.get('/api/admin/society-data', requireAdminRole, async (req, res) => {
     let query = adminClient
       .from('society_data')
       .select('*', { count: 'exact' })
-      .eq('fetch_date', todayISO);
+      .eq('fetch_date', targetDateISO);
 
     if (sessionFilter && ['morning', 'evening'].includes(sessionFilter)) {
       query = query.eq('session', sessionFilter);

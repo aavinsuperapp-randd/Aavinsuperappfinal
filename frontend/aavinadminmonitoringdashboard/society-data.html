@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="../css/global.css">
   <link rel="stylesheet" href="../css/admin.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     /* ─── Society Data Page Styles ─────────────────────────────── */
     .society-section { margin-bottom: 28px; }
@@ -368,6 +369,24 @@
             <div class="start-card-desc">
               Fetch society-level data from 45 BMCs in 9 batches (5 BMCs every 5 minutes). The process takes approximately 45 minutes to complete.
             </div>
+
+            <!-- Date Selection -->
+            <div style="margin-bottom: 16px;">
+              <label for="fetch-date-input" style="font-size: 0.82rem; font-weight: 700; color: #0C4A6E; display: block; margin-bottom: 6px;">
+                📅 Select Fetch Date
+              </label>
+              <input type="date" id="fetch-date-input"
+                style="padding: 10px 16px; font-size: 0.88rem; font-weight: 600;
+                  border: 2px solid #BAE6FD; border-radius: 10px; background: #FFFFFF;
+                  color: #0C4A6E; font-family: 'Outfit', sans-serif;
+                  cursor: pointer; transition: border-color 0.2s ease;
+                  min-width: 180px;"
+                onfocus="this.style.borderColor='#2563EB'"
+                onblur="this.style.borderColor='#BAE6FD'"
+              >
+              <span style="font-size: 0.75rem; color: #0369A1; margin-left: 8px;">DD/MM/YYYY format sent to MACS</span>
+            </div>
+
             <button class="btn-start-now" id="btn-start-now">
               ▶ START NOW
             </button>
@@ -409,8 +428,18 @@
 
             <div class="society-table-card" id="society-table-card">
               <div class="society-table-header">
-                <div class="society-table-title" id="table-title">Society Records</div>
-                <div class="society-table-count" id="table-count"></div>
+                <div>
+                  <div class="society-table-title" id="table-title">Society Records</div>
+                  <div class="society-table-count" id="table-count"></div>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button class="btn btn-outline btn-sm" id="btn-export-morning" style="display:flex; align-items:center; gap:6px; font-size:0.75rem;">
+                    📊 Download Morning Excel
+                  </button>
+                  <button class="btn btn-outline btn-sm" id="btn-export-evening" style="display:flex; align-items:center; gap:6px; font-size:0.75rem;">
+                    📊 Download Evening Excel
+                  </button>
+                </div>
               </div>
 
               <!-- Desktop Table -->
@@ -478,9 +507,10 @@
 
       <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 10px; padding: 14px; margin-bottom: 16px;">
         <div style="font-weight: 700; color: #1E40AF; font-size: 0.9rem;">
-          Start today's MACS society data fetch?
+          Start MACS society data fetch?
         </div>
         <div style="font-size: 0.8rem; color: #3B82F6; margin-top: 6px; line-height: 1.5;">
+          Date: <strong id="modal-date-label">—</strong><br>
           Session: <strong id="modal-session-label">Morning</strong><br>
           This will fetch data from 45 BMCs in 9 batches (~45 minutes).
         </div>

@@ -39,6 +39,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSessionToggle();
   setupRouteFilters();
   setupStartFlow();
+  initFetchDatePicker();
+  setupExportButtons();
 
   // Load initial data
   await Promise.all([
@@ -92,8 +94,23 @@ function setupStartFlow() {
 
   // Open modal
   startBtn.addEventListener('click', () => {
+    // Validate date before opening modal
+    const dateInput = document.getElementById('fetch-date-input');
+    if (!dateInput || !dateInput.value) {
+      showToast('Please select a fetch date before starting.', 'error');
+      return;
+    }
+
     const sessionLabel = document.getElementById('modal-session-label');
     if (sessionLabel) sessionLabel.textContent = societyCurrentSession === 'morning' ? 'Morning' : 'Evening';
+
+    // Show selected date in modal (convert YYYY-MM-DD to DD/MM/YYYY for display)
+    const dateLabel = document.getElementById('modal-date-label');
+    if (dateLabel) {
+      const parts = dateInput.value.split('-');
+      dateLabel.textContent = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dateInput.value;
+    }
+
     if (confirmInput) confirmInput.value = '';
     if (confirmBtn) confirmBtn.disabled = true;
     modal.classList.remove('hidden');
@@ -149,9 +166,47 @@ function toggleStartStopButtons(isRunning) {
   }
 }
 
+// ─── Initialize Fetch Date Picker ───────────────────────────────────────────────
+function initFetchDatePicker() {
+  const dateInput = document.getElementById('fetch-date-input');
+  if (!dateInput) return;
+
+  // Default to today's IST date (YYYY-MM-DD for HTML input)
+  const now = new Date();
+  const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const yyyy = istNow.getUTCFullYear();
+  const mm = String(istNow.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(istNow.getUTCDate()).padStart(2, '0');
+  dateInput.value = `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Convert HTML date input value (YYYY-MM-DD) to MACS date format (DD/MM/YYYY).
+ * Returns null if the value is empty or invalid.
+ */
+function convertDateInputToMacs(dateInputValue) {
+  if (!dateInputValue) return null;
+  const parts = dateInputValue.split('-');
+  if (parts.length !== 3) return null;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
 // ─── Start Fetch Job ────────────────────────────────────────────────────────────
 async function startFetchJob() {
   const statusText = document.getElementById('start-status-text');
+  const dateInput = document.getElementById('fetch-date-input');
+
+  // Read and validate selected date
+  if (!dateInput || !dateInput.value) {
+    showToast('Please select a fetch date before starting.', 'error');
+    return;
+  }
+
+  const fetchDate = convertDateInputToMacs(dateInput.value);
+  if (!fetchDate) {
+    showToast('Invalid date selected. Please choose a valid date.', 'error');
+    return;
+  }
 
   toggleStartStopButtons(true);
   if (statusText) statusText.textContent = 'Starting...';
@@ -159,12 +214,12 @@ async function startFetchJob() {
   try {
     const result = await adminFetch('/api/admin/society-data/fetch/start', {
       method: 'POST',
-      body: JSON.stringify({ session: societyCurrentSession })
+      body: JSON.stringify({ session: societyCurrentSession, fetchDate: fetchDate })
     });
 
     if (result.success) {
-      showToast(`Society data fetch started for ${societyCurrentSession} session!`, 'success');
-      if (statusText) statusText.textContent = 'Fetch job in progress...';
+      showToast(`Society data fetch started for ${societyCurrentSession} session, date: ${fetchDate}!`, 'success');
+      if (statusText) statusText.textContent = `Fetch job in progress — ${fetchDate}...`;
       startStatusPolling();
     } else {
       throw new Error(result.error || 'Failed to start fetch job');
@@ -687,3 +742,111 @@ async function loadFetchHistory() {
     historyList.innerHTML = '';
   }
 }
+
+// ─── Export to Excel ────────────────────────────────────────────────────────────
+function setupExportButtons() {
+  const btnMorning = document.getElementById('btn-export-morning');
+  const btnEvening = document.getElementById('btn-export-evening');
+
+  if (btnMorning) {
+    btnMorning.addEventListener('click', () => exportToExcel('morning', btnMorning));
+  }
+  if (btnEvening) {
+    btnEvening.addEventListener('click', () => exportToExcel('evening', btnEvening));
+  }
+}
+
+async function exportToExcel(sessionKey, btnElement) {
+  // Prevent multiple clicks
+  if (btnElement.disabled) return;
+
+  const originalText = btnElement.innerHTML;
+  btnElement.disabled = true;
+  btnElement.innerHTML = '⏳ Preparing Excel...';
+
+  try {
+    const dateInput = document.getElementById('fetch-date-input');
+    const fetchDate = dateInput && dateInput.value ? dateInput.value : '';
+
+    let allData = [];
+    let currentPage = 1;
+    let totalPages = 1;
+    const limit = 100; // max allowed by backend
+
+    // Fetch all pages
+    do {
+      const params = new URLSearchParams({
+        session: sessionKey,
+        route: societyCurrentRoute,
+        page: currentPage,
+        limit: limit
+      });
+      if (fetchDate) {
+        params.append('fetchDate', fetchDate);
+      }
+
+      const result = await adminFetch(`/api/admin/society-data?${params.toString()}`);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch society data for export');
+      }
+
+      allData = allData.concat(result.data);
+      totalPages = result.totalPages;
+      currentPage++;
+    } while (currentPage <= totalPages && totalPages > 0);
+
+    if (allData.length === 0) {
+      showToast('No society data available for the selected date and session.', 'error');
+      btnElement.disabled = false;
+      btnElement.innerHTML = originalText;
+      return;
+    }
+
+    // Format data for Excel
+    const excelData = allData.map((row, index) => ({
+      'S.No': index + 1,
+      'BMC Code': row.bmc_code,
+      'Route': row.route,
+      'Society Code': row.society_code || '',
+      'Society Name': row.society_name || '',
+      'FAT': row.fat !== null ? row.fat : '',
+      'Liter': row.liter !== null ? row.liter : '',
+      'SNF': row.snf !== null ? row.snf : ''
+    }));
+
+    // Create workbook and worksheet
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Society Data');
+
+    // Auto-size columns (basic estimation)
+    const colWidths = [
+      { wch: 6 },  // S.No
+      { wch: 10 }, // BMC
+      { wch: 15 }, // Route
+      { wch: 12 }, // Code
+      { wch: 35 }, // Name
+      { wch: 8 },  // FAT
+      { wch: 10 }, // Liter
+      { wch: 8 }   // SNF
+    ];
+    worksheet['!cols'] = colWidths;
+
+    // Generate filename
+    const formattedSession = sessionKey.charAt(0).toUpperCase() + sessionKey.slice(1);
+    const fileDate = fetchDate || new Date().toISOString().split('T')[0];
+    const filename = `AAVIN_Society_Data_${fileDate}_${formattedSession}.xlsx`;
+
+    // Download
+    XLSX.writeFile(workbook, filename);
+    showToast(`Excel downloaded successfully! (${allData.length} records)`, 'success');
+
+  } catch (err) {
+    console.error('Export error:', err);
+    showToast(err.message || 'Failed to export Excel.', 'error');
+  } finally {
+    btnElement.disabled = false;
+    btnElement.innerHTML = originalText;
+  }
+}
+
