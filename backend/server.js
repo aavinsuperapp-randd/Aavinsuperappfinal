@@ -11143,6 +11143,126 @@ function scheduleNextDaily2355Sync() {
 startMacsApiScheduler();
 scheduleNextDaily2355Sync();
 
+// ─── Society Fetch Automatic Daily Scheduler (IST = UTC+5:30) ─────────────────
+// Morning: 13:15 IST = 07:45 UTC
+// Evening: 23:00 IST = 17:30 UTC
+// Uses the same proven Date.UTC + setTimeout pattern as the MACS 23:55 scheduler.
+// Both schedules call the SAME executeSocietyFetchJob() used by manual START NOW.
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Schedule the next automatic Society Fetch run for a given session.
+ * Follows the exact same pattern as scheduleNextDaily2355Sync().
+ *
+ * @param {'morning'|'evening'} sessionKey - Which session to schedule
+ * @param {number} targetUTCHour - UTC hour of the target time
+ * @param {number} targetUTCMinute - UTC minute of the target time
+ * @param {string} istTimeLabel - IST time label for logging (e.g. '13:15' or '23:00')
+ * @param {string} emoji - Emoji for log prefix
+ */
+function scheduleNextSocietyFetch(sessionKey, targetUTCHour, targetUTCMinute, istTimeLabel, emoji) {
+  const now = new Date();
+
+  // Compute next target UTC time (same approach as scheduleNextDaily2355Sync)
+  const nextTargetUTC = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    targetUTCHour, targetUTCMinute, 0, 0
+  ));
+
+  // If the target UTC time today has already passed, schedule for tomorrow
+  if (now.getTime() >= nextTargetUTC.getTime()) {
+    nextTargetUTC.setUTCDate(nextTargetUTC.getUTCDate() + 1);
+  }
+
+  const msUntilNext = nextTargetUTC.getTime() - now.getTime();
+
+  // Compute the IST display time for logging (same approach as MACS scheduler)
+  const istDisplay = new Date(nextTargetUTC.getTime() + (5.5 * 60 * 60 * 1000));
+  const istDateStr = String(istDisplay.getUTCDate()).padStart(2, '0') + '/' +
+    String(istDisplay.getUTCMonth() + 1).padStart(2, '0') + '/' +
+    istDisplay.getUTCFullYear();
+  const istTimeStr = String(istDisplay.getUTCHours()).padStart(2, '0') + ':' +
+    String(istDisplay.getUTCMinutes()).padStart(2, '0') + ':' +
+    String(istDisplay.getUTCSeconds()).padStart(2, '0');
+
+  console.log(`${emoji} SOCIETY FETCH SCHEDULER: Next ${sessionKey.toUpperCase()} run at ${istDateStr} ${istTimeStr} IST (${nextTargetUTC.toISOString()} UTC) — in ${(msUntilNext / 60000).toFixed(1)} mins`);
+
+  setTimeout(() => {
+    const fireNow = new Date();
+    const istFire = new Date(fireNow.getTime() + (5.5 * 60 * 60 * 1000));
+    const istFireTime = String(istFire.getUTCHours()).padStart(2, '0') + ':' +
+      String(istFire.getUTCMinutes()).padStart(2, '0') + ':' +
+      String(istFire.getUTCSeconds()).padStart(2, '0');
+
+    // Check if another Society Fetch job is already running
+    if (societyFetchJobState.isRunning) {
+      console.log(`⏭️ AUTOMATIC ${sessionKey.toUpperCase()} Society Fetch skipped — another Society Fetch job is already running.`);
+      console.log(`   Currently running: session=${societyFetchJobState.session}, batch=${societyFetchJobState.currentBatch}/${societyFetchJobState.totalBatches}`);
+      // Reschedule for next day regardless — do not retry immediately
+      scheduleNextSocietyFetch(sessionKey, targetUTCHour, targetUTCMinute, istTimeLabel, emoji);
+      return;
+    }
+
+    console.log('═══════════════════════════════════════════════════════════════');
+    console.log(`🚀 AUTOMATIC SOCIETY FETCH START`);
+    console.log(`   Session: ${sessionKey}`);
+    console.log(`   Scheduled Time: ${istTimeLabel} IST`);
+    console.log(`   UTC : ${fireNow.toISOString()}`);
+    console.log(`   IST : ${istFireTime}`);
+    console.log('═══════════════════════════════════════════════════════════════');
+
+    // Get admin client (same pattern used throughout the codebase)
+    const adminClient = getAdminClient();
+    if (!adminClient) {
+      console.error(`❌ AUTOMATIC Society Fetch [${sessionKey}]: Cannot start — Supabase admin client not available.`);
+      scheduleNextSocietyFetch(sessionKey, targetUTCHour, targetUTCMinute, istTimeLabel, emoji);
+      return;
+    }
+
+    // Call the SAME executeSocietyFetchJob function used by manual START NOW
+    // No dateOverride — uses current IST date (same as pressing START NOW)
+    executeSocietyFetchJob(sessionKey, null, adminClient)
+      .then(result => {
+        if (result.success) {
+          console.log(`✅ AUTOMATIC Society Fetch [${sessionKey}]: Started successfully — jobId: ${result.jobId}`);
+        } else {
+          console.error(`❌ AUTOMATIC Society Fetch [${sessionKey}]: Failed to start — ${result.error}`);
+        }
+      })
+      .catch(err => {
+        console.error(`❌ AUTOMATIC Society Fetch [${sessionKey}]: Unexpected error — ${err.message}`);
+      })
+      .finally(() => {
+        // Schedule the next day's run (regardless of success/failure)
+        scheduleNextSocietyFetch(sessionKey, targetUTCHour, targetUTCMinute, istTimeLabel, emoji);
+      });
+  }, msUntilNext);
+}
+
+/**
+ * Initialize both Society Fetch automatic schedulers.
+ * Called once at server startup.
+ */
+function initSocietyFetchSchedulers() {
+  console.log('====================================================');
+  console.log('📅 SOCIETY FETCH AUTOMATIC SCHEDULER');
+  console.log('   Morning: 13:15 IST (07:45 UTC)');
+  console.log('   Evening: 23:00 IST (17:30 UTC)');
+  console.log('   Timezone: Asia/Kolkata / UTC+5:30');
+  console.log('====================================================');
+
+  // Morning: 13:15 IST = 07:45 UTC
+  scheduleNextSocietyFetch('morning', 7, 45, '13:15', '🌅');
+
+  // Evening: 23:00 IST = 17:30 UTC
+  scheduleNextSocietyFetch('evening', 17, 30, '23:00', '🌙');
+}
+
+// Start Society Fetch automatic schedulers when server boots
+initSocietyFetchSchedulers();
+
 // ─── MACS API Admin Endpoints ─────────────────────────────────────────────────
 
 // POST /api/admin/macs-api/sync — Manual "Sync Now"
